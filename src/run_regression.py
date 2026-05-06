@@ -44,9 +44,9 @@ SUITES = {
     "menu":   (menu_step1.TESTS,    "hard"),
     "signal": (signal_check.TESTS,  "soft"),
     "study":  (study_popup.TESTS,   "soft"),
-    "main":       (main_screen.TESTS,  "none"),  # 검사 진행 중 화면에서 바로 실행
-    "diary":      (add_diary.TESTS,    "none"),  # 검사 진행 중 화면에서 바로 실행
-    "menu-study": (menu_study.TESTS,   "none"),  # 검사 진행 중 메뉴
+    "main":       (main_screen.TESTS,  "main"),  # Step 1 → 연결 → 측정 메인 화면
+    "diary":      (add_diary.TESTS,    "main"),  # Step 1 → 연결 → 측정 메인 화면
+    "menu-study": (menu_study.TESTS,   "main"),  # Step 1 → 연결 → 측정 메인 화면
 }
 
 

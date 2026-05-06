@@ -14,18 +14,12 @@ recovery:
 
 symptom_catalog:
   symptoms:
-    - "Abnormal Heartbeat/Palpitations"
-    - "Chest Pain/Discomfort"
-    - "Shortness of Breath"
-    - "Lightheadedness"
-    - "Weakness"
-    - "Fainted"
-  activities:
-    - "Physical Work"
-    - "Non-physical activities (paperwork, computer, TV)"
-    - "Resting"
-    - "Walking"
-    - "Exercising"
+    - "Chest pain / discomfort"
+    - "Shortness of breath"
+    - "Dizziness"
+    - "Fainting"
+    - "Palpitations / Heart pounding"
+    - "Nausea"
 
 android:
   appium_server_url: "http://127.0.0.1:4723"
@@ -63,17 +57,15 @@ selectors:
     battery_status_text: "Battery"
     patch_placement_text: "Patch Placement"
 
-    # 측정 중 메인 화면
-    study_information_text: "Study Information"
-    study_progress_text: "Study Progress"
-    live_ecg_signal_text: "Live ECG Signal"
-    view_button_text: "View"
-    add_diary_button_text: "Add Diary"
+    # 측정 중 메인 화면 (AK)
+    main_screen_text: "My Study Progress"
+    log_symptoms_button_text: "Log Symptoms"
+    device_status_tab_text: "Device Status"
+    realtime_ecg_tab_text: "Real-time ECG"
 
-    # Add Diary 화면
+    # Log Symptoms 시트 (AK — Activity 없음)
     symptom_section_text: "Symptom"
-    activity_section_text: "Activity"
-    add_diary_submit_text: "Add Diary"
+    log_symptoms_submit_text: "Save"
 
     # 에러 팝업
     no_study_info_title: "No Study Information"

@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 MENU_BTN_X = 985  # center of gear icon bounds [954,199][1017,262]
 MENU_BTN_Y = 230
 STUDY_POPUP_X_BTN = (252, 358)   # X dismiss button on No Study Information popup
-DIARY_X_BTN = (1004, 258)        # X close button on Add Diary sheet
+DIARY_X_BTN = (1009, 1226)       # X close button on Log Symptoms sheet (Pixel 7, bounds [977,1194][1040,1257])
 
 
 def reset_to_step1(drv, hard: bool = True):
@@ -79,28 +79,78 @@ def go_to_step2(drv, wait_ble: int = 45):
     raise Exception(f"Step 2 진입 실패 ({wait_ble}s 대기 후 'Check Incoming Signal' 미표시)")
 
 
-def go_to_main(drv, wait_ble: int = 25):
-    """Step 1 → Connect → Step 2 → Continue → Step 3 → Continue → 측정 메인 화면"""
-    go_to_step2(drv, wait_ble=wait_ble)
-    drv.tap_text("Continue", timeout=5, contains=False)
+def go_to_main(drv, wait_ble: int = 60):
+    """앱 초기 화면 → Connect → (Step 2/3/Start Study 자동 처리) → 측정 메인 화면.
 
-    # Step 3 (Review Study Setting) 대기
-    deadline = time.monotonic() + 15
+    스터디 등록+시작 상태: 앱 재시작 시 시리얼 입력 없이 Connect 버튼만 노출.
+    스터디 미등록 상태: 시리얼 입력 + Connect.
+    BLE 오류 팝업(950/963) 자동 처리.
+    """
+    # 시리얼 입력 필드가 있으면 입력 (미등록 상태)
+    try:
+        el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
+        serial = drv.cfg.get("test_serial_number", "")
+        el.clear()
+        el.send_keys(serial)
+        time.sleep(0.5)
+        log.info("[go_to_main] 시리얼 입력: %s", serial)
+    except Exception:
+        log.info("[go_to_main] EditText 없음 — 등록된 기기로 바로 Connect")
+
+    drv.tap_text("Connect", timeout=10, contains=False)
+    log.info("[go_to_main] Connect 탭, BLE 연결 대기 최대 %ds", wait_ble)
+
+    deadline = time.monotonic() + wait_ble
     while time.monotonic() < deadline:
-        if drv.is_visible_text("Review Study Setting", timeout=2):
-            break
-        time.sleep(1)
-
-    drv.tap_text("Continue", timeout=5, contains=False)
-
-    # 측정 메인 화면 대기
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        if drv.is_visible_text("Study Information", timeout=2):
+        # 측정 메인 화면 (AK: "Log Symptoms" 버튼 표시 = 스터디 진행 중)
+        if drv.is_visible_text("Log Symptoms", timeout=1):
+            log.info("[go_to_main] 측정 메인 화면 도달")
             return
+
+        # Start Study 화면 (AK 전용 — Step 3 이후)
+        if drv.is_visible_text("Start Study", timeout=1):
+            log.info("[go_to_main] Start Study 화면 감지 → Start Study 탭")
+            drv.tap_text("Start Study", timeout=5, contains=False)
+            time.sleep(2)
+            continue
+
+        # Step 3 — Review Study Setting (스터디 등록 상태, Step 2 스킵)
+        if drv.is_visible_text("Review Study Setting", timeout=1):
+            log.info("[go_to_main] Step 3 감지 → Continue")
+            drv.tap_text("Continue", timeout=5, contains=False)
+            time.sleep(1)
+            continue
+
+        # Step 2 — Check Incoming Signal (스터디 미등록 상태)
+        if drv.is_visible_text("Check Incoming Signal", timeout=1):
+            log.info("[go_to_main] Step 2 감지 → Continue")
+            drv.tap_text("Continue", timeout=5, contains=False)
+            time.sleep(1)
+            continue
+
+        # AK 오류 팝업 — Cannot find your S-Patch (950)
+        if drv.is_visible_text("Cannot find your S-Patch", timeout=1):
+            log.warning("[go_to_main] BLE 오류 팝업(950) 감지 → Ok")
+            try:
+                drv.tap_text("Ok", timeout=3, contains=False)
+            except Exception:
+                pass
+            time.sleep(2)
+            continue
+
+        # AK 오류 팝업 — Reset your S-Patch (963)
+        if drv.is_visible_text("Reset your S-Patch", timeout=1):
+            log.warning("[go_to_main] BLE 오류 팝업(963) 감지 → Ok")
+            try:
+                drv.tap_text("Ok", timeout=3, contains=False)
+            except Exception:
+                pass
+            time.sleep(2)
+            continue
+
         time.sleep(1)
 
-    raise Exception("측정 메인 화면 진입 실패 (15s 대기 후 'Study Information' 미표시)")
+    raise Exception(f"측정 메인 화면 진입 실패 ({wait_ble}s 대기 후 'Study Information' 미표시)")
 
 
 def open_menu(drv, wait: float = 2.0):

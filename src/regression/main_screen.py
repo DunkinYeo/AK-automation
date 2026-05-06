@@ -1,99 +1,82 @@
 """
-TC-MAIN: 측정 메인 화면 Regression Tests
-Study 시작 후 메인 측정 화면에서 검증 가능한 케이스들
+TC-MAIN: 측정 메인 화면 Regression Tests (AK)
+Start Study 이후 메인 측정 화면에서 검증 가능한 케이스들
 """
 import time
 import logging
 
-from src.regression.helpers import go_to_main
-
 log = logging.getLogger(__name__)
+
+_MAIN_TEXT    = "My Study Progress"
+_LOG_SYMPTOMS = "Log Symptoms"
+_START_STUDY  = "Start Study"
+
+
+def _not_started(drv) -> bool:
+    return drv.is_visible_text(_START_STUDY, timeout=2)
 
 
 # ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
 
-_NO_STUDY_TEXT = "No study information"
-_NO_STUDY_MSG  = "No study registered in web portal"
-
-
-def test_main_000_study_registered(drv, runner):
-    """Pre-check | 웹 등록 Study 존재 여부 확인"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=3):
-        runner.fail(_NO_STUDY_MSG)
+def test_main_000_study_started(drv, runner):
+    """Pre-check | 스터디 시작 여부 확인 (Start Study 버튼 미표시)"""
+    if _not_started(drv):
+        runner.fail("Study not started — 'Start Study' button still visible")
 
 
 def test_main_001_sections_visible(drv, runner):
-    """TC-MAIN-001 | Study Information / Live ECG Signal 섹션 표시"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=2):
+    """TC-MAIN-001 | My Study Progress / Device Status 탭 표시"""
+    if _not_started(drv):
         return
-    runner.assert_true(
-        drv.is_visible_text("Study Information"),
-        "Study Information not visible"
-    )
-    runner.assert_true(
-        drv.is_visible_text("Live ECG Signal"),
-        "Live ECG Signal not visible"
-    )
+    runner.assert_true(drv.is_visible_text(_MAIN_TEXT), "My Study Progress not visible")
+    runner.assert_true(drv.is_visible_text("Device Status"), "Device Status tab not visible")
+    runner.assert_true(drv.is_visible_text("Real-time ECG"), "Real-time ECG tab not visible")
 
 
-def test_main_002_status_icons_visible(drv, runner):
-    """TC-MAIN-002 | Network / Bluetooth / Battery 아이콘 표시"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=2):
+def test_main_002_status_cards_visible(drv, runner):
+    """TC-MAIN-002 | Network / Bluetooth / Battery 카드 표시"""
+    if _not_started(drv):
         return
-    runner.assert_true(drv.is_visible_text("Network"), "Network icon not visible")
-    runner.assert_true(drv.is_visible_text("Bluetooth"), "Bluetooth icon not visible")
-    runner.assert_true(drv.is_visible_text("Battery"), "Battery icon not visible")
+    runner.assert_true(drv.is_visible_text("Network"), "Network card not visible")
+    runner.assert_true(drv.is_visible_text("Bluetooth"), "Bluetooth card not visible")
+    runner.assert_true(drv.is_visible_text("Battery"), "Battery card not visible")
 
 
-def test_main_003_study_progress_visible(drv, runner):
-    """TC-MAIN-003 | Study Progress 표시"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=2):
+def test_main_003_log_symptoms_button(drv, runner):
+    """TC-MAIN-003 | Log Symptoms 버튼 표시 및 활성화"""
+    if _not_started(drv):
         return
-    runner.assert_true(
-        drv.is_visible_text("Study Progress"),
-        "Study Progress not visible"
-    )
-
-
-def test_main_004_view_button_tap(drv, runner):
-    """TC-MAIN-004 | View 버튼 탭 → ECG 상세 화면 진입"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=2):
-        return
-    drv.tap_text("View", timeout=5)
-    time.sleep(1.5)
-    visible = (
-        drv.is_visible_text("Live ECG", timeout=3)
-        or drv.is_visible_text("ECG", timeout=2)
-        or drv.is_visible_text("Live Streaming", timeout=2)
-    )
-    drv.drv.press_keycode(4)
-    time.sleep(1)
-    runner.assert_true(visible, "ECG detail screen not opened after View tap")
-
-
-def test_main_005_add_diary_button_visible(drv, runner):
-    """TC-MAIN-005 | Add Diary 버튼 표시 및 활성화"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=2):
-        return
-    btn = drv.find("Add Diary", timeout=5)
-    runner.assert_true(btn is not None, "Add Diary button not visible")
+    btn = drv.find(_LOG_SYMPTOMS, timeout=5)
+    runner.assert_true(btn is not None, "Log Symptoms button not visible")
     runner.assert_true(
         btn.get_attribute("enabled") == "true",
-        "Add Diary button is disabled"
+        "Log Symptoms button is disabled"
     )
 
 
-def test_main_006_back_blocked(drv, runner):
-    """TC-MAIN-006 | 뒤로가기 → 메인 화면 유지 (이전 화면 이동 불가)"""
-    if drv.is_visible_text(_NO_STUDY_TEXT, timeout=2):
+def test_main_004_realtime_ecg_tab(drv, runner):
+    """TC-MAIN-004 | Real-time ECG 탭 전환 → Live ECG Signal 표시"""
+    if _not_started(drv):
+        return
+    drv.tap_text("Real-time ECG", timeout=5)
+    time.sleep(1.5)
+    visible = drv.is_visible_text("Live ECG Signal", timeout=5)
+    # Device Status 탭으로 복귀
+    drv.tap_text("Device Status", timeout=5)
+    time.sleep(0.5)
+    runner.assert_true(visible, "Live ECG Signal not visible on Real-time ECG tab")
+
+
+def test_main_005_back_blocked(drv, runner):
+    """TC-MAIN-005 | 뒤로가기 → 메인 화면 유지"""
+    if _not_started(drv):
         return
     drv.drv.press_keycode(4)
     time.sleep(1.5)
-    # 토스트는 Android 특성상 Appium 감지 불가 — 화면 이탈 여부로 검증
     runner.assert_true(
-        drv.is_visible_text("Study Information", timeout=3),
+        drv.is_visible_text(_LOG_SYMPTOMS, timeout=3),
         "Back button left main screen"
     )
     runner.assert_false(
@@ -103,11 +86,10 @@ def test_main_006_back_blocked(drv, runner):
 
 
 TESTS = [
-    test_main_000_study_registered,
+    test_main_000_study_started,
     test_main_001_sections_visible,
-    test_main_002_status_icons_visible,
-    test_main_003_study_progress_visible,
-    test_main_004_view_button_tap,
-    test_main_005_add_diary_button_visible,
-    test_main_006_back_blocked,
+    test_main_002_status_cards_visible,
+    test_main_003_log_symptoms_button,
+    test_main_004_realtime_ecg_tab,
+    test_main_005_back_blocked,
 ]

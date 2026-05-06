@@ -18,9 +18,9 @@ from src.workflows.popup_handler import handle_any_popup
 
 log = logging.getLogger(__name__)
 
-_MAIN_SCREEN_TEXT = "Study Information"
-_ADD_DIARY_BTN    = "Add Diary"
-_DIARY_X_BTN      = (1004, 258)   # Add Diary 시트 X 버튼 (Pixel 7 기준)
+_MAIN_SCREEN_TEXT = "Log Symptoms"   # AK 메인 화면 식별자
+_LOG_SYMPTOMS_BTN = "Log Symptoms"
+_DIARY_X_BTN      = (1009, 1226)   # Log Symptoms 시트 X 버튼 (Pixel 7 기준)
 
 
 @retry(tries=3, delay=5)
@@ -32,10 +32,9 @@ def ensure_on_main_screen(d: AndroidDriver):
     d.bring_to_foreground()
     d.wait_idle(2.0)
 
-    # ── Add Diary 시트가 열려 있으면 닫기 ────────────────────────
-    # Add Diary는 bottom-sheet라 배경의 Study Information이 보여 오탐 가능
+    # ── Log Symptoms 시트가 열려 있으면 닫기 ─────────────────────
     if d.is_visible_text("Symptom", timeout=1):
-        log.info("[setup] Add Diary 시트 열림 감지 → X 버튼으로 닫기")
+        log.info("[setup] Log Symptoms 시트 열림 감지 → X 버튼으로 닫기")
         try:
             d.drv.tap([_DIARY_X_BTN])
             d.wait_idle(1.0)
@@ -51,6 +50,11 @@ def ensure_on_main_screen(d: AndroidDriver):
         log.info("[setup] 메인 측정 화면 확인됨")
         return
 
+    # Start Study 버튼이 보이면 스터디가 시작되지 않은 상태
+    if d.is_visible_text("Start Study", timeout=2):
+        d.screenshot("ensure_main_screen_failed")
+        raise RuntimeError("Start Study 화면 감지 — 앱에서 Start Study를 먼저 실행해주세요.")
+
     # 한 번 더 대기 후 재확인 (앱 로딩 중일 수 있음)
     time.sleep(3)
     handle_any_popup(d)
@@ -62,5 +66,5 @@ def ensure_on_main_screen(d: AndroidDriver):
     d.screenshot("ensure_main_screen_failed")
     raise RuntimeError(
         f"메인 측정 화면이 아님 — '{_MAIN_SCREEN_TEXT}' 미표시. "
-        "앱에서 검사를 먼저 시작해주세요."
+        "앱에서 Start Study를 먼저 실행해주세요."
     )
