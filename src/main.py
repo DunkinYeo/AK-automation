@@ -4,6 +4,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 
 # Allow running as `python src/main.py` from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,10 +28,13 @@ from src.device_manager import DeviceManager
 from src.reporter import RunReporter
 from src.scheduler import LongRunScheduler
 from src.artifacts import ArtifactManager
-from src.slack import slack_notify
+from src.slack import (
+    slack_run_start, slack_injection_notify,
+    slack_run_complete, slack_run_failed,
+)
 from src.timeline import log_event
 from src.workflows.measurement_start import ensure_on_main_screen
-from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS, ACTIVITIES
+from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
 from src.artifact_manager import save_failure_artifacts
 
 
@@ -207,6 +211,11 @@ def main():
     )
     artifacts = ArtifactManager(out_dir=out_dir)
 
+    slack_cfg = cfg.get("slack") or {}
+    _webhook  = os.environ.get("SLACK_WEBHOOK_URL") or slack_cfg.get("webhook_url", "")
+    _mention  = slack_cfg.get("mention", "")
+    _slack_on = bool(slack_cfg.get("enabled") and _webhook)
+
     reporter.log_event(
         "run_start",
         {
@@ -255,18 +264,36 @@ def main():
         reporter.log_event("main_screen_confirmed", {})
         log_event("main screen confirmed — starting scheduler")
 
-        symptoms_pool   = catalog.get("symptoms", SYMPTOMS)   if isinstance(catalog, dict) else SYMPTOMS
-        activities_pool = catalog.get("activities", ACTIVITIES) if isinstance(catalog, dict) else ACTIVITIES
+        serial = a_cfg.get("test_serial_number", a_cfg.get("udid", ""))
+        if _slack_on:
+            slack_run_start(_webhook, serial=serial, duration_hours=duration_hours,
+                            interval_hours=interval_hours, mention=_mention)
+
+        symptoms_pool = catalog.get("symptoms", SYMPTOMS) if isinstance(catalog, dict) else SYMPTOMS
+
+        inject_count = 0
 
         def job(at_hour: float | None = None, payload: dict | None = None):
+            nonlocal inject_count
+            inject_count += 1
             payload  = payload or {}
             symptoms = payload.get("symptoms") or []
-            acts     = payload.get("activities") or []
             if not symptoms:
                 symptoms = [random.choice(symptoms_pool)]
-            if not acts:
-                acts = [random.choice(activities_pool)]
-            inject_symptom_event(driver, symptoms=symptoms, activities=acts)
+            symptom = symptoms[0]
+            t0 = time.monotonic()
+            try:
+                inject_symptom_event(driver, symptoms=symptoms, activities=None)
+                elapsed = round(time.monotonic() - t0, 1)
+                if _slack_on:
+                    slack_injection_notify(_webhook, count=inject_count, symptom=symptom,
+                                           elapsed_sec=elapsed, success=True, mention=_mention)
+            except Exception as e:
+                if _slack_on:
+                    slack_injection_notify(_webhook, count=inject_count, symptom=symptom,
+                                           elapsed_sec=0, success=False, error=str(e),
+                                           mention=_mention)
+                raise
 
         scheduler = LongRunScheduler(
             duration_hours=duration_hours,
@@ -283,11 +310,16 @@ def main():
 
         reporter.log_event("run_complete", {"status": "ok"})
         log_event("run complete")
+        if _slack_on:
+            slack_run_complete(_webhook, run_id=run_id, injection_count=inject_count,
+                               duration_hours=duration_hours, mention=_mention)
 
     except Exception as e:
         reporter.log_event("run_failed", {"error": str(e)})
         log_event(f"run failed: {e}")
         save_failure_artifacts(dm.driver if dm else None, e, label=run_id)
+        if _slack_on:
+            slack_run_failed(_webhook, run_id=run_id, error=str(e), mention=_mention)
         raise
 
     finally:
@@ -297,10 +329,6 @@ def main():
             reporter.render_html_summary()
         except Exception:
             pass
-        slack_cfg = cfg.get("slack") or {}
-        webhook = os.environ.get("SLACK_WEBHOOK_URL") or slack_cfg.get("webhook_url", "")
-        if slack_cfg.get("enabled") and webhook:
-            slack_notify(webhook, f"Long-run automation finished: {run_id}")
 
 
 if __name__ == "__main__":

@@ -55,11 +55,25 @@ def main():
     parser.add_argument("--config", default="config/accurkardia.yaml")
     parser.add_argument(
         "--suite",
-        choices=list(SUITES.keys()) + ["all"],
         default="all",
-        help="실행할 테스트 suite (기본: all)",
+        help="실행할 테스트 suite (단일 또는 쉼표 구분 목록 또는 'all')",
+    )
+    parser.add_argument(
+        "--result-json",
+        default="",
+        help="결과를 JSON 파일로 저장할 경로 (선택 사항)",
     )
     args = parser.parse_args()
+
+    # Parse suite list (comma-separated or 'all')
+    if args.suite == "all":
+        suite_list = list(SUITES.items())
+    else:
+        names = [s.strip() for s in args.suite.split(",") if s.strip()]
+        invalid = [n for n in names if n not in SUITES]
+        if invalid:
+            parser.error(f"Unknown suites: {invalid}. Valid: {list(SUITES.keys())}")
+        suite_list = [(n, SUITES[n]) for n in names]
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
@@ -77,28 +91,36 @@ def main():
     try:
         runner = TestRunner(drv, artifacts)
 
-        if args.suite == "all":
-            suite_list = list(SUITES.items())
-        else:
-            suite_list = [(args.suite, SUITES[args.suite])]
-
-        last_summary = {}
         for suite_name, (tests, setup) in suite_list:
             logging.info("=" * 50)
             logging.info("Suite: %s (%d tests)", suite_name, len(tests))
             logging.info("=" * 50)
             if setup == "none":
-                pass  # 현재 화면 그대로 (측정 중 화면 유지)
+                pass
             elif setup == "main":
                 reset_to_step1(drv, hard=True)
                 go_to_main(drv)
             else:
                 reset_to_step1(drv, hard=(setup == "hard"))
-            last_summary = runner.run_all(tests)
+            runner.run_all(tests)
 
         total = len(runner.results)
         passed = sum(1 for r in runner.results if r.passed)
         logging.info("▶ 전체 결과: %d/%d passed", passed, total)
+
+        if args.result_json:
+            import json as _json
+            os.makedirs(os.path.dirname(args.result_json) or ".", exist_ok=True)
+            data = {
+                "total": total, "passed": passed, "failed": total - passed,
+                "results": [
+                    {"name": r.name, "passed": r.passed, "message": r.message}
+                    for r in runner.results
+                ],
+            }
+            with open(args.result_json, "w", encoding="utf-8") as f:
+                _json.dump(data, f, ensure_ascii=False)
+
         sys.exit(0 if passed == total else 1)
     finally:
         drv.close()

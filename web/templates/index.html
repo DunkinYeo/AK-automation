@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S-Patch Accurkardia Long-Run Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f0f4f8; color: #1a2533; min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #0a1f3c 0%, #0f2d5c 100%);
+      color: white; padding: 14px 28px;
+      display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 2px 12px rgba(10,31,60,.35);
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-badge {
+      background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .72rem; font-weight: 600; letter-spacing: .5px;
+      color: #a7f3d0; text-transform: uppercase;
+    }
+    header h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.3px; margin: 0; }
+    .header-sub { font-size: .78rem; color: rgba(255,255,255,.6); margin-top: 2px; }
+    .header-chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 20px;
+      font-size: .78rem; font-weight: 500; white-space: nowrap;
+    }
+    .chip-ok   { background: rgba(16,185,129,.18); color: #34d399; border: 1px solid rgba(52,211,153,.3); }
+    .chip-err  { background: rgba(239,68,68,.18);  color: #f87171; border: 1px solid rgba(248,113,113,.3); }
+    .chip-warn { background: rgba(245,158,11,.18); color: #fbbf24; border: 1px solid rgba(251,191,36,.3); }
+    .chip-blue { background: rgba(29,78,216,.25);  color: #93c5fd; border: 1px solid rgba(147,197,253,.3); }
+    .dl-btn { text-decoration: none; cursor: pointer; }
+    .dl-btn:hover { background: rgba(29,78,216,.45); }
+
+    main {
+      max-width: 1000px; margin: 24px auto; padding: 0 16px;
+      display: grid; grid-template-columns: 420px 1fr;
+      gap: 20px; align-items: start;
+    }
+    @media (max-width: 780px) { main { grid-template-columns: 1fr; } }
+
+    .card {
+      background: white; border-radius: 14px; padding: 22px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 18px rgba(10,31,60,.08);
+      border: 1px solid rgba(10,31,60,.06); margin-bottom: 16px;
+    }
+    .card:last-child { margin-bottom: 0; }
+    .card-title {
+      font-size: .95rem; font-weight: 700; color: #0a1f3c;
+      border-bottom: 2px solid #dbeafe;
+      padding-bottom: 10px; margin-bottom: 18px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .card-title::before {
+      content: ''; display: inline-block;
+      width: 3px; height: 14px;
+      background: linear-gradient(180deg, #1d4ed8, #3b82f6);
+      border-radius: 2px;
+    }
+
+    .field { margin-bottom: 16px; }
+    .field > label { display: block; font-size: .82rem; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    .field select, .field input[type=text] {
+      width: 100%; padding: 9px 12px;
+      border: 1.5px solid #d1d5db; border-radius: 9px;
+      font-size: .88rem; background: #fafafa; color: #1a2533;
+      transition: border-color .15s;
+    }
+    .field select:focus, .field input:focus {
+      outline: none; border-color: #1d4ed8; background: white;
+      box-shadow: 0 0 0 3px rgba(29,78,216,.1);
+    }
+
+    .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn-toggle {
+      padding: 6px 12px; border: 1.5px solid #d1d5db; border-radius: 8px;
+      font-size: .8rem; cursor: pointer; background: white; color: #555;
+      transition: all .15s; white-space: nowrap;
+    }
+    .btn-toggle:hover { border-color: #1d4ed8; color: #1d4ed8; }
+    .btn-toggle.active { background: #1d4ed8; border-color: #1d4ed8; color: white; font-weight: 600; }
+    .btn-toggle .sublabel { font-size: .68rem; opacity: .75; display: block; line-height: 1; margin-top: 1px; }
+
+    .symptom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .symptom-label {
+      display: flex; align-items: center; gap: 8px; padding: 8px 11px;
+      border: 1.5px solid #d1d5db; border-radius: 9px;
+      cursor: pointer; font-size: .82rem; user-select: none; transition: all .15s;
+    }
+    .symptom-label:hover { border-color: #93c5fd; }
+    .symptom-label input[type=checkbox] { display: none; }
+    .symptom-label .checkmark {
+      width: 16px; height: 16px; border: 2px solid #d1d5db; border-radius: 4px;
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s;
+    }
+    .symptom-label.checked { border-color: #1d4ed8; background: #eff6ff; color: #1d4ed8; font-weight: 500; }
+    .symptom-label.checked .checkmark { background: #1d4ed8; border-color: #1d4ed8; }
+    .symptom-label.checked .checkmark::after { content: '✓'; color: white; font-size: .7rem; font-weight: 700; }
+
+    .action-row { margin-top: 20px; display: flex; gap: 10px; }
+    .btn-primary {
+      flex: 1; padding: 13px;
+      background: linear-gradient(135deg, #1d4ed8, #1e40af);
+      color: white; border: none; border-radius: 10px;
+      font-size: .95rem; font-weight: 600; cursor: pointer;
+      transition: opacity .15s; box-shadow: 0 2px 8px rgba(29,78,216,.3);
+    }
+    .btn-primary:hover:not(:disabled) { opacity: .88; }
+    .btn-primary:disabled { background: #9ca3af; box-shadow: none; cursor: not-allowed; }
+    .btn-stop {
+      padding: 13px 18px; background: white; color: #dc2626;
+      border: 1.5px solid #dc2626; border-radius: 10px;
+      font-size: .88rem; font-weight: 600; cursor: pointer; transition: background .15s;
+    }
+    .btn-stop:hover { background: #fef2f2; }
+    .btn-secondary {
+      padding: 7px 14px; background: white; color: #1d4ed8;
+      border: 1.5px solid #1d4ed8; border-radius: 8px;
+      font-size: .8rem; font-weight: 500; cursor: pointer;
+    }
+    .btn-secondary:hover { background: #eff6ff; }
+
+    /* ── TC List (VM style) ── */
+    .tc-group-label {
+      font-size: .68rem; font-weight: 700; color: #374151;
+      text-transform: uppercase; letter-spacing: .6px;
+      padding: 8px 4px 4px; border-top: 1.5px solid #e5e7eb; margin-top: 4px;
+    }
+    .tc-group-label:first-child { border-top: none; padding-top: 2px; }
+    .tc-suite { border-bottom: 1px solid #f3f4f6; }
+    .tc-suite:last-child { border-bottom: none; }
+    .tc-suite summary {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 4px; cursor: pointer; list-style: none; user-select: none;
+    }
+    .tc-suite summary::-webkit-details-marker { display: none; }
+    .tc-suite summary::before {
+      content: '▸'; font-size: .7rem; color: #9ca3af;
+      margin-right: 6px; transition: transform .15s;
+    }
+    .tc-suite[open] summary::before { transform: rotate(90deg); }
+    .tc-suite-label { font-size: .8rem; font-weight: 700; color: #0a1f3c; }
+    .tc-count { font-size: .7rem; color: #9ca3af; }
+    .tc-items { list-style: none; padding: 0 0 8px 16px; margin: 0; }
+    .tc-items li {
+      font-size: .75rem; color: #4b5563;
+      padding: 3px 0; display: flex; gap: 8px; align-items: baseline;
+    }
+    .tc-id { font-size: .68rem; font-weight: 700; color: #1d4ed8; white-space: nowrap; min-width: 118px; }
+
+    /* ── Skip regression toggle ── */
+    .skip-row {
+      display: flex; align-items: center; gap: 8px; margin-top: 14px;
+    }
+    .skip-row input[type=checkbox] { width: 15px; height: 15px; accent-color: #1d4ed8; }
+    .skip-row label { font-size: .82rem; color: #6b7280; cursor: pointer; }
+
+    /* ── Suite status grid (right column) ── */
+    #regression-section { margin-bottom: 14px; }
+    .suite-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .suite-card {
+      border-radius: 7px; padding: 6px 8px;
+      border: 1.5px solid #e5e7eb; background: #f9fafb; transition: all .2s;
+    }
+    .suite-card .suite-name { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: #6b7280; margin-bottom: 2px; }
+    .suite-card .suite-status { font-size: .75rem; font-weight: 700; }
+    .suite-card .suite-count { font-size: .62rem; color: #9ca3af; margin-top: 1px; }
+    .suite-card .suite-fails { font-size: .6rem; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(0,0,0,.06); color: #b91c1c; line-height: 1.4; }
+    .suite-pending .suite-status { color: #d1d5db; }
+    .suite-running { border-color: #bfdbfe; background: #eff6ff; animation: pulse-border .8s ease-in-out infinite alternate; }
+    .suite-running .suite-name { color: #1d4ed8; }
+    .suite-running .suite-status { color: #1e40af; }
+    .suite-pass { border-color: #6ee7b7; background: #f0fdf4; }
+    .suite-pass .suite-name { color: #059669; }
+    .suite-pass .suite-status { color: #059669; }
+    .suite-fail { border-color: #fca5a5; background: #fff1f2; }
+    .suite-fail .suite-name { color: #dc2626; }
+    .suite-fail .suite-status { color: #dc2626; }
+    .suite-skip { border-color: #fde68a; background: #fffbeb; }
+    .suite-skip .suite-name { color: #d97706; }
+    .suite-skip .suite-status { color: #d97706; }
+    @keyframes pulse-border {
+      from { box-shadow: 0 0 0 0 rgba(29,78,216,.25); }
+      to   { box-shadow: 0 0 0 4px rgba(29,78,216,.0); }
+    }
+
+    /* ── Progress ── */
+    #progress-section { margin-bottom: 14px; }
+    .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 6px 0 4px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #1d4ed8, #60a5fa); border-radius: 4px; transition: width .8s ease; }
+    .progress-meta { display: flex; justify-content: space-between; font-size: .76rem; color: #6b7280; }
+
+    #next-inject-box {
+      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9px;
+      padding: 10px 14px; font-size: .82rem; color: #1d4ed8; margin-bottom: 12px;
+    }
+
+    .log-wrap { border: 1px solid #e5e7eb; border-radius: 10px; background: #f8fafa; max-height: 480px; overflow-y: auto; }
+    .log-empty { padding: 48px 20px; text-align: center; color: #9ca3af; font-size: .88rem; }
+    .log-item { display: grid; grid-template-columns: 62px 1fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #f3f4f6; font-size: .81rem; }
+    .log-item:last-child { border-bottom: none; }
+    .log-time { color: #9ca3af; font-variant-numeric: tabular-nums; padding-top: 1px; }
+    .log-item.green  .log-msg { color: #059669; }
+    .log-item.red    .log-msg { color: #dc2626; }
+    .log-item.blue   .log-msg { color: #1d4ed8; }
+    .log-item.purple .log-msg { color: #7c3aed; }
+    .log-item.gray   .log-msg { color: #6b7280; }
+
+    #appium-warn {
+      background: #fef3c7; border: 1px solid #fcd34d; border-radius: 9px;
+      padding: 10px 14px; font-size: .82rem; color: #92400e; margin-bottom: 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    }
+    .note {
+      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9px;
+      padding: 10px 14px; font-size: .81rem; color: #1d4ed8; margin-bottom: 14px;
+    }
+    #serial-input { letter-spacing: 2px; font-weight: 600; font-size: 1rem; border-color: #bfdbfe; }
+    #serial-input:focus { border-color: #1d4ed8; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div>
+      <h1>S-Patch Accurkardia Automation</h1>
+      <div class="header-sub">App Regression test + Symptom injection automation</div>
+    </div>
+    <span class="header-badge">AK</span>
+  </div>
+  <div class="header-chips">
+    <span class="chip chip-warn" id="appium-chip">Checking Appium...</span>
+    <span class="chip chip-warn" id="run-chip">Idle</span>
+    <a href="/api/download/mac"     class="chip chip-blue dl-btn" id="dl-mac"     title="Mac ZIP 다운로드">⬇ Mac</a>
+    <a href="/api/download/windows" class="chip chip-blue dl-btn" id="dl-windows" title="Windows ZIP 다운로드">⬇ Windows</a>
+  </div>
+</header>
+
+<main>
+  <!-- ── Left: Config ── -->
+  <div>
+    <div class="card">
+      <div class="card-title">Test Settings</div>
+
+      <div id="appium-warn" style="display:none">
+        Appium is not running.
+        <button class="btn-secondary" onclick="startAppium()">Start Appium</button>
+      </div>
+
+      <div class="note">
+        Before starting: AK app must be on the main screen (<strong>Log Symptoms</strong> visible) with study active.
+      </div>
+
+      <div class="field">
+        <label>Connected Device</label>
+        <select id="device-select"><option value="">Detecting devices...</option></select>
+      </div>
+
+      <div class="field">
+        <label>Device Connection <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+            <input type="radio" name="conn-mode" value="usb" checked id="conn-usb"> USB
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+            <input type="radio" name="conn-mode" value="wifi" id="conn-wifi"> WiFi ADB
+          </label>
+        </div>
+        <div id="wifi-addr-row" style="display:none;margin-top:6px">
+          <input type="text" id="wifi-addr" placeholder="e.g. 192.168.0.50:5555">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>S-Patch Serial Number</label>
+        <input type="text" id="serial-input" placeholder="e.g. 610260" maxlength="6">
+      </div>
+
+      <div class="field">
+        <label>Test Name <span style="color:#9ca3af;font-weight:400">(used in result files)</span></label>
+        <input type="text" id="run-name" placeholder="e.g. ak_run_round1" value="ak_run">
+      </div>
+
+      <div class="field">
+        <label>Test Duration</label>
+        <div class="btn-group" id="duration-group">
+          <button class="btn-toggle" data-val="1">1h<span class="sublabel">test</span></button>
+          <button class="btn-toggle" data-val="24">24h<span class="sublabel">1 day</span></button>
+          <button class="btn-toggle" data-val="48">48h<span class="sublabel">2 days</span></button>
+          <button class="btn-toggle active" data-val="72">72h<span class="sublabel">3 days</span></button>
+          <button class="btn-toggle" data-val="144">144h<span class="sublabel">6 days</span></button>
+          <button class="btn-toggle" data-val="168">168h<span class="sublabel">1 week</span></button>
+        </div>
+        <input type="hidden" id="duration-val" value="72">
+      </div>
+
+      <div class="field">
+        <label>Injection Interval</label>
+        <select id="interval-select">
+          <option value="1" selected>Every 1 hour</option>
+          <option value="2">Every 2 hours</option>
+          <option value="4">Every 4 hours</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Symptoms to Inject</label>
+        <div class="symptom-grid" id="symptom-grid">
+          <label class="symptom-label checked"><input type="checkbox" value="Chest pain / discomfort" checked><span class="checkmark"></span>Chest pain</label>
+          <label class="symptom-label checked"><input type="checkbox" value="Shortness of breath" checked><span class="checkmark"></span>Shortness of breath</label>
+          <label class="symptom-label checked"><input type="checkbox" value="Dizziness" checked><span class="checkmark"></span>Dizziness</label>
+          <label class="symptom-label checked"><input type="checkbox" value="Fainting" checked><span class="checkmark"></span>Fainting</label>
+          <label class="symptom-label checked"><input type="checkbox" value="Palpitations / Heart pounding" checked><span class="checkmark"></span>Palpitations</label>
+          <label class="symptom-label"><input type="checkbox" value="Nausea"><span class="checkmark"></span>Nausea</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Slack Webhook URL <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
+        <input type="text" id="slack-webhook" placeholder="https://hooks.slack.com/services/...">
+      </div>
+
+      <div class="skip-row">
+        <input type="checkbox" id="skip-regression">
+        <label for="skip-regression">Skip Regression <span style="color:#9ca3af">(symptom injection only)</span></label>
+      </div>
+
+      <div class="action-row">
+        <button class="btn-primary" id="start-btn">&#9654; Start Test</button>
+        <button class="btn-stop" id="stop-btn" style="display:none" onclick="stopTest()">&#9632; Stop</button>
+      </div>
+    </div>
+
+    <!-- ── TC Reference ── -->
+    <div class="card">
+      <div class="card-title">TC List</div>
+      <div id="tc-list">
+
+        <div class="tc-group-label">Pre-flight Regression (study active)</div>
+
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label">Main Screen</span><span class="tc-count">6 TCs</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id">TC-MAIN-000</span> Pre-check: study started (Start Study 버튼 미표시)</li>
+            <li><span class="tc-id">TC-MAIN-001</span> My Study Progress / Device Status / Real-time ECG 탭 표시</li>
+            <li><span class="tc-id">TC-MAIN-002</span> Network / Bluetooth / Battery 상태 카드 표시</li>
+            <li><span class="tc-id">TC-MAIN-003</span> Log Symptoms 버튼 표시 및 활성화</li>
+            <li><span class="tc-id">TC-MAIN-004</span> Real-time ECG 탭 전환 → Live ECG Signal 표시</li>
+            <li><span class="tc-id">TC-MAIN-005</span> 뒤로가기 → 메인 화면 유지 (Step 1 미전환)</li>
+          </ul>
+        </details>
+
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label">Log Symptoms (Diary)</span><span class="tc-count">6 TCs</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id">TC-DIARY-000</span> Pre-check: study started</li>
+            <li><span class="tc-id">TC-DIARY-001</span> Log Symptoms 탭 → 시트 열림, Symptom 섹션 표시</li>
+            <li><span class="tc-id">TC-DIARY-002</span> 증상 목록 6종 전체 표시 (Chest pain ~ Nausea)</li>
+            <li><span class="tc-id">TC-DIARY-003</span> 랜덤 증상 선택 → Save 제출 → 메인 화면 복귀</li>
+            <li><span class="tc-id">TC-DIARY-004</span> X 버튼 탭 → 시트 닫힘, 메인 화면 복귀</li>
+            <li><span class="tc-id">TC-DIARY-005</span> 증상 미선택 → Save 버튼 비활성화 (client-side)</li>
+          </ul>
+        </details>
+
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label">Menu (Study Active)</span><span class="tc-count">6 TCs</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id">TC-MENU-STUDY-000</span> Pre-check: study registered in web portal</li>
+            <li><span class="tc-id">TC-MENU-STUDY-001</span> 기어 메뉴 → Device Information 항목 표시</li>
+            <li><span class="tc-id">TC-MENU-STUDY-002</span> 기어 메뉴 → Study Information 항목 표시</li>
+            <li><span class="tc-id">TC-MENU-STUDY-003</span> 메뉴 섹션: Setting / Terms / Guide / Version / Patch Placement</li>
+            <li><span class="tc-id">TC-MENU-STUDY-004</span> Study Information 탭 → 스터디 정보 화면 진입</li>
+            <li><span class="tc-id">TC-MENU-STUDY-005</span> Device Information 탭 → 기기 정보 화면 진입</li>
+          </ul>
+        </details>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Progress & Log ── -->
+  <div>
+    <div class="card">
+      <div class="card-title">Progress</div>
+
+      <div id="progress-section" style="display:none">
+        <div style="font-size:.81rem;color:#6b7280">
+          Elapsed: <strong id="elapsed-text">-</strong> / <span id="total-text">-</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <div class="progress-meta">
+          <span id="progress-pct">0%</span>
+          <span id="run-name-display" style="color:#9ca3af"></span>
+        </div>
+      </div>
+
+      <div id="next-inject-box" style="display:none">
+        Next injection: <strong id="next-inject-time">-</strong>
+        <span id="next-inject-countdown" style="color:#6b7280;font-size:.85em;margin-left:4px"></span>
+      </div>
+
+      <!-- Suite status grid -->
+      <div id="regression-section">
+        <div style="font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Regression</div>
+        <div class="suite-grid" id="suite-grid"></div>
+      </div>
+
+      <div id="completion-msg" style="display:none;margin-top:8px;padding:8px 12px;background:#f0fdf4;color:#166534;border-radius:6px;font-weight:600">
+        ✓ Test completed successfully
+      </div>
+
+      <div class="log-wrap" id="log-wrap">
+        <div class="log-empty" id="log-empty">Start a test to see logs here.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── Event display config ──────────────────────────────────────────────────
+const EVENT_INFO = {
+  run_start:              { text: 'Test started',             color: 'blue'   },
+  device_info:            { text: null,                       color: 'blue'   },
+  main_screen_confirmed:  { text: 'Main screen confirmed',    color: 'green'  },
+  scheduler_started:      { text: 'Scheduler running',        color: 'blue'   },
+  inject_start:           { text: null,                       color: 'purple' },
+  inject_done:            { text: null,                       color: 'green'  },
+  inject_failed:          { text: 'Injection failed',         color: 'red'    },
+  schedule_add:           { text: null,                       color: 'gray'   },
+  run_complete:           { text: 'Test complete!',           color: 'green'  },
+  run_failed:             { text: null,                       color: 'red'    },
+  regression_suite_result:{ text: null,                       color: 'green'  },
+  popup_cannot_find_patch:{ text: '⚠ Popup: Cannot find S-Patch (950)', color: 'red' },
+  popup_reset_patch:      { text: '⚠ Popup: Reset S-Patch (963)',       color: 'red' },
+};
+
+function fmtEvent(ev) {
+  const info = EVENT_INFO[ev.event] || { text: ev.event, color: 'gray' };
+  let text = info.text;
+  if (ev.event === 'inject_start')  text = `Injecting: ${ev.data?.symptom || ''}`;
+  else if (ev.event === 'inject_done') text = `Injection done — ${ev.data?.symptom || ''} (${ev.data?.elapsed_sec ?? '?'}s)`;
+  else if (ev.event === 'device_info') {
+    const d = ev.data || {};
+    text = `Device: ${d.model || ''} Android ${d.android_version || ''} (${d.udid || ''})`;
+  } else if (ev.event === 'schedule_add') {
+    const t = ev.data?.run_at ? new Date(ev.data.run_at).toLocaleTimeString() : '-';
+    text = `Next injection scheduled → ${t}`;
+  } else if (ev.event === 'run_failed') {
+    text = `Test failed — ${ev.data?.error || ''}`;
+  } else if (ev.event === 'regression_suite_result') {
+    const d = ev.data || {};
+    if (d.skipped) return null;
+    const ok = d.passed === d.total;
+    text = `[Regression] ${d.suite}: ${ok ? '✓' : '✗'} ${d.passed}/${d.total}`;
+    return { text, color: ok ? 'green' : 'red' };
+  }
+  if (text === null) return null;
+  return { text: text || ev.event, color: info.color };
+}
+
+// ── Suite grid ──────────────────────────────────────────────────────────
+const SUITE_ORDER = ['main', 'diary', 'menu-study'];
+const SUITE_LABEL = { main: 'Main', diary: 'Diary', 'menu-study': 'Menu Study' };
+let suiteStates = {};
+
+function initSuiteGrid() {
+  suiteStates = {};
+  const grid = document.getElementById('suite-grid');
+  grid.innerHTML = '';
+  SUITE_ORDER.forEach(s => {
+    suiteStates[s] = { state: 'pending' };
+    const card = document.createElement('div');
+    card.className = 'suite-card suite-pending';
+    card.id = `suite-${s}`;
+    card.innerHTML = `<div class="suite-name">${SUITE_LABEL[s]}</div><div class="suite-status">—</div><div class="suite-count"></div>`;
+    grid.appendChild(card);
+  });
+}
+
+function updateSuiteCard(suite, state, passed, total, failures) {
+  suiteStates[suite] = { state, passed, total, failures };
+  const card = document.getElementById(`suite-${suite}`);
+  if (!card) return;
+  card.className = `suite-card suite-${state}`;
+  const statusEl = card.querySelector('.suite-status');
+  const countEl  = card.querySelector('.suite-count');
+  let failsEl = card.querySelector('.suite-fails');
+  if (state === 'pending') { statusEl.textContent = '—'; countEl.textContent = ''; }
+  else if (state === 'running') { statusEl.textContent = 'Running…'; countEl.textContent = ''; }
+  else if (state === 'pass') { statusEl.textContent = '✓ PASS'; countEl.textContent = `${passed}/${total}`; }
+  else if (state === 'fail') {
+    statusEl.textContent = '✗ FAIL'; countEl.textContent = `${passed}/${total}`;
+    if (failures?.length) {
+      if (!failsEl) { failsEl = document.createElement('div'); failsEl.className = 'suite-fails'; card.appendChild(failsEl); }
+      const shown = failures.slice(0, 3).map(f => f.length > 44 ? f.slice(0, 42) + '…' : f);
+      if (failures.length > 3) shown.push(`+${failures.length - 3} more`);
+      failsEl.textContent = shown.join('\n');
+    }
+  } else if (state === 'skip') { statusEl.textContent = '— SKIP'; countEl.textContent = ''; }
+  if (state !== 'fail' && failsEl) failsEl.remove();
+}
+
+function processSuiteEvents(events) {
+  const done = new Set(Object.entries(suiteStates).filter(([,v]) => v.state !== 'pending').map(([k]) => k));
+  for (const ev of (events || [])) {
+    if (ev.event !== 'regression_suite_result') continue;
+    const d = ev.data;
+    const state = d.skipped ? 'skip' : (d.passed === d.total ? 'pass' : 'fail');
+    if (['pending','running'].includes(suiteStates[d.suite]?.state)) {
+      updateSuiteCard(d.suite, state, d.passed, d.total, d.failures || []);
+      done.add(d.suite);
+    }
+  }
+  for (const s of SUITE_ORDER) {
+    if (!done.has(s)) {
+      if (suiteStates[s]?.state === 'pending') updateSuiteCard(s, 'running');
+      break;
+    }
+  }
+}
+
+// ── State ────────────────────────────────────────────────────────────────
+let pollTimer = null, seenEvents = 0, runStartTs = null, nextInjectTs = null, countdownTimer = null;
+
+// ── Init ─────────────────────────────────────────────────────────────────
+async function init() {
+  const r = await fetch('/api/init').then(r => r.json());
+  updateAppiumUI(r.appium);
+  populateDevices(r.devices);
+  initSuiteGrid();
+
+  const s = await fetch('/api/status').then(r => r.json());
+  if (s.events?.length) {
+    renderLog(s.events, true);
+    updateProgress(s.events);
+    updateNextInject(s.events);
+    processSuiteEvents(s.events);
+  }
+  if (s.running) { setUIRunning(true); startPolling(); }
+  else if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
+}
+
+function updateAppiumUI(ok) {
+  const chip = document.getElementById('appium-chip');
+  chip.className = 'chip ' + (ok ? 'chip-ok' : 'chip-err');
+  chip.textContent = ok ? 'Appium ✓' : 'Appium ✗';
+  document.getElementById('appium-warn').style.display = ok ? 'none' : 'flex';
+}
+
+function populateDevices(devices) {
+  const sel = document.getElementById('device-select');
+  sel.innerHTML = '';
+  if (!devices.length) sel.innerHTML = '<option value="">No device connected</option>';
+  else devices.forEach(d => { const o = document.createElement('option'); o.value = o.textContent = d; sel.appendChild(o); });
+}
+
+document.getElementById('duration-group').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-toggle'); if (!btn) return;
+  document.querySelectorAll('#duration-group .btn-toggle').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('duration-val').value = btn.dataset.val;
+});
+
+document.querySelectorAll('input[name="conn-mode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    document.getElementById('wifi-addr-row').style.display =
+      document.getElementById('conn-wifi').checked ? 'block' : 'none';
+  });
+});
+
+document.getElementById('symptom-grid').addEventListener('click', e => {
+  const lbl = e.target.closest('.symptom-label'); if (!lbl) return;
+  const cb = lbl.querySelector('input'); cb.checked = !cb.checked;
+  lbl.classList.toggle('checked', cb.checked);
+});
+
+async function startAppium() {
+  const btn = document.querySelector('#appium-warn button');
+  btn.textContent = 'Starting...'; btn.disabled = true;
+  const r = await fetch('/api/appium/start', { method: 'POST' }).then(r => r.json());
+  btn.textContent = 'Start Appium'; btn.disabled = false;
+  if (r.error) { alert(r.error); return; }
+  updateAppiumUI(r.running);
+}
+
+document.getElementById('start-btn').addEventListener('click', async () => {
+  let pre = null;
+  try { pre = await fetch('/api/init').then(r => r.json()); } catch {}
+  const errs = [];
+  if (!pre?.devices?.length) errs.push('No device connected');
+  if (!pre?.appium)          errs.push('Appium is not running');
+  if (errs.length) { alert('Cannot start:\n - ' + errs.join('\n - ')); return; }
+
+  const device = document.getElementById('device-select').value;
+  if (!device) { alert('Please select a device.'); return; }
+
+  const symptoms = [...document.querySelectorAll('#symptom-grid input:checked')].map(c => c.value);
+  if (!symptoms.length) { alert('Please select at least one symptom.'); return; }
+
+  const wifiMode = document.getElementById('conn-wifi').checked;
+  const wifiAddr = (document.getElementById('wifi-addr').value || '').trim();
+  if (wifiMode && !wifiAddr) { alert('Please enter WiFi address (IP:Port).'); return; }
+
+  const body = {
+    device,
+    serial:          (document.getElementById('serial-input').value || '').trim(),
+    run_name:        document.getElementById('run-name').value || 'ak_run',
+    duration_hours:  parseInt(document.getElementById('duration-val').value),
+    interval_hours:  parseFloat(document.getElementById('interval-select').value),
+    symptoms,
+    wifi_mode:       wifiMode,
+    wifi_addr:       wifiMode ? wifiAddr : '',
+    slack_webhook:   (document.getElementById('slack-webhook').value || '').trim(),
+    skip_regression: document.getElementById('skip-regression').checked,
+  };
+
+  const r = await fetch('/api/start', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(r => r.json());
+  if (r.error) { alert(r.error); return; }
+
+  seenEvents = 0; runStartTs = null;
+  document.getElementById('log-wrap').innerHTML = '<div class="log-empty" id="log-empty">Waiting for logs…</div>';
+  document.getElementById('progress-section').style.display = 'none';
+  document.getElementById('next-inject-box').style.display  = 'none';
+  document.getElementById('completion-msg').style.display   = 'none';
+  initSuiteGrid();
+  if (body.skip_regression) SUITE_ORDER.forEach(s => updateSuiteCard(s, 'skip', 0, 0, []));
+
+  setUIRunning(true); startPolling();
+});
+
+async function stopTest() {
+  if (!confirm('Stop the test?')) return;
+  await fetch('/api/stop', { method: 'POST' });
+  stopPolling(); setUIRunning(false);
+  const chip = document.getElementById('run-chip');
+  chip.className = 'chip chip-warn'; chip.textContent = 'Stopped';
+}
+
+function setUIRunning(running) {
+  document.getElementById('start-btn').disabled = running;
+  document.getElementById('stop-btn').style.display = running ? '' : 'none';
+  const chip = document.getElementById('run-chip');
+  chip.className = 'chip ' + (running ? 'chip-blue' : 'chip-warn');
+  chip.textContent = running ? 'Running' : 'Idle';
+}
+
+function showFinished(code) {
+  const chip = document.getElementById('run-chip');
+  chip.className = 'chip ' + (code === 0 ? 'chip-ok' : 'chip-err');
+  chip.textContent = code === 0 ? 'Complete' : 'Failed';
+  const msg = document.getElementById('completion-msg');
+  if (msg) msg.style.display = code === 0 ? '' : 'none';
+}
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  poll(); pollTimer = setInterval(poll, 2000); startCountdown();
+}
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } stopCountdown();
+}
+
+async function poll() {
+  let s;
+  try { s = await fetch('/api/status').then(r => r.json()); } catch { return; }
+  renderLog(s.events, false);
+  updateProgress(s.events);
+  updateNextInject(s.events);
+  processSuiteEvents(s.events);
+  if (!s.running && pollTimer) {
+    stopPolling(); setUIRunning(false); showFinished(s.exit_code ?? -1);
+  }
+}
+
+function renderLog(events, reset = false) {
+  if (!events?.length && !reset) return;
+  const wrap = document.getElementById('log-wrap');
+  if (reset) { wrap.innerHTML = ''; seenEvents = 0; }
+  let added = 0;
+  for (let i = seenEvents; i < (events?.length ?? 0); i++) {
+    const ev = events[i];
+    const fmt = fmtEvent(ev); if (!fmt) { seenEvents++; continue; }
+    const time = ev.ts ? ev.ts.split('T')[1].slice(0,8) : '';
+    const div = document.createElement('div'); div.className = `log-item ${fmt.color}`;
+    div.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${fmt.text}</span>`;
+    wrap.appendChild(div); seenEvents++; added++;
+  }
+  if (added > 0) wrap.scrollTop = wrap.scrollHeight;
+  const empty = wrap.querySelector('.log-empty');
+  if (empty && wrap.children.length > 1) empty.remove();
+}
+
+function updateProgress(events) {
+  let startTs = null, durationH = null;
+  for (const e of (events || [])) {
+    if (e.event === 'run_start') { startTs = e.ts; durationH = e.data?.duration_hours; }
+  }
+  if (!startTs || !durationH) return;
+  const elapsed = (Date.now() - new Date(startTs).getTime()) / 1000;
+  const pct = Math.min(100, Math.round(elapsed / (durationH * 3600) * 100));
+  const elH = Math.floor(elapsed / 3600), elM = Math.floor((elapsed % 3600) / 60);
+  document.getElementById('elapsed-text').textContent = `${elH}h ${elM}m`;
+  document.getElementById('total-text').textContent   = `${durationH}h`;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent  = pct + '%';
+  document.getElementById('progress-section').style.display = '';
+  document.getElementById('run-name-display').textContent = document.getElementById('run-name').value || '';
+  if (!runStartTs) runStartTs = startTs;
+}
+
+function updateNextInject(events) {
+  const schedEvs = (events || []).filter(e => e.event === 'schedule_add');
+  if (!schedEvs.length) return;
+  const runAt = schedEvs[schedEvs.length - 1].data?.run_at;
+  if (!runAt) return;
+  const d = new Date(runAt);
+  document.getElementById('next-inject-time').textContent = d.toLocaleTimeString();
+  nextInjectTs = d.getTime();
+  document.getElementById('next-inject-box').style.display = '';
+  startCountdown();
+}
+
+function startCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const el = document.getElementById('next-inject-countdown');
+    if (!el || !nextInjectTs) { if (el) el.textContent = ''; return; }
+    const sec = Math.round((nextInjectTs - Date.now()) / 1000);
+    el.textContent = sec > 0 ? `(in ${sec}s)` : '';
+  }, 1000);
+}
+function stopCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
+
+init();
+</script>
+</body>
+</html>

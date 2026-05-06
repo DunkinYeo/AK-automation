@@ -1,7 +1,10 @@
 PYTHON := $(shell [ -f .venv/bin/python ] && echo .venv/bin/python || echo python3)
 CONFIG ?= config/accurkardia.yaml
+OUT    ?= ~/Desktop
 
-.PHONY: install run web dry-run regression reg-serial reg-menu reg-signal reg-study reg-main reg-diary help
+.PHONY: install run web dry-run regression \
+        reg-serial reg-menu reg-signal reg-study reg-main reg-diary reg-menu-study \
+        dist dist-mac dist-windows help
 
 help:
 	@echo ""
@@ -9,6 +12,7 @@ help:
 	@echo ""
 	@echo "  make install        — 최초 1회: 가상환경 + 패키지 설치"
 	@echo "  make run            — 풀 자동화 실행 (longrun + 증상 주입)"
+	@echo "  make web            — 웹 UI 실행 (포트 5002)"
 	@echo "  make dry-run        — 설정 확인만 (실제 실행 없음)"
 	@echo ""
 	@echo "  Regression suites (기기 연결 불필요):"
@@ -26,6 +30,12 @@ help:
 	@echo ""
 	@echo "  make regression     — 전체 regression 실행"
 	@echo ""
+	@echo "  Distribution ZIPs:"
+	@echo "  make dist           — Mac + Windows ZIP 모두 빌드 (→ ~/Desktop)"
+	@echo "  make dist-mac       — Mac ZIP만 빌드"
+	@echo "  make dist-windows   — Windows ZIP만 빌드"
+	@echo "  make dist OUT=/tmp  — 출력 경로 지정"
+	@echo ""
 
 install:
 	python3 -m venv .venv
@@ -36,13 +46,13 @@ install:
 	@echo ""
 
 run:
-	PYTHONPATH=. $(PYTHON) src/run.py --config $(CONFIG)
+	PYTHONPATH=. $(PYTHON) src/main.py --config $(CONFIG)
 
 web:
-	PYTHONPATH=. $(PYTHON) web/app.py --port 5002
+	PYTHONPATH=. $(PYTHON) web/app.py
 
 dry-run:
-	PYTHONPATH=. $(PYTHON) src/run.py --config $(CONFIG) --dry-run
+	PYTHONPATH=. $(PYTHON) src/main.py --config $(CONFIG) --dry-run
 
 regression:
 	PYTHONPATH=. $(PYTHON) src/run_regression.py --config $(CONFIG) --suite all
@@ -67,3 +77,12 @@ reg-diary:
 
 reg-menu-study:
 	PYTHONPATH=. $(PYTHON) src/run_regression.py --config $(CONFIG) --suite menu-study
+
+dist:
+	$(PYTHON) scripts/build_dist.py --out $(OUT) --platform both
+
+dist-mac:
+	$(PYTHON) scripts/build_dist.py --out $(OUT) --platform mac
+
+dist-windows:
+	$(PYTHON) scripts/build_dist.py --out $(OUT) --platform windows
