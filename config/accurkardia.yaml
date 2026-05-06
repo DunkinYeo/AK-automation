@@ -1,0 +1,98 @@
+platform: android
+run:
+  name: "ak_longrun"
+  duration_hours: 72          # 실제 검사 기간에 맞게 조정 (최대 720 = 30일)
+  symptom_interval_hours: 1   # 증상 주입 간격: 1 / 2 / 4 시간 중 선택
+  start_immediately: true     # 시작 직후 첫 주입 실행 여부
+  jitter_seconds: 0           # 주입 시간 랜덤 오차 (초)
+  quiet_hours:
+    start: 2                  # 새벽 2시~6시 주입 스킵 (0으로 설정 시 비활성)
+    end: 6
+
+recovery:
+  cooldown_seconds_between_steps: 30
+
+symptom_catalog:
+  symptoms:
+    - "Abnormal Heartbeat/Palpitations"
+    - "Chest Pain/Discomfort"
+    - "Shortness of Breath"
+    - "Lightheadedness"
+    - "Weakness"
+    - "Fainted"
+  activities:
+    - "Physical Work"
+    - "Non-physical activities (paperwork, computer, TV)"
+    - "Resting"
+    - "Walking"
+    - "Exercising"
+
+android:
+  appium_server_url: "http://127.0.0.1:4723"
+  device_name: "Pixel 7"
+  udid: "55ETQWBXYE1RA1"
+  test_serial_number: "610260"
+  search_serial: "610260"
+  app_package: "com.wellysis.accurkardia.accurkardia.mobile"
+  app_activity: "com.wellysis.accurkardia.accurkardia.mobile.MainActivity"
+  no_reset: true
+  new_command_timeout: 3600
+
+selectors:
+  android:
+    # 메인 측정 화면 health check
+    symptom_add_text: "Add Diary"
+
+    # Step 1 - Serial Number 입력
+    serial_input_hint: "Enter the Serial Number here."
+    connect_button_text: "Connect"
+
+    # Step 2 - Check Incoming Signal
+    check_signal_title: "Check Incoming Signal"
+    live_streaming_text: "Live Streaming"
+    continue_button_text: "Continue"
+
+    # Step 3 - Review Study Setting
+    review_study_title: "Review Study Setting"
+    registered_study_text: "Registered Study"
+
+    # Start Study 화면
+    start_study_button_text: "Start Study"
+    network_status_text: "Network"
+    bluetooth_status_text: "Bluetooth"
+    battery_status_text: "Battery"
+    patch_placement_text: "Patch Placement"
+
+    # 측정 중 메인 화면
+    study_information_text: "Study Information"
+    study_progress_text: "Study Progress"
+    live_ecg_signal_text: "Live ECG Signal"
+    view_button_text: "View"
+    add_diary_button_text: "Add Diary"
+
+    # Add Diary 화면
+    symptom_section_text: "Symptom"
+    activity_section_text: "Activity"
+    add_diary_submit_text: "Add Diary"
+
+    # 에러 팝업
+    no_study_info_title: "No Study Information"
+    confirm_button_text: "Confirm"
+
+    # AK 전용 연결 오류 팝업
+    cannot_find_patch_title: "Cannot find your S-Patch"   # 기기 미발견 (코드 950)
+    reset_patch_title: "Reset your S-Patch"               # 초기화 필요 (코드 963)
+    popup_ok_button_text: "Ok"
+
+    # 사이드 메뉴
+    setting_text: "Setting"
+    live_streaming_duration_text: "Live Streaming Duration"
+    version_information_text: "Version Information"
+    device_information_text: "Device Information"
+    study_information_menu_text: "Study Information"
+    guide_text: "Guide"
+
+slack:
+  enabled: true
+  webhook_url: ""   # .env 파일의 SLACK_WEBHOOK_URL 환경변수로 설정
+  mention: ""

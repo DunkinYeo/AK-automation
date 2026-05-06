@@ -1,0 +1,477 @@
+#!/usr/bin/env python3
+"""
+S-Patch VM Full Automation Runner
+
+SDK 검증용 단일 진입점. 아래 플로우를 순서대로 자동 실행:
+
+  1. App restart → Step 1
+  2. [Regression] serial + menu
+  3. Serial input → Connect → Step 2
+  4. [Regression] signal (Step 2 화면)
+  5. Continue → Step 3 (Review Study Setting)
+  6. Continue → Start Study → 측정 시작
+  7. [Regression] main + diary + menu-study
+  8. Symptom injection schedule (duration_hours 동안)
+  9. Final Slack report
+
+Usage:
+    PYTHONPATH=. python src/run.py --config config/spatch-vm.yaml
+    PYTHONPATH=. python src/run.py --config config/spatch-vm.yaml --dry-run
+"""
+import argparse
+import datetime
+import logging
+import os
+import random
+import sys
+import threading
+import time
+
+import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _load_dotenv():
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_dotenv()
+
+from src.artifacts import ArtifactManager
+from src.reporter import RunReporter
+from src.driver import AndroidDriver
+from src.keep_awake import KeepAwake
+from src.scheduler import LongRunScheduler
+from src.slack import slack_daily_report, slack_bug_report, slack_urgent_alert, slack_injection_notify, slack_regression_suite
+from src.regression.runner import TestRunner
+from src.regression import serial_input, menu_step1, signal_check, main_screen, add_diary, menu_study
+from src.regression.helpers import reset_to_step1, open_menu
+from src.workflows.measurement_start import ensure_on_main_screen
+from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS, ACTIVITIES
+from src.workflows.popup_handler import handle_any_popup
+from selenium.webdriver.common.by import By
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+log = logging.getLogger(__name__)
+
+_STEP1_TEXT  = "Connect Your S-Patch"
+_STEP2_TEXT  = "Check Incoming Signal"
+_STEP3_TEXT  = "Review Study Setting"
+_START_TEXT  = "Start Study"
+_MAIN_TEXT   = "Study Information"
+
+
+# ---------------------------------------------------------------------------
+# Navigation helpers
+# ---------------------------------------------------------------------------
+
+def _has_text(drv, text: str) -> bool:
+    """UiAutomator textContains 즉시 검사 — 대기 없음, 예외 없음."""
+    try:
+        return len(drv.drv.find_elements(
+            By.ANDROID_UIAUTOMATOR,
+            f'new UiSelector().textContains("{text}")',
+        )) > 0
+    except Exception:
+        return False
+
+
+def _connect_to_step2(drv, serial: str, wait_ble: int = 60) -> bool:
+    """Step 1에서 시리얼 입력 → Connect → Step 2 대기. 성공 시 True."""
+    if not drv.is_visible_text(_STEP1_TEXT, timeout=5):
+        return False
+    el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
+    el.clear()
+    el.send_keys(serial)
+    time.sleep(0.5)
+    drv.tap_text("Connect", timeout=5, contains=False)
+
+    deadline = time.monotonic() + wait_ble
+    while time.monotonic() < deadline:
+        if _has_text(drv, _STEP2_TEXT):
+            return True
+        if _has_text(drv, _STEP3_TEXT):
+            log.warning("[connect] Step 2 자동 통과 감지 (웹 검사 등록 상태) → Step 3 Continue 즉시 탭")
+            try:
+                drv.tap_text("Continue", timeout=5, contains=False)
+            except Exception:
+                pass
+            return False  # Step 2 regression 스킵
+        if _has_text(drv, _MAIN_TEXT):
+            log.warning("[connect] 이미 측정 중")
+            return False
+        time.sleep(0.5)
+    return False
+
+
+def _proceed_to_start_study(drv) -> bool:
+    """현재 화면에서 Start Study 화면까지 진입.
+
+    _connect_to_step2가 이미 Step 3의 Continue를 탭했을 수 있으므로
+    Start Study 화면을 기다리되, 아직 Step 2/3에 있으면 Continue를 탭.
+    """
+    continued_step2 = False
+    continued_step3 = False
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if _has_text(drv, _MAIN_TEXT):
+            log.info("[proceed] 이미 측정 중")
+            return True
+        if _has_text(drv, _START_TEXT):
+            return True
+        if not continued_step3 and _has_text(drv, _STEP3_TEXT):
+            log.info("[proceed] Step 3 → Continue")
+            try:
+                drv.tap_text("Continue", timeout=5, contains=False)
+            except Exception:
+                pass
+            continued_step3 = True
+            time.sleep(0.5)
+            continue
+        if not continued_step2 and _has_text(drv, _STEP2_TEXT):
+            log.info("[proceed] Step 2 → Continue")
+            try:
+                drv.tap_text("Continue", timeout=5, contains=False)
+            except Exception:
+                pass
+            continued_step2 = True
+            time.sleep(0.5)
+            continue
+        time.sleep(0.5)
+    return False
+
+
+def _start_study(drv) -> bool:
+    """Start Study 버튼 탭 → 메인 측정 화면 대기."""
+    if not drv.is_visible_text(_START_TEXT, timeout=5):
+        return False
+    drv.tap_text(_START_TEXT, timeout=5)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if drv.is_visible_text(_MAIN_TEXT, timeout=2):
+            return True
+        time.sleep(1)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Regression helpers
+# ---------------------------------------------------------------------------
+
+def _run_suite(runner, tests, suite_name) -> dict:
+    pre = len(runner.results)
+    runner.run_all(tests)
+    batch = runner.results[pre:]
+    passed   = sum(1 for r in batch if r.passed)
+    failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in batch if not r.passed]
+    log.info("[regression] %s: %d/%d passed", suite_name, passed, len(batch))
+    return {"passed": passed, "total": len(batch), "failures": failures, "_results": batch}
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(description="S-Patch VM Full Automation Runner")
+    ap.add_argument("--config", default="config/spatch-vm.yaml")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--skip-regression", action="store_true", help="Skip regression suites, go straight to study + injection")
+    args = ap.parse_args()
+
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
+    run_cfg        = cfg.get("run", {})
+    a_cfg          = cfg.get("android", {})
+    selectors      = cfg.get("selectors", {}).get("android", {})
+    slack_cfg      = cfg.get("slack", {})
+    recovery_cfg   = cfg.get("recovery", {})
+    catalog        = cfg.get("symptom_catalog", {})
+    duration_hours = float(run_cfg.get("duration_hours", 24))
+    interval_hours = float(run_cfg.get("symptom_interval_hours", 4))
+    start_imm      = bool(run_cfg.get("start_immediately", True))
+    jitter_sec     = float(run_cfg.get("jitter_seconds", 0))
+    quiet_hours    = run_cfg.get("quiet_hours") or {}
+    serial         = a_cfg.get("test_serial_number", "680150")
+    webhook        = (os.environ.get("SLACK_WEBHOOK_URL") or
+                      slack_cfg.get("webhook_url", "")) if slack_cfg.get("enabled") else ""
+
+    skip_regression = args.skip_regression
+
+    if args.dry_run:
+        print(f"\n  === DRY RUN: {run_cfg.get('name', 'run')} ===")
+        print(f"  Serial      : {serial}")
+        print(f"  Duration    : {duration_hours}h")
+        print(f"  Interval    : {interval_hours}h  (~{int(duration_hours/interval_hours)} injections)")
+        print(f"  Slack       : {'enabled' if webhook else 'disabled'}")
+        print(f"  Flow        : serial → menu → connect → signal → start study → main → diary → menu-study → inject\n")
+        return
+
+    run_id  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = os.path.join("output", run_id)
+    os.makedirs(out_dir, exist_ok=True)
+
+    artifacts = ArtifactManager(out_dir=out_dir)
+    reporter  = RunReporter(out_dir=out_dir, run_name=run_cfg.get("name", "run"))
+    drv       = AndroidDriver(a_cfg, selectors, artifacts, reporter)
+    reporter.log_event("run_start", {"serial": serial, "duration_hours": duration_hours})
+    if webhook:
+        from src.slack import slack_run_start
+        slack_run_start(webhook, serial, duration_hours, interval_hours)
+
+    keep_awake = KeepAwake()
+    keep_awake.start()
+
+    suite_results = {}
+    runner = TestRunner(drv, artifacts)
+
+    try:
+        # ── 0. Already measuring + skip_regression → skip entire setup ──
+        already_running = skip_regression and drv.is_visible_text(_MAIN_TEXT, timeout=5)
+
+        if already_running:
+            log.info("이미 측정 중 + skip_regression → setup 전체 스킵, 바로 injection 시작")
+            for s in ("serial", "menu", "signal", "main", "diary", "menu-study"):
+                suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
+                reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
+            reporter.log_event("study_started", {})
+            log.info("검사 진행 중 확인 완료")
+        else:
+            # ── 1. App restart → Step 1 ──────────────────────────────
+            log.info("=" * 55)
+            log.info("STEP 1 — App reset")
+            reset_to_step1(drv, hard=True)
+
+            if skip_regression:
+                log.info("--skip-regression: skipping serial / menu / signal suites")
+                for s in ("serial", "menu", "signal"):
+                    suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
+                    reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
+            else:
+                # ── 2. Regression: serial + menu ─────────────────────
+                log.info("=" * 55)
+                log.info("REGRESSION — serial")
+                suite_results["serial"] = _run_suite(runner, serial_input.TESTS, "serial")
+                reporter.log_event("regression_suite_result", {
+                    "suite": "serial", **{k: suite_results["serial"][k] for k in ("passed", "total", "failures")},
+                })
+                if webhook:
+                    r = suite_results["serial"]
+                    slack_regression_suite(webhook, "serial", r["passed"], r["total"], r.get("failures", []))
+
+                reset_to_step1(drv, hard=True)
+                log.info("=" * 55)
+                log.info("REGRESSION — menu")
+                suite_results["menu"] = _run_suite(runner, menu_step1.TESTS, "menu")
+                reporter.log_event("regression_suite_result", {
+                    "suite": "menu", **{k: suite_results["menu"][k] for k in ("passed", "total", "failures")},
+                })
+                if webhook:
+                    r = suite_results["menu"]
+                    slack_regression_suite(webhook, "menu", r["passed"], r["total"], r.get("failures", []))
+
+            # ── 3. Connect → Step 2 ──────────────────────────────────
+            log.info("=" * 55)
+            log.info("STEP 2 — Connecting serial %s", serial)
+            reset_to_step1(drv, hard=True)
+            on_step2 = _connect_to_step2(drv, serial)
+
+            # ── 4. Regression: signal (Step 2 화면에서) ──────────────
+            if not skip_regression:
+                if on_step2:
+                    log.info("=" * 55)
+                    log.info("REGRESSION — signal")
+                    suite_results["signal"] = _run_suite(runner, signal_check.TESTS, "signal")
+                    reporter.log_event("regression_suite_result", {
+                        "suite": "signal", **{k: suite_results["signal"][k] for k in ("passed", "total", "failures")},
+                    })
+                    if webhook:
+                        r = suite_results["signal"]
+                        slack_regression_suite(webhook, "signal", r["passed"], r["total"], r.get("failures", []))
+                else:
+                    log.warning("[signal] Step 2 진입 실패 — signal regression 스킵")
+                    suite_results["signal"] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
+                    reporter.log_event("regression_suite_result", {"suite": "signal", "passed": 0, "total": 0, "failures": [], "skipped": True})
+
+            # ── 5. Continue → Step 3 → Start Study ───────────────────
+            log.info("=" * 55)
+            log.info("STEP 3 — Proceeding to Start Study")
+            on_start = _proceed_to_start_study(drv)
+            if not on_start:
+                raise RuntimeError("Start Study 화면 진입 실패 — 웹에 검사가 등록되었는지 확인하세요")
+
+            if drv.is_visible_text(_MAIN_TEXT, timeout=2):
+                log.info("이미 측정 중 — Start Study 스킵")
+            else:
+                log.info("Start Study 탭")
+                if not _start_study(drv):
+                    raise RuntimeError("검사 시작 실패 — Start Study 후 메인 화면 미표시")
+
+            reporter.log_event("study_started", {})
+            log.info("검사 시작 완료")
+
+            # ── 6. Regression: main + diary + menu-study ─────────────
+            if skip_regression:
+                log.info("--skip-regression: skipping main / diary / menu-study suites")
+                for s in ("main", "diary", "menu-study"):
+                    suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
+                    reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
+            else:
+                log.info("=" * 55)
+                log.info("REGRESSION — main")
+                ensure_on_main_screen(drv)
+                suite_results["main"] = _run_suite(runner, main_screen.TESTS, "main")
+                reporter.log_event("regression_suite_result", {
+                    "suite": "main", **{k: suite_results["main"][k] for k in ("passed", "total", "failures")},
+                })
+                if webhook:
+                    r = suite_results["main"]
+                    slack_regression_suite(webhook, "main", r["passed"], r["total"], r.get("failures", []))
+
+                log.info("=" * 55)
+                log.info("REGRESSION — diary")
+                ensure_on_main_screen(drv)
+                suite_results["diary"] = _run_suite(runner, add_diary.TESTS, "diary")
+                reporter.log_event("regression_suite_result", {
+                    "suite": "diary", **{k: suite_results["diary"][k] for k in ("passed", "total", "failures")},
+                })
+                if webhook:
+                    r = suite_results["diary"]
+                    slack_regression_suite(webhook, "diary", r["passed"], r["total"], r.get("failures", []))
+
+                log.info("=" * 55)
+                log.info("REGRESSION — menu-study")
+                ensure_on_main_screen(drv)
+                suite_results["menu-study"] = _run_suite(runner, menu_study.TESTS, "menu-study")
+                reporter.log_event("regression_suite_result", {
+                    "suite": "menu-study", **{k: suite_results["menu-study"][k] for k in ("passed", "total", "failures")},
+                })
+                if webhook:
+                    r = suite_results["menu-study"]
+                    slack_regression_suite(webhook, "menu-study", r["passed"], r["total"], r.get("failures", []))
+
+        # ── 7. Connectivity monitoring thread ─────────────────────
+        _stop_monitor = threading.Event()
+
+        def _connectivity_monitor():
+            while not _stop_monitor.is_set():
+                try:
+                    drv.check_connectivity()
+                except Exception as _e:
+                    log.warning("[connectivity monitor] error: %s", _e)
+                _stop_monitor.wait(30)  # check every 30 seconds
+
+        monitor_thread = threading.Thread(target=_connectivity_monitor, daemon=True)
+        monitor_thread.start()
+        log.info("Connectivity monitor started (30s interval)")
+
+        # ── 8. Symptom injection schedule ────────────────────────
+        log.info("=" * 55)
+        log.info("INJECTION — starting scheduler (%.1fh, every %.1fh)", duration_hours, interval_hours)
+        reporter.log_event("injection_schedule_start", {
+            "duration_hours": duration_hours,
+            "interval_hours": interval_hours,
+        })
+
+        symptoms_pool   = catalog.get("symptoms", SYMPTOMS)   if isinstance(catalog, dict) else SYMPTOMS
+        activities_pool = catalog.get("activities", ACTIVITIES) if isinstance(catalog, dict) else ACTIVITIES
+
+        injection_count  = [0]
+        injection_result = {"success": False, "symptom": "", "activity": "", "elapsed_sec": 0}
+
+        def job(at_hour=None, payload=None):
+            payload   = payload or {}
+            symptoms  = payload.get("symptoms") or [random.choice(symptoms_pool)]
+            acts      = payload.get("activities") or [random.choice(activities_pool)]
+            symptom   = symptoms[0]
+            activity  = acts[0]
+            t = time.monotonic()
+            try:
+                inject_symptom_event(drv, symptoms=symptoms, activities=acts)
+                elapsed = round(time.monotonic() - t, 1)
+                injection_count[0] += 1
+                injection_result.update({
+                    "success": True,
+                    "symptom": symptom,
+                    "activity": activity,
+                    "elapsed_sec": elapsed,
+                })
+                if webhook:
+                    slack_injection_notify(
+                        webhook, injection_count[0], symptom, activity, elapsed, success=True
+                    )
+            except Exception as e:
+                elapsed = round(time.monotonic() - t, 1)
+                injection_count[0] += 1
+                injection_result.update({"success": False, "error": str(e)})
+                if webhook:
+                    slack_injection_notify(
+                        webhook, injection_count[0], symptom, activity, elapsed,
+                        success=False, error=str(e)
+                    )
+                raise
+
+        scheduler = LongRunScheduler(
+            duration_hours=duration_hours,
+            interval_hours=interval_hours,
+            start_immediately=start_imm,
+            plan=cfg.get("symptom_plan") or [],
+            catalog=symptoms_pool,
+            reporter=reporter,
+            jitter_seconds=jitter_sec,
+            quiet_hours=quiet_hours,
+            recovery_cfg=recovery_cfg,
+        )
+        scheduler.run(job, driver=drv)
+        _stop_monitor.set()
+
+        reporter.log_event("run_complete", {"injection_count": injection_count[0]})
+        log.info("자동화 완료 — 총 %d회 주입", injection_count[0])
+
+    except Exception as e:
+        reporter.log_event("run_failed", {"error": str(e)})
+        log.error("자동화 실패: %s", e)
+        injection_result = {"success": False, "error": str(e)}
+        raise
+
+    finally:
+        # ── 8. Slack 최종 리포트 ──────────────────────────────────
+        if webhook:
+            total_p = sum(v["passed"] for v in suite_results.values() if not v.get("skipped"))
+            total_t = sum(v["total"]  for v in suite_results.values() if not v.get("skipped"))
+            if total_t > 0 and (total_t - total_p) >= 3:
+                slack_urgent_alert(webhook, f"{total_t - total_p}개 테스트 실패")
+            slack_daily_report(
+                webhook, suite_results, injection_result,
+                duration_hours=duration_hours,
+                interval_hours=interval_hours,
+                injection_count=injection_count[0],
+            )
+            slack_bug_report(webhook)
+            log.info("Slack 리포트 전송 완료")
+
+        try:
+            reporter.render_html_summary()
+        except Exception:
+            pass
+
+        keep_awake.stop()
+        drv.close()
+
+
+if __name__ == "__main__":
+    main()
