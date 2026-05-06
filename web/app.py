@@ -492,13 +492,17 @@ def api_screenshots():
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
     import socket
     import webbrowser
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=PORT)
+    port = ap.parse_args().port
     try:
         local_ip = socket.gethostbyname(socket.gethostname())
     except Exception:
         local_ip = "127.0.0.1"
-    threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{PORT}")).start()
-    print(f"\n  S-Patch Accurkardia Test UI   -> http://127.0.0.1:{PORT}")
-    print(f"  Share on local network        -> http://{local_ip}:{PORT}\n")
-    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
+    threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+    print(f"\n  S-Patch Accurkardia Test UI   -> http://127.0.0.1:{port}")
+    print(f"  Share on local network        -> http://{local_ip}:{port}\n")
+    app.run(host="::", port=port, debug=False, threaded=True)
