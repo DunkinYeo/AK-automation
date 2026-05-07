@@ -280,6 +280,7 @@ def api_start():
         _state["proc"]     = subprocess.Popen(
             [sys.executable, str(ROOT / "src" / "main.py"), "--config", str(cfg_path)],
             cwd=str(ROOT),
+            start_new_session=True,
         )
 
         return jsonify({"ok": True})
