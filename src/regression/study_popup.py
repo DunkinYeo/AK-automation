@@ -1,6 +1,6 @@
 """
-TC-STUDY: No Study Information 팝업 Regression Tests
-웹에 스터디 미등록 상태에서 Continue 탭 후 나타나는 팝업 검증
+TC-STUDY: No Study Information Popup Regression Tests
+Verify the popup that appears after tapping Continue when no study is registered on the web
 """
 import time
 import logging
@@ -18,7 +18,7 @@ def _trigger_no_study_popup(drv):
         if drv.is_visible_text("No Study Information", timeout=2):
             return
         time.sleep(1)
-    raise Exception("No Study Information 팝업 미표시 (10s 대기)")
+    raise Exception("No Study Information popup not displayed (waited 10s)")
 
 
 def _dismiss_popup(drv):
@@ -32,46 +32,46 @@ def _dismiss_popup(drv):
 # ---------------------------------------------------------------------------
 
 def test_study_001_popup_content(drv, runner):
-    """TC-STUDY-001~003 | 팝업 표시 + 에러 코드(40103) + 안내 문구 확인"""
+    """TC-STUDY-001~003 | Popup displayed + error code (40103) + guide message confirmed"""
     _trigger_no_study_popup(drv)
     runner.assert_true(
         drv.is_visible_text("No Study Information"),
-        "No Study Information 팝업이 표시되어야 함"
+        "No Study Information popup should be displayed"
     )
     runner.assert_true(
         drv.is_visible_text("40103"),
-        "에러 코드 '40103'이 팝업에 표시되어야 함"
+        "Error code '40103' should be displayed in the popup"
     )
     runner.assert_true(
         drv.is_visible_text("There is no study information"),
-        "팝업 안내 문구 미표시"
+        "Popup guide message not displayed"
     )
     _dismiss_popup(drv)
 
 
 def test_study_004_confirm_closes_popup(drv, runner):
-    """TC-STUDY-004 | Confirm 탭 → 팝업 닫힘, Step 2 유지"""
+    """TC-STUDY-004 | Tap Confirm → popup closes, Step 2 remains"""
     _trigger_no_study_popup(drv)
     drv.tap_text("Confirm", timeout=5)
     time.sleep(1)
     runner.assert_false(
         drv.is_visible_text("No Study Information", timeout=2),
-        "Confirm 탭 후 팝업이 닫혀야 함"
+        "Popup should close after tapping Confirm"
     )
     runner.assert_true(
         drv.is_visible_text("Check Incoming Signal", timeout=3),
-        "Confirm 탭 후 Step 2 화면이 유지되어야 함"
+        "Step 2 screen should remain after tapping Confirm"
     )
 
 
 def test_study_005_x_button_closes_popup(drv, runner):
-    """TC-STUDY-005 | X 버튼 탭 → 팝업 닫힘"""
+    """TC-STUDY-005 | Tap X button → popup closes"""
     _trigger_no_study_popup(drv)
     drv.drv.tap([STUDY_POPUP_X_BTN])
     time.sleep(1)
     runner.assert_false(
         drv.is_visible_text("No Study Information", timeout=2),
-        "X 버튼 탭 후 팝업이 닫혀야 함"
+        "Popup should close after tapping X button"
     )
 
 

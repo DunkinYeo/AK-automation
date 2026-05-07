@@ -7,7 +7,7 @@ import time
 import random
 import logging
 
-from src.regression.helpers import DIARY_X_BTN
+from src.regression.helpers import DIARY_X_BTN, go_to_main
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,24 @@ def _not_started(drv) -> bool:
     return drv.is_visible_text(_START_STUDY, timeout=2)
 
 
+def _dismiss_patch_popup(drv):
+    """Dismiss 950/963 popup if visible and recover to main screen."""
+    if drv.is_visible_text("Cannot find your S-Patch", timeout=2) or \
+       drv.is_visible_text("Reset your S-Patch", timeout=1):
+        try:
+            drv.tap_text("OK", timeout=3, contains=False)
+        except Exception:
+            pass
+        try:
+            go_to_main(drv)
+        except Exception:
+            pass
+        return True
+    return False
+
+
 def _open_sheet(drv):
+    _dismiss_patch_popup(drv)
     drv.tap_text(_MAIN_BTN, timeout=5)
     time.sleep(1)
 

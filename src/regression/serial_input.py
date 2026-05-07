@@ -1,6 +1,6 @@
 """
-TC-SN: Serial Number 입력 화면 Regression Tests
-시리얼 넘버 없이 (기기 연결 없이) 검증 가능한 UI 케이스들
+TC-SN: Serial Number Input Screen Regression Tests
+UI cases that can be verified without a serial number (without device connection)
 """
 import time
 import logging
@@ -12,7 +12,7 @@ CONNECT_BUTTON_TEXT = "Connect"
 
 
 def _find_input(drv):
-    """시리얼 넘버 입력 필드 (EditText) 찾기"""
+    """Find the serial number input field (EditText)"""
     return drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
 
 
@@ -48,13 +48,13 @@ def _get_input_value(drv) -> str:
 # ---------------------------------------------------------------------------
 
 def test_sn_002_empty_connect_disabled(drv, runner):
-    """TC-SN-002 | 빈 입력 → Connect 버튼 비활성화"""
+    """TC-SN-002 | Empty input → Connect button disabled"""
     _clear_input(drv)
     runner.assert_false(_is_connect_enabled(drv), "Connect button should be disabled when empty")
 
 
 def test_sn_003_partial_connect_state(drv, runner):
-    """TC-SN-003 | 5자리 입력 → Connect 버튼 상태 관찰 (AK: 클라이언트 검증 없음)"""
+    """TC-SN-003 | 5-digit input → observe Connect button state (AK: no client-side validation)"""
     _type_serial(drv, "12345")
     enabled = _is_connect_enabled(drv)
     if enabled:
@@ -66,17 +66,17 @@ def test_sn_003_partial_connect_state(drv, runner):
 
 
 def test_sn_004_over_limit(drv, runner):
-    """TC-SN-004 | 7자리 이상 입력 → 6자리 초과 차단 또는 버튼 비활성화"""
+    """TC-SN-004 | 7+ digit input → blocked at 6 digits or button disabled"""
     _type_serial(drv, "1234567")
     actual = _get_input_value(drv)
     if len(actual) > 6:
         runner.assert_false(_is_connect_enabled(drv), "Connect button should be disabled (7 digits)")
-    # len(actual) <= 6: UI가 입력을 6자리로 차단함 — 정상 동작으로 간주
+    # len(actual) <= 6: UI blocked input to 6 digits — considered normal behavior
     _clear_input(drv)
 
 
 def test_sn_005_non_numeric_state(drv, runner):
-    """TC-SN-005 | 영문 입력 → 입력 차단 또는 버튼 비활성화 관찰 (AK: 클라이언트 검증 없음)"""
+    """TC-SN-005 | Letter input → observe whether blocked or button disabled (AK: no client-side validation)"""
     _type_serial(drv, "ABCDEF")
     actual = _get_input_value(drv)
     alpha_chars = [c for c in actual if c.isalpha()]
@@ -93,14 +93,14 @@ def test_sn_005_non_numeric_state(drv, runner):
 
 
 def test_sn_001_valid_6digits_connect_enabled(drv, runner):
-    """TC-SN-001 | 6자리 숫자 입력 → Connect 버튼 활성화"""
+    """TC-SN-001 | 6-digit number input → Connect button enabled"""
     _type_serial(drv, "123456")
     runner.assert_true(_is_connect_enabled(drv), "Connect button should be enabled (6 digits)")
     _clear_input(drv)
 
 
 def test_sn_008_keyboard_dismiss_retain(drv, runner):
-    """TC-SN-008 | 3자리 입력 후 키보드 내림 → 입력값 유지"""
+    """TC-SN-008 | Enter 3 digits then dismiss keyboard → input value is retained"""
     _type_serial(drv, "123")
     try:
         drv.drv.hide_keyboard()
@@ -112,6 +112,44 @@ def test_sn_008_keyboard_dismiss_retain(drv, runner):
     _clear_input(drv)
 
 
+def test_sn_007_wrong_serial_950_popup(drv, runner):
+    """TC-SN-007 | Wrong serial (112233) → Connect → confirm 950 popup"""
+    _type_serial(drv, "112233")
+    runner.assert_true(_is_connect_enabled(drv), "Connect button not enabled for 6-digit serial")
+    drv.tap_text(CONNECT_BUTTON_TEXT, timeout=5, contains=False)
+    popup_visible = drv.is_visible_text("Cannot find your S-Patch", timeout=30)
+    try:
+        drv.tap_text("OK", timeout=5, contains=False)
+    except Exception:
+        pass
+    time.sleep(1)
+    runner.assert_true(popup_visible, "950 popup not shown for wrong serial number (112233)")
+
+
+def test_sn_009_wrong_serial_950_popup_timing(drv, runner):
+    """TC-SN-009 | Wrong serial → Connect → measure elapsed time until 950 popup appears"""
+    _type_serial(drv, "112233")
+    drv.tap_text(CONNECT_BUTTON_TEXT, timeout=5, contains=False)
+    t_start = time.monotonic()
+    popup_visible = False
+    elapsed = -1.0
+    for _ in range(60):
+        time.sleep(0.5)
+        if drv.is_visible_text("Cannot find your S-Patch", timeout=1):
+            elapsed = round(time.monotonic() - t_start, 1)
+            popup_visible = True
+            break
+    try:
+        drv.tap_text("OK", timeout=5, contains=False)
+    except Exception:
+        pass
+    time.sleep(1)
+    if popup_visible:
+        log.info("TC-SN-009: 950 popup appeared in %.1fs", elapsed)
+    runner.assert_true(popup_visible, "950 popup did not appear within 20s for wrong serial")
+    runner.assert_true(elapsed <= 30.0, f"950 popup took too long: {elapsed}s (expected ≤ 30s)")
+
+
 TESTS = [
     test_sn_002_empty_connect_disabled,
     test_sn_003_partial_connect_state,
@@ -119,4 +157,6 @@ TESTS = [
     test_sn_005_non_numeric_state,
     test_sn_001_valid_6digits_connect_enabled,
     test_sn_008_keyboard_dismiss_retain,
+    test_sn_007_wrong_serial_950_popup,
+    test_sn_009_wrong_serial_950_popup_timing,
 ]

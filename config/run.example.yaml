@@ -46,41 +46,41 @@ android:
 
 # ── UI selectors ──────────────────────────────────────────────────────────────
 # Each value can be a string or a list of strings (tried in order).
-# Use a list to support both app language variants, e.g. ["OK", "확인"].
+# Use a list to support both app language variants, e.g. ["OK", "Confirm"].
 selectors:
   android:
     # ── Measurement start ──────────────────────────────────────────────
     start_now_text:         "Start Now"
-    consent_agree_text:     ["Agree", "동의"]
-    use_spatch_text:        ["Use S-Patch", "S-Patch 사용하기"]
-    duration_sheet_title:   ["Select a test period", "검사 기간을 선택해주세요"]
-    duration_24h_text:      ["24 Hours", "24 시간"]
-    duration_48h_text:      ["48 Hours", "48 시간"]
-    duration_72h_text:      ["72 Hours", "72 시간"]
-    confirm_text:           ["Confirm", "OK", "확인"]
+    consent_agree_text:     ["Agree"]
+    use_spatch_text:        ["Use S-Patch"]
+    duration_sheet_title:   ["Select a test period"]
+    duration_24h_text:      ["24 Hours"]
+    duration_48h_text:      ["48 Hours"]
+    duration_72h_text:      ["72 Hours"]
+    confirm_text:           ["Confirm", "OK"]
 
     # ── Offline mode (leave blank if your app has no offline path) ─────
-    offline_mode_text:      ["Offline", "오프라인"]
+    offline_mode_text:      ["Offline"]
     offline_checkbox_id:    ""          # resource-id of consent checkbox
-    offline_agree_text:     ["I Agree", "동의합니다"]
+    offline_agree_text:     ["I Agree"]
     offline_confirm_text:   ""          # separate confirm button (if any)
 
     # ── Running screen ─────────────────────────────────────────────────
-    symptom_add_text:       ["Add Symptom", "증상 추가"]
+    symptom_add_text:       ["Add Symptom"]
 
     # ── Symptom picker ─────────────────────────────────────────────────
-    symptom_picker_title:   ["Check your symptoms", "증상을 선택해주세요."]
+    symptom_picker_title:   ["Check your symptoms"]
     symptom_confirm_text:   ""          # submit button inside picker (blank = auto-closes)
     symptom_done_text:      ""          # final journal button (blank = not present)
     symptom_success_signal_text: ""     # toast/dialog confirming save (blank = skip check)
 
     # ── Other (free-text) input ────────────────────────────────────────
     other_text_field_id:    ""          # resource-id of the EditText (preferred)
-    keyboard_done_text:     ["Done", "완료"]
+    keyboard_done_text:     ["Done"]
 
     # ── Activity picker ────────────────────────────────────────────────
-    add_activity_text:      ["Add Activity", "활동 추가"]
-    activity_submit_text:   ["Add Activity", "활동 추가"]
+    add_activity_text:      ["Add Activity"]
+    activity_submit_text:   ["Add Activity"]
 
 # ── Symptom plan ──────────────────────────────────────────────────────────────
 # Define exact injection times (hours after test start).

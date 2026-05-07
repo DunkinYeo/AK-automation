@@ -1,12 +1,12 @@
 platform: android
 run:
   name: "ak_longrun"
-  duration_hours: 72          # 실제 검사 기간에 맞게 조정 (최대 720 = 30일)
-  symptom_interval_hours: 1   # 증상 주입 간격: 1 / 2 / 4 시간 중 선택
-  start_immediately: true     # 시작 직후 첫 주입 실행 여부
-  jitter_seconds: 0           # 주입 시간 랜덤 오차 (초)
+  duration_hours: 72          # adjust to actual study duration (max 720 = 30 days)
+  symptom_interval_hours: 1   # injection interval: 1 / 2 / 4 hours
+  start_immediately: true     # run first injection immediately on start
+  jitter_seconds: 0           # random jitter per injection (seconds)
   quiet_hours:
-    start: 2                  # 새벽 2시~6시 주입 스킵 (0으로 설정 시 비활성)
+    start: 2                  # skip injections from 2:00–6:00 (set to 0 to disable)
     end: 6
 
 recovery:
@@ -34,49 +34,49 @@ android:
 
 selectors:
   android:
-    # 메인 측정 화면 health check
+    # main measurement screen health check
     symptom_add_text: "Add Diary"
 
-    # Step 1 - Serial Number 입력
+    # Step 1 — Serial Number input
     serial_input_hint: "Enter the Serial Number here."
     connect_button_text: "Connect"
 
-    # Step 2 - Check Incoming Signal
+    # Step 2 — Check Incoming Signal
     check_signal_title: "Check Incoming Signal"
     live_streaming_text: "Live Streaming"
     continue_button_text: "Continue"
 
-    # Step 3 - Review Study Setting
+    # Step 3 — Review Study Setting
     review_study_title: "Review Study Setting"
     registered_study_text: "Registered Study"
 
-    # Start Study 화면
+    # Start Study screen
     start_study_button_text: "Start Study"
     network_status_text: "Network"
     bluetooth_status_text: "Bluetooth"
     battery_status_text: "Battery"
     patch_placement_text: "Patch Placement"
 
-    # 측정 중 메인 화면 (AK)
+    # Measurement main screen (AK)
     main_screen_text: "My Study Progress"
     log_symptoms_button_text: "Log Symptoms"
     device_status_tab_text: "Device Status"
     realtime_ecg_tab_text: "Real-time ECG"
 
-    # Log Symptoms 시트 (AK — Activity 없음)
+    # Log Symptoms sheet (AK — no Activity section)
     symptom_section_text: "Symptom"
     log_symptoms_submit_text: "Save"
 
-    # 에러 팝업
+    # Error popups
     no_study_info_title: "No Study Information"
     confirm_button_text: "Confirm"
 
-    # AK 전용 연결 오류 팝업
-    cannot_find_patch_title: "Cannot find your S-Patch"   # 기기 미발견 (코드 950)
-    reset_patch_title: "Reset your S-Patch"               # 초기화 필요 (코드 963)
+    # AK connection error popups
+    cannot_find_patch_title: "Cannot find your S-Patch"   # device not found (code 950)
+    reset_patch_title: "Reset your S-Patch"               # reset required (code 963)
     popup_ok_button_text: "Ok"
 
-    # 사이드 메뉴
+    # Side menu
     setting_text: "Setting"
     live_streaming_duration_text: "Live Streaming Duration"
     version_information_text: "Version Information"
@@ -86,5 +86,5 @@ selectors:
 
 slack:
   enabled: true
-  webhook_url: ""   # .env 파일의 SLACK_WEBHOOK_URL 환경변수로 설정
+  webhook_url: ""   # set via SLACK_WEBHOOK_URL in .env or enter directly
   mention: ""

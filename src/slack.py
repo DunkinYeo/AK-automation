@@ -1,5 +1,5 @@
 """
-Slack 알림 모듈 — S-Patch Accurkardia 자동화
+Slack notification module — S-Patch Accurkardia automation
 """
 import datetime
 import requests
@@ -34,7 +34,7 @@ def slack_run_start(webhook_url: str, serial: str, duration_hours: float,
         f"  • Serial: `{serial}`\n"
         f"  • Duration: `{int(duration_hours)}h`\n"
         f"  • Injection interval: `every {interval_hours:.0f}h`\n"
-        f"  • Expected injections: `~{injections}회`"
+        f"  • Expected injections: `~{injections}`"
     )
     _post(webhook_url, {"text": text})
 
@@ -64,7 +64,7 @@ def slack_run_complete(webhook_url: str, run_id: str, injection_count: int,
         f":white_check_mark: *AccurKardia Run Complete* — {now}\n"
         f"  • Run ID: `{run_id}`\n"
         f"  • Duration: `{int(duration_hours)}h`\n"
-        f"  • Total injections: `{injection_count}회`"
+        f"  • Total injections: `{injection_count}`"
     )
     _post(webhook_url, {"text": text})
 

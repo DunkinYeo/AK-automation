@@ -2,11 +2,11 @@
 """
 S-Patch VM Daily Runner
 
-매일 자동 실행:
-  1. Regression suites (serial, menu — 항상)
-  2. Regression suites (main, diary — 검사 진행 중일 때)
-  3. Injection 1회 검증 (검사 진행 중일 때)
-  4. Slack 결과 리포트
+Runs automatically every day:
+  1. Regression suites (serial, menu — always)
+  2. Regression suites (main, diary — when study is in progress)
+  3. Single injection validation (when study is in progress)
+  4. Slack result report
 
 Usage:
     python src/daily_runner.py --config config/spatch-vm.yaml
@@ -20,7 +20,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# .env 로드 (python-dotenv 없어도 직접 파싱)
+# Load .env (parsed directly without python-dotenv)
 def _load_dotenv():
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
     if not os.path.exists(env_path):
@@ -50,7 +50,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# suite명: (tests, require_study)
+# suite name: (tests, require_study)
 SUITES = {
     "serial":     (serial_input.TESTS, False),
     "menu":       (menu_step1.TESTS,   False),
@@ -90,18 +90,18 @@ def main():
     try:
         runner = TestRunner(drv, artifacts)
 
-        # ── 검사 진행 중 여부 확인 ────────────────────────────────
+        # ── Check whether a study is in progress ────────────────────────────────
         study_running = False
         try:
             ensure_on_main_screen(drv)
             study_running = True
-            log.info("[daily] 검사 진행 중 — 전체 suite 실행")
+            log.info("[daily] Study in progress — running all suites")
         except Exception:
-            log.info("[daily] 검사 미진행 — serial/menu suite만 실행")
+            log.info("[daily] No study in progress — running serial/menu suites only")
 
         # ── Regression suites ─────────────────────────────────────
-        # 검사 진행 중: Step 1 복귀 불가 → serial/menu 스킵, main/diary 실행
-        # 검사 미진행: serial/menu 실행, main/diary 스킵
+        # Study in progress: cannot return to Step 1 → skip serial/menu, run main/diary
+        # No study in progress: run serial/menu, skip main/diary
         for suite_name, (tests, require_study) in SUITES.items():
             if require_study and not study_running:
                 suite_results[suite_name] = {"passed": 0, "total": 0, "skipped": True}
@@ -116,7 +116,7 @@ def main():
             if not require_study:
                 reset_to_step1(drv, hard=True)
             else:
-                # suite 전환 전 메인 화면 재확인
+                # Re-confirm main screen before switching suite
                 ensure_on_main_screen(drv)
 
             pre_count = len(runner.results)
@@ -134,7 +134,7 @@ def main():
                 "_results": suite_results_list,
             }
 
-        # ── Injection 검증 (검사 진행 중일 때만) ─────────────────
+        # ── Injection validation (only when study is in progress) ─────────────────
         if study_running:
             try:
                 ensure_on_main_screen(drv)
@@ -153,7 +153,7 @@ def main():
             except Exception as e:
                 injection_result = {"success": False, "error": str(e)}
 
-        # ── 연속 실패 체크 ────────────────────────────────────────
+        # ── Consecutive failure check ────────────────────────────────────────
         all_failures = [
             r.message
             for v in suite_results.values()
@@ -164,22 +164,22 @@ def main():
         if webhook and len(all_failures) >= _CONSECUTIVE_FAIL_THRESHOLD:
             slack_urgent_alert(
                 webhook,
-                f"{len(all_failures)}개 테스트 실패 감지\n"
+                f"{len(all_failures)} test failures detected\n"
                 + "\n".join(f"• {m}" for m in all_failures[:5])
             )
 
-        # ── Slack 리포트 ──────────────────────────────────────────
+        # ── Slack report ──────────────────────────────────────────
         if webhook:
             slack_daily_report(webhook, suite_results, injection_result)
             slack_bug_report(webhook)
-            log.info("[daily] Slack 알림 전송 완료")
+            log.info("[daily] Slack notification sent successfully")
         else:
-            log.info("[daily] Slack 비활성화 — 알림 스킵")
+            log.info("[daily] Slack disabled — skipping notification")
 
-        # 결과 출력
+        # Print results
         total_p = sum(v["passed"] for v in suite_results.values() if not v.get("skipped"))
         total_t = sum(v["total"]  for v in suite_results.values() if not v.get("skipped"))
-        log.info("▶ Daily 결과: %d/%d passed", total_p, total_t)
+        log.info("▶ Daily result: %d/%d passed", total_p, total_t)
 
     finally:
         drv.close()

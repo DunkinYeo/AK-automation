@@ -345,6 +345,22 @@
       <div class="card-title">TC List</div>
       <div id="tc-list">
 
+        <div class="tc-group-label">Regression — No Study Required</div>
+
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label">Serial Input</span><span class="tc-count">8 TCs</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id">TC-SN-001</span> 6-digit serial → Connect button enabled</li>
+            <li><span class="tc-id">TC-SN-002</span> Empty input → Connect button disabled</li>
+            <li><span class="tc-id">TC-SN-003</span> 5-digit input → Connect state observed</li>
+            <li><span class="tc-id">TC-SN-004</span> 7-digit input → over-limit validation</li>
+            <li><span class="tc-id">TC-SN-005</span> Letter input → alphanumeric filter state</li>
+            <li><span class="tc-id">TC-SN-007</span> Wrong serial (112233) → Connect → 950 popup appears</li>
+            <li><span class="tc-id">TC-SN-008</span> 3-digit input → dismiss keyboard → value retained</li>
+            <li><span class="tc-id">TC-SN-009</span> Wrong serial → Connect → 950 popup timing measured (≤ 30s)</li>
+          </ul>
+        </details>
+
         <div class="tc-group-label">Regression — Study Active Required</div>
 
         <details class="tc-suite">
@@ -381,6 +397,18 @@
             <li><span class="tc-id">TC-MENU-STUDY-003</span> All menu sections visible</li>
             <li><span class="tc-id">TC-MENU-STUDY-004</span> Study Information tap → opens screen</li>
             <li><span class="tc-id">TC-MENU-STUDY-005</span> Device Information tap → opens screen</li>
+          </ul>
+        </details>
+
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label">Connectivity (BT / WiFi)</span><span class="tc-count">6 TCs</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id">TC-CONN-000</span> Pre-check: study active</li>
+            <li><span class="tc-id">TC-CONN-001</span> BT off → Device Status Bluetooth card shows Disconnected</li>
+            <li><span class="tc-id">TC-CONN-002</span> BT on after off → Bluetooth card recovers (Disconnected gone)</li>
+            <li><span class="tc-id">TC-CONN-003</span> WiFi off → OS confirms wifi_on=0 + Network card changes</li>
+            <li><span class="tc-id">TC-CONN-004</span> WiFi on after off → wifi_on=1 restored within 15s</li>
+            <li><span class="tc-id">TC-CONN-005</span> BT off → "How to Attach" guidance card appears</li>
           </ul>
         </details>
 

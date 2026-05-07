@@ -5,6 +5,8 @@ Requires study active (Start Study already tapped).
 import time
 import logging
 
+from src.regression.helpers import go_to_main
+
 log = logging.getLogger(__name__)
 
 _MAIN_TEXT    = "My Study Progress"
@@ -66,8 +68,19 @@ def test_main_004_realtime_ecg_tab(drv, runner):
     drv.tap_text("Real-time ECG", timeout=5)
     time.sleep(1.5)
     visible = drv.is_visible_text("Live ECG Signal", timeout=5)
-    drv.tap_text("Device Status", timeout=5)
-    time.sleep(0.5)
+    # Restore to main screen — popup/BLE loss may have navigated away
+    try:
+        drv.tap_text("Device Status", timeout=3)
+        time.sleep(0.5)
+    except Exception:
+        try:
+            drv.tap_text("OK", timeout=2, contains=False)
+        except Exception:
+            pass
+        try:
+            go_to_main(drv)
+        except Exception:
+            pass
     runner.assert_true(visible, "Live ECG Signal not visible on Real-time ECG tab")
 
 

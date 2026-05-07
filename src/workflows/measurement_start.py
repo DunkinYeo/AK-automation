@@ -1,13 +1,13 @@
 """
-AK 앱 메인 측정 화면 확인 (ensure_on_main_screen)
+AK app main measurement screen check (ensure_on_main_screen)
 
-AK 앱은 검사 시작이 수동이므로, 자동화 시작 시점에
-이미 메인 측정 화면(Study Information + Add Diary)에 있는지만 확인.
+Since the AK app requires study start to be done manually, at automation start
+we only verify that the main measurement screen (Study Information + Add Diary) is shown.
 
-경로:
-  A) 이미 메인 화면 → 즉시 반환
-  B) 팝업(Cannot find your S-Patch / Reset your S-Patch) → 처리 후 재확인
-  C) 메인 화면 아님 → RuntimeError (검사 시작 필요)
+Paths:
+  A) Already on main screen → return immediately
+  B) Popup (Cannot find your S-Patch / Reset your S-Patch) → handle then re-check
+  C) Not on main screen → RuntimeError (study start required)
 """
 import logging
 import time
@@ -18,44 +18,44 @@ from src.workflows.popup_handler import handle_any_popup
 
 log = logging.getLogger(__name__)
 
-_MAIN_SCREEN_TEXT = "Log Symptoms"   # AK 메인 화면 식별자
+_MAIN_SCREEN_TEXT = "Log Symptoms"   # AK main screen identifier
 _LOG_SYMPTOMS_BTN = "Log Symptoms"
-_DIARY_X_BTN      = (1009, 1226)   # Log Symptoms 시트 X 버튼 (Pixel 7 기준)
+_DIARY_X_BTN      = (1009, 1226)   # X button on Log Symptoms sheet (Pixel 7 reference)
 
 
 @retry(tries=3, delay=5)
 def ensure_on_main_screen(d: AndroidDriver):
-    """앱이 메인 측정 화면에 있는지 확인. 아니면 RuntimeError."""
+    """Verify the app is on the main measurement screen. Raises RuntimeError if not."""
     d.reporter.log_event("ensure_on_main_screen", {})
 
-    # ── 앱 포그라운드 ──────────────────────────────────────────────
+    # ── Bring app to foreground ──────────────────────────────────────────────
     d.bring_to_foreground()
     d.wait_idle(2.0)
 
-    # ── Log Symptoms 시트가 열려 있으면 닫기 ─────────────────────
+    # ── Close Log Symptoms sheet if open ─────────────────────
     if d.is_visible_text("Symptom", timeout=1):
-        log.info("[setup] Log Symptoms 시트 열림 감지 → X 버튼으로 닫기")
+        log.info("[setup] Log Symptoms sheet open detected → closing with X button")
         try:
             d.drv.tap([_DIARY_X_BTN])
             d.wait_idle(1.0)
         except Exception:
             pass
 
-    # ── 팝업 처리 ──────────────────────────────────────────────────
+    # ── Handle popups ──────────────────────────────────────────────────
     handle_any_popup(d)
 
-    # ── 메인 화면 확인 ────────────────────────────────────────────
+    # ── Confirm main screen ────────────────────────────────────────────
     if d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
         d.reporter.log_event("main_screen_confirmed", {})
-        log.info("[setup] 메인 측정 화면 확인됨")
+        log.info("[setup] Main measurement screen confirmed")
         return
 
-    # Start Study 버튼이 보이면 스터디가 시작되지 않은 상태
+    # If Start Study button is visible, study has not been started yet
     if d.is_visible_text("Start Study", timeout=2):
         d.screenshot("ensure_main_screen_failed")
-        raise RuntimeError("Start Study 화면 감지 — 앱에서 Start Study를 먼저 실행해주세요.")
+        raise RuntimeError("Start Study screen detected — please run Start Study in the app first.")
 
-    # 한 번 더 대기 후 재확인 (앱 로딩 중일 수 있음)
+    # Wait once more and re-check (app may still be loading)
     time.sleep(3)
     handle_any_popup(d)
 
@@ -65,6 +65,6 @@ def ensure_on_main_screen(d: AndroidDriver):
 
     d.screenshot("ensure_main_screen_failed")
     raise RuntimeError(
-        f"메인 측정 화면이 아님 — '{_MAIN_SCREEN_TEXT}' 미표시. "
-        "앱에서 Start Study를 먼저 실행해주세요."
+        f"Not on main measurement screen — '{_MAIN_SCREEN_TEXT}' not displayed. "
+        "Please run Start Study in the app first."
     )

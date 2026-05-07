@@ -2,16 +2,16 @@
 """
 S-Patch VM Full Automation Runner
 
-SDK 검증용 단일 진입점. 아래 플로우를 순서대로 자동 실행:
+Single entry point for SDK validation. Runs the following flow in order:
 
   1. App restart → Step 1
   2. [Regression] serial + menu
   3. Serial input → Connect → Step 2
-  4. [Regression] signal (Step 2 화면)
+  4. [Regression] signal (Step 2 screen)
   5. Continue → Step 3 (Review Study Setting)
-  6. Continue → Start Study → 측정 시작
+  6. Continue → Start Study → measurement start
   7. [Regression] main + diary + menu-study
-  8. Symptom injection schedule (duration_hours 동안)
+  8. Symptom injection schedule (for duration_hours)
   9. Final Slack report
 
 Usage:
@@ -78,7 +78,7 @@ _MAIN_TEXT   = "Study Information"
 # ---------------------------------------------------------------------------
 
 def _has_text(drv, text: str) -> bool:
-    """UiAutomator textContains 즉시 검사 — 대기 없음, 예외 없음."""
+    """UiAutomator textContains immediate check — no wait, no exception."""
     try:
         return len(drv.drv.find_elements(
             By.ANDROID_UIAUTOMATOR,
@@ -89,7 +89,7 @@ def _has_text(drv, text: str) -> bool:
 
 
 def _connect_to_step2(drv, serial: str, wait_ble: int = 60) -> bool:
-    """Step 1에서 시리얼 입력 → Connect → Step 2 대기. 성공 시 True."""
+    """From Step 1, enter serial → Connect → wait for Step 2. Returns True on success."""
     if not drv.is_visible_text(_STEP1_TEXT, timeout=5):
         return False
     el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
@@ -103,24 +103,24 @@ def _connect_to_step2(drv, serial: str, wait_ble: int = 60) -> bool:
         if _has_text(drv, _STEP2_TEXT):
             return True
         if _has_text(drv, _STEP3_TEXT):
-            log.warning("[connect] Step 2 자동 통과 감지 (웹 검사 등록 상태) → Step 3 Continue 즉시 탭")
+            log.warning("[connect] Step 2 auto-pass detected (study registered on web) → tapping Step 3 Continue immediately")
             try:
                 drv.tap_text("Continue", timeout=5, contains=False)
             except Exception:
                 pass
-            return False  # Step 2 regression 스킵
+            return False  # Skip Step 2 regression
         if _has_text(drv, _MAIN_TEXT):
-            log.warning("[connect] 이미 측정 중")
+            log.warning("[connect] Already measuring")
             return False
         time.sleep(0.5)
     return False
 
 
 def _proceed_to_start_study(drv) -> bool:
-    """현재 화면에서 Start Study 화면까지 진입.
+    """Navigate from the current screen to the Start Study screen.
 
-    _connect_to_step2가 이미 Step 3의 Continue를 탭했을 수 있으므로
-    Start Study 화면을 기다리되, 아직 Step 2/3에 있으면 Continue를 탭.
+    Since _connect_to_step2 may have already tapped Continue on Step 3,
+    wait for the Start Study screen; if still on Step 2/3, tap Continue.
     """
     continued_step2 = False
     continued_step3 = False
@@ -128,7 +128,7 @@ def _proceed_to_start_study(drv) -> bool:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if _has_text(drv, _MAIN_TEXT):
-            log.info("[proceed] 이미 측정 중")
+            log.info("[proceed] Already measuring")
             return True
         if _has_text(drv, _START_TEXT):
             return True
@@ -155,7 +155,7 @@ def _proceed_to_start_study(drv) -> bool:
 
 
 def _start_study(drv) -> bool:
-    """Start Study 버튼 탭 → 메인 측정 화면 대기."""
+    """Tap the Start Study button → wait for the main measurement screen."""
     if not drv.is_visible_text(_START_TEXT, timeout=5):
         return False
     drv.tap_text(_START_TEXT, timeout=5)
@@ -244,12 +244,12 @@ def main():
         already_running = skip_regression and drv.is_visible_text(_MAIN_TEXT, timeout=5)
 
         if already_running:
-            log.info("이미 측정 중 + skip_regression → setup 전체 스킵, 바로 injection 시작")
+            log.info("Already measuring + skip_regression → skipping entire setup, starting injection immediately")
             for s in ("serial", "menu", "signal", "main", "diary", "menu-study"):
                 suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
                 reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
             reporter.log_event("study_started", {})
-            log.info("검사 진행 중 확인 완료")
+            log.info("Study in progress confirmed")
         else:
             # ── 1. App restart → Step 1 ──────────────────────────────
             log.info("=" * 55)
@@ -290,7 +290,7 @@ def main():
             reset_to_step1(drv, hard=True)
             on_step2 = _connect_to_step2(drv, serial)
 
-            # ── 4. Regression: signal (Step 2 화면에서) ──────────────
+            # ── 4. Regression: signal (on Step 2 screen) ──────────────
             if not skip_regression:
                 if on_step2:
                     log.info("=" * 55)
@@ -303,7 +303,7 @@ def main():
                         r = suite_results["signal"]
                         slack_regression_suite(webhook, "signal", r["passed"], r["total"], r.get("failures", []))
                 else:
-                    log.warning("[signal] Step 2 진입 실패 — signal regression 스킵")
+                    log.warning("[signal] Failed to enter Step 2 — skipping signal regression")
                     suite_results["signal"] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
                     reporter.log_event("regression_suite_result", {"suite": "signal", "passed": 0, "total": 0, "failures": [], "skipped": True})
 
@@ -312,17 +312,17 @@ def main():
             log.info("STEP 3 — Proceeding to Start Study")
             on_start = _proceed_to_start_study(drv)
             if not on_start:
-                raise RuntimeError("Start Study 화면 진입 실패 — 웹에 검사가 등록되었는지 확인하세요")
+                raise RuntimeError("Failed to enter Start Study screen — please verify that a study is registered on the web")
 
             if drv.is_visible_text(_MAIN_TEXT, timeout=2):
-                log.info("이미 측정 중 — Start Study 스킵")
+                log.info("Already measuring — skipping Start Study")
             else:
-                log.info("Start Study 탭")
+                log.info("Tapping Start Study")
                 if not _start_study(drv):
-                    raise RuntimeError("검사 시작 실패 — Start Study 후 메인 화면 미표시")
+                    raise RuntimeError("Study start failed — main screen not displayed after Start Study")
 
             reporter.log_event("study_started", {})
-            log.info("검사 시작 완료")
+            log.info("Study started successfully")
 
             # ── 6. Regression: main + diary + menu-study ─────────────
             if skip_regression:
@@ -440,21 +440,21 @@ def main():
         _stop_monitor.set()
 
         reporter.log_event("run_complete", {"injection_count": injection_count[0]})
-        log.info("자동화 완료 — 총 %d회 주입", injection_count[0])
+        log.info("Automation complete — total %d injections", injection_count[0])
 
     except Exception as e:
         reporter.log_event("run_failed", {"error": str(e)})
-        log.error("자동화 실패: %s", e)
+        log.error("Automation failed: %s", e)
         injection_result = {"success": False, "error": str(e)}
         raise
 
     finally:
-        # ── 8. Slack 최종 리포트 ──────────────────────────────────
+        # ── 8. Slack final report ──────────────────────────────────
         if webhook:
             total_p = sum(v["passed"] for v in suite_results.values() if not v.get("skipped"))
             total_t = sum(v["total"]  for v in suite_results.values() if not v.get("skipped"))
             if total_t > 0 and (total_t - total_p) >= 3:
-                slack_urgent_alert(webhook, f"{total_t - total_p}개 테스트 실패")
+                slack_urgent_alert(webhook, f"{total_t - total_p} tests failed")
             slack_daily_report(
                 webhook, suite_results, injection_result,
                 duration_hours=duration_hours,
@@ -462,7 +462,7 @@ def main():
                 injection_count=injection_count[0],
             )
             slack_bug_report(webhook)
-            log.info("Slack 리포트 전송 완료")
+            log.info("Slack report sent successfully")
 
         try:
             reporter.render_html_summary()

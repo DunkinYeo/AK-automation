@@ -3,18 +3,19 @@
 S-Patch Accurkardia Regression Test Runner
 
 Usage:
-    # 기기 연결 불필요
+    # no device connection needed
     python src/run_regression.py --suite serial
     python src/run_regression.py --suite menu
 
-    # 검사 미등록 + BLE 연결 필요
+    # BLE connected, no study registered
     python src/run_regression.py --suite signal
     python src/run_regression.py --suite study
 
-    # 검사 진행 중 필요
+    # study active required
     python src/run_regression.py --suite main
     python src/run_regression.py --suite diary
     python src/run_regression.py --suite menu-study
+    python src/run_regression.py --suite connectivity
 """
 import argparse
 import logging
@@ -27,7 +28,7 @@ from src.artifacts import ArtifactManager
 from src.reporter import RunReporter
 from src.driver import AndroidDriver
 from src.regression.runner import TestRunner
-from src.regression import serial_input, menu_step1, signal_check, study_popup, main_screen, add_diary, menu_study
+from src.regression import serial_input, menu_step1, signal_check, study_popup, main_screen, add_diary, menu_study, connectivity
 from src.regression.helpers import reset_to_step1, go_to_main
 
 logging.basicConfig(
@@ -36,17 +37,18 @@ logging.basicConfig(
 )
 
 # (tests, setup)
-# setup="hard"  : 앱 강제 재시작 → Step 1
-# setup="soft"  : 뒤로가기 → Step 1 (BLE 유지)
-# setup="main"  : Step 1 → Connect → Step 3 → 측정 메인 화면 (BLE + 스터디 등록 필요)
+# setup="hard"  : force-restart app → Step 1
+# setup="soft"  : back button → Step 1 (BLE retained)
+# setup="main"  : Step 1 → Connect → Step 3 → measurement main screen (BLE + study required)
 SUITES = {
     "serial": (serial_input.TESTS,  "hard"),
     "menu":   (menu_step1.TESTS,    "hard"),
     "signal": (signal_check.TESTS,  "soft"),
     "study":  (study_popup.TESTS,   "soft"),
-    "main":       (main_screen.TESTS,  "main"),  # Step 1 → 연결 → 측정 메인 화면
-    "diary":      (add_diary.TESTS,    "main"),  # Step 1 → 연결 → 측정 메인 화면
-    "menu-study": (menu_study.TESTS,   "main"),  # Step 1 → 연결 → 측정 메인 화면
+    "main":         (main_screen.TESTS,    "main"),  # Step 1 → connect → measurement main screen
+    "diary":        (add_diary.TESTS,      "main"),  # Step 1 → connect → measurement main screen
+    "menu-study":   (menu_study.TESTS,     "main"),  # Step 1 → connect → measurement main screen
+    "connectivity": (connectivity.TESTS,   "main"),  # BT / WiFi off-on during active study
 }
 
 
@@ -56,12 +58,12 @@ def main():
     parser.add_argument(
         "--suite",
         default="all",
-        help="실행할 테스트 suite (단일 또는 쉼표 구분 목록 또는 'all')",
+        help="suite(s) to run: single name, comma-separated list, or 'all'",
     )
     parser.add_argument(
         "--result-json",
         default="",
-        help="결과를 JSON 파일로 저장할 경로 (선택 사항)",
+        help="Path to save results as a JSON file (optional)",
     )
     args = parser.parse_args()
 
@@ -106,7 +108,7 @@ def main():
 
         total = len(runner.results)
         passed = sum(1 for r in runner.results if r.passed)
-        logging.info("▶ 전체 결과: %d/%d passed", passed, total)
+        logging.info("▶ Overall result: %d/%d passed", passed, total)
 
         if args.result_json:
             import json as _json

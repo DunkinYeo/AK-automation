@@ -1,5 +1,5 @@
 """
-공통 헬퍼 함수
+Common helper functions
 """
 import time
 import logging
@@ -17,14 +17,14 @@ DIARY_X_BTN = (1009, 1226)       # X close button on Log Symptoms sheet (Pixel 7
 
 def reset_to_step1(drv, hard: bool = True):
     """
-    Step 1(Connect Your S-Patch) 화면으로 이동.
-    hard=True  : 앱 강제 종료 후 재시작 (BLE 끊김 주의)
-    hard=False : 뒤로가기 반복으로 Step 1 복귀 (BLE 유지)
+    Navigate to the Step 1 (Connect Your S-Patch) screen.
+    hard=True  : Force-quit and restart the app (note: BLE will disconnect)
+    hard=False : Press back repeatedly to return to Step 1 (BLE retained)
     """
     pkg = drv.cfg.get("app_package")
 
     if hard:
-        log.info("[setup] 앱 재시작 → Step 1")
+        log.info("[setup] App restart → Step 1")
         try:
             drv.drv.terminate_app(pkg)
         except Exception:
@@ -38,7 +38,7 @@ def reset_to_step1(drv, hard: bool = True):
                 drv.drv.start_activity(pkg, act)
         time.sleep(2)
     else:
-        log.info("[setup] 뒤로가기 → Step 1 (BLE 유지)")
+        log.info("[setup] Back key → Step 1 (BLE retained)")
         for _ in range(5):
             if drv.is_visible_text("Connect Your S-Patch", timeout=2):
                 break
@@ -48,14 +48,14 @@ def reset_to_step1(drv, hard: bool = True):
 
 
 def go_to_step2(drv, wait_ble: int = 45):
-    """Step 1에서 시리얼 입력 후 Step 2 진입. wait_ble: BLE 연결 대기 시간(초)
+    """Enter serial on Step 1, then proceed to Step 2. wait_ble: BLE connection wait time (seconds)
 
-    주의: 웹에 검사가 등록된 상태면 Step 2를 빠르게 지나쳐
-    Step 3(Review Study Setting) 또는 메인 화면으로 자동 진입할 수 있음.
-    TC-SIG/STUDY 테스트는 검사 미등록 상태에서 실행 권장.
+    Note: If a study is registered on the web, Step 2 may be passed quickly,
+    auto-entering Step 3 (Review Study Setting) or the main screen.
+    TC-SIG/STUDY tests are recommended to run without a registered study.
     """
     if not drv.is_visible_text("Connect Your S-Patch", timeout=5):
-        raise Exception("Step 1 화면이 아님 — reset_to_step1() 먼저 호출 필요")
+        raise Exception("Not on Step 1 screen — please call reset_to_step1() first")
 
     serial = drv.cfg.get("test_serial_number", "680150")
     el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
@@ -64,85 +64,85 @@ def go_to_step2(drv, wait_ble: int = 45):
     time.sleep(0.5)
     drv.tap_text("Connect", timeout=5, contains=False)
 
-    # BLE 연결 + Step 2 로딩 대기
+    # Wait for BLE connection + Step 2 loading
     deadline = time.monotonic() + wait_ble
     while time.monotonic() < deadline:
         if drv.is_visible_text("Check Incoming Signal", timeout=2):
             return
-        # 웹에 검사 등록된 경우 Step 2를 빠르게 지나침 → 경고 후 실패
+        # If study is registered on web, Step 2 is passed quickly → warn and fail
         if drv.is_visible_text("Review Study Setting", timeout=1):
-            raise Exception("Step 2 스킵됨 — 웹에 검사가 등록된 상태. 검사 미등록 후 재시도 필요")
+            raise Exception("Step 2 skipped — study is registered on web. Retry after unregistering study")
         if drv.is_visible_text("Study Information", timeout=1):
-            raise Exception("Step 2 스킵됨 — 이미 검사 진행 중. 검사 종료 후 재시도 필요")
+            raise Exception("Step 2 skipped — study already in progress. Retry after ending study")
         time.sleep(1)
 
-    raise Exception(f"Step 2 진입 실패 ({wait_ble}s 대기 후 'Check Incoming Signal' 미표시)")
+    raise Exception(f"Failed to enter Step 2 ('Check Incoming Signal' not displayed after {wait_ble}s)")
 
 
 def go_to_main(drv, wait_ble: int = 60):
-    """앱 초기 화면 → Connect → (Step 2/3/Start Study 자동 처리) → 측정 메인 화면.
+    """App initial screen → Connect → (auto-handle Step 2/3/Start Study) → main measurement screen.
 
-    스터디 등록+시작 상태: 앱 재시작 시 시리얼 입력 없이 Connect 버튼만 노출.
-    스터디 미등록 상태: 시리얼 입력 + Connect.
-    BLE 오류 팝업(950/963) 자동 처리.
+    Study registered + started: only the Connect button is shown on app restart (no serial input).
+    Study not registered: enter serial + Connect.
+    BLE error popups (950/963) are handled automatically.
     """
-    # 시리얼 입력 필드가 있으면 입력 (미등록 상태)
+    # Enter serial if input field is present (not registered state)
     try:
         el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
         serial = drv.cfg.get("test_serial_number", "")
         el.clear()
         el.send_keys(serial)
         time.sleep(0.5)
-        log.info("[go_to_main] 시리얼 입력: %s", serial)
+        log.info("[go_to_main] Serial entered: %s", serial)
     except Exception:
-        log.info("[go_to_main] EditText 없음 — 등록된 기기로 바로 Connect")
+        log.info("[go_to_main] No EditText — connecting directly with registered device")
 
     drv.tap_text("Connect", timeout=10, contains=False)
-    log.info("[go_to_main] Connect 탭, BLE 연결 대기 최대 %ds", wait_ble)
+    log.info("[go_to_main] Connect tapped, waiting up to %ds for BLE connection", wait_ble)
 
     deadline = time.monotonic() + wait_ble
     while time.monotonic() < deadline:
-        # 측정 메인 화면 (AK: "Log Symptoms" 버튼 표시 = 스터디 진행 중)
+        # Main measurement screen (AK: "Log Symptoms" button visible = study in progress)
         if drv.is_visible_text("Log Symptoms", timeout=1):
-            log.info("[go_to_main] 측정 메인 화면 도달")
+            log.info("[go_to_main] Main measurement screen reached")
             return
 
-        # Start Study 화면 (AK 전용 — Step 3 이후)
+        # Start Study screen (AK specific — after Step 3)
         if drv.is_visible_text("Start Study", timeout=1):
-            log.info("[go_to_main] Start Study 화면 감지 → Start Study 탭")
+            log.info("[go_to_main] Start Study screen detected → tapping Start Study")
             drv.tap_text("Start Study", timeout=5, contains=False)
             time.sleep(2)
             continue
 
-        # Step 3 — Review Study Setting (스터디 등록 상태, Step 2 스킵)
+        # Step 3 — Review Study Setting (study registered, Step 2 skipped)
         if drv.is_visible_text("Review Study Setting", timeout=1):
-            log.info("[go_to_main] Step 3 감지 → Continue")
+            log.info("[go_to_main] Step 3 detected → Continue")
             drv.tap_text("Continue", timeout=5, contains=False)
             time.sleep(1)
             continue
 
-        # Step 2 — Check Incoming Signal (스터디 미등록 상태)
+        # Step 2 — Check Incoming Signal (study not registered)
         if drv.is_visible_text("Check Incoming Signal", timeout=1):
-            log.info("[go_to_main] Step 2 감지 → Continue")
+            log.info("[go_to_main] Step 2 detected → Continue")
             drv.tap_text("Continue", timeout=5, contains=False)
             time.sleep(1)
             continue
 
-        # AK 오류 팝업 — Cannot find your S-Patch (950)
+        # AK error popup — Cannot find your S-Patch (950)
         if drv.is_visible_text("Cannot find your S-Patch", timeout=1):
-            log.warning("[go_to_main] BLE 오류 팝업(950) 감지 → Ok")
+            log.warning("[go_to_main] BLE error popup (950) detected → Ok")
             try:
-                drv.tap_text("Ok", timeout=3, contains=False)
+                drv.tap_text("OK", timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(2)
             continue
 
-        # AK 오류 팝업 — Reset your S-Patch (963)
+        # AK error popup — Reset your S-Patch (963)
         if drv.is_visible_text("Reset your S-Patch", timeout=1):
-            log.warning("[go_to_main] BLE 오류 팝업(963) 감지 → Ok")
+            log.warning("[go_to_main] BLE error popup (963) detected → Ok")
             try:
-                drv.tap_text("Ok", timeout=3, contains=False)
+                drv.tap_text("OK", timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(2)
@@ -150,7 +150,7 @@ def go_to_main(drv, wait_ble: int = 60):
 
         time.sleep(1)
 
-    raise Exception(f"측정 메인 화면 진입 실패 ({wait_ble}s 대기 후 'Study Information' 미표시)")
+    raise Exception(f"Main screen not reached after {wait_ble}s — 'Log Symptoms' not visible")
 
 
 def open_menu(drv, wait: float = 2.0):
@@ -159,9 +159,9 @@ def open_menu(drv, wait: float = 2.0):
         time.sleep(wait)
         if drv.is_visible_text("Setting", timeout=2):
             return
-        log.warning("[open_menu] 메뉴 미열림, 재시도 %d/3", attempt + 1)
+        log.warning("[open_menu] Menu did not open, retrying %d/3", attempt + 1)
         time.sleep(0.5)
-    raise Exception("open_menu: 3회 시도 후 메뉴 열기 실패")
+    raise Exception("open_menu: Failed to open menu after 3 attempts")
 
 
 def close_menu(drv):

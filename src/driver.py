@@ -222,7 +222,7 @@ class AndroidDriver:
         """
         Find element trying priority order of selectors.
         If `contains=True`, skip resource-id/accessibility attempts and go
-        straight to textContains (useful for partial Korean text).
+        straight to textContains (useful for partial text matches).
         """
         if contains:
             locator = (
@@ -668,7 +668,7 @@ class AndroidDriver:
         return False
 
     def _adb_wifi_off(self) -> bool:
-        """ADB로 WiFi on/off 상태 확인. 오류 시 False 반환 (false negative 허용)."""
+        """Check WiFi on/off state via ADB. Returns False on error (false negatives allowed)."""
         try:
             udid = self.cfg.get("udid", "")
             cmd = ["adb"]
@@ -682,7 +682,7 @@ class AndroidDriver:
             return False
 
     def _try_add_diary_wifi_off(self):
-        """WiFi 꺼진 상태에서 Add Diary 제출 시도 — 동작 여부 기록."""
+        """Attempt Add Diary submission while WiFi is off — records whether it works."""
         import random as _random
         import time as _time
         from src.workflows.symptom_inject import SYMPTOMS, ACTIVITIES
@@ -727,7 +727,7 @@ class AndroidDriver:
             self.reporter.log_event("wifi_off_diary_result", {"result": f"error: {e}"})
 
     def _verify_ecg_after_reconnect(self):
-        """재연결 후 View 탭 → Live ECG Signal 정상 표시 확인."""
+        """After reconnect, tap View → verify Live ECG Signal is displayed correctly."""
         import time as _time
         try:
             log.info("[connectivity] Verifying ECG signal after BT reconnect")
@@ -750,7 +750,7 @@ class AndroidDriver:
             self.reporter.log_event("bt_reconnect_ecg_result", {"result": f"error: {e}"})
 
     def _try_add_diary_bt_off(self):
-        """BT 끊긴 상태에서 Add Diary 증상+활동 선택 후 제출 — 동작 여부 기록."""
+        """Select symptom + activity in Add Diary while BT is disconnected, then submit — records whether it works."""
         import random as _random
         import time as _time
         from src.workflows.symptom_inject import SYMPTOMS, ACTIVITIES
@@ -767,11 +767,11 @@ class AndroidDriver:
             _time.sleep(2.0)  # wait for diary form to fully load
             self.screenshot("connectivity_bt_off_diary_opened")
 
-            # symptom 선택
+            # Select symptom
             self.tap_text(symptom, timeout=8)
             _time.sleep(0.5)
 
-            # activity 선택 — 화면에 안 보이면 스크롤 후 재시도
+            # Select activity — scroll down and retry if not visible on screen
             if not self.is_visible_text(activity, timeout=3):
                 log.info("[connectivity] activity not visible, scrolling down")
                 try:
@@ -784,7 +784,7 @@ class AndroidDriver:
             self.tap_text(activity, timeout=8)
             _time.sleep(0.3)
 
-            # 제출
+            # Submit
             self.tap_text("Add Diary", timeout=5)
             _time.sleep(1.5)
             self.screenshot("connectivity_bt_off_diary_submitted")

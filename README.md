@@ -1,142 +1,142 @@
 # S-Patch AccurKardia Automation
 
-S-Patch AccurKardia 앱 장기 실행 테스트 자동화 도구.
-24/48/72/144h ECG 측정 중 주기적으로 증상 주입(Log Symptoms)을 실행하고,
-앱 상태 이상 감지 시 자동 복구 + Slack 알림을 발송합니다.
+Long-run test automation tool for the S-Patch AccurKardia app.
+Periodically injects symptoms (Log Symptoms) during ECG monitoring sessions
+and sends Slack notifications on start, injection results, completion, and failure.
 
 ---
 
-## 기능
+## Features
 
-- **장기 실행 자동화**: 설정한 시간 동안 일정 간격으로 증상 주입
-- **자동 복구**: 팝업 감지, 앱 재시작, Appium 세션 복구
-- **Slack 알림**: 시작 / 주입 결과 / 완료 / 실패 알림
-- **Quiet Hours**: 새벽 시간대 주입 자동 스킵
-- **Regression 테스트**: 7개 suite, UI TC 자동 검증
-- **웹 UI**: 브라우저에서 설정·실행·로그 확인 (포트 5002)
-- **배포 ZIP**: Mac / Windows 배포 패키지 자동 생성
+- **Long-run automation**: Symptom injection at configurable intervals over the test duration
+- **Auto-recovery**: Popup detection, app restart, Appium session recovery
+- **Slack notifications**: Run start / injection result / complete / failed
+- **Quiet Hours**: Skip injections during configured overnight hours
+- **Regression tests**: 7 suites, automated UI TC verification
+- **Web UI**: Browser-based control, monitoring, and log viewer (port 5002)
+- **Distribution ZIP**: Auto-build Mac / Windows deployment packages
 
 ---
 
-## 요구사항
+## Requirements
 
-| 항목 | 버전 |
-|------|------|
-| Python | 3.10 이상 |
-| Node.js | 18 이상 |
+| Item | Version |
+|------|---------|
+| Python | 3.10+ |
+| Node.js | 18+ |
 | Appium | 2.x |
-| ADB (android-platform-tools) | 최신 |
-| Android 기기 | USB 디버깅 활성화 |
+| ADB (android-platform-tools) | latest |
+| Android device | USB Debugging enabled |
 
-AccurKardia 앱이 **검사 진행 중** 상태 (측정 메인 화면 — "My Study Progress" 표시) 여야 합니다.
+The AccurKardia app must be in an **active study state** ("My Study Progress" screen visible).
 
 ---
 
-## 빠른 시작 (macOS)
+## Quick Start (macOS)
 
 ```bash
-# 1. 최초 1회 — 환경 설치
-./install.command        # 또는: bash scripts/setup_env.sh
+# 1. First time — install environment
+./install.command        # or: bash scripts/setup_env.sh
 
-# 2. 실행
-./run.command            # Appium + 웹서버 + 브라우저 자동 오픈
+# 2. Run
+./run.command            # Appium + web server + browser auto-open
 
-# 3. 종료
+# 3. Stop
 ./STOP.command
 ```
 
-## 빠른 시작 (Windows)
+## Quick Start (Windows)
 
 ```
-install.bat   ← 최초 1회
-run.bat       ← 실행
-STOP.bat      ← 종료
+install.bat   ← first time only
+run.bat       ← run
+STOP.bat      ← stop
 ```
 
 ---
 
-## CLI 실행
+## CLI
 
 ```bash
-# 가상환경 활성화
+# Activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 장기 실행 테스트
+# Long-run test
 python src/main.py --config config/accurkardia.yaml
 
-# 설정 확인만 (기기 연결 없음)
+# Validate config only (no device connection)
 python src/main.py --config config/accurkardia.yaml --dry-run
 
-# 한 번만 주입 후 종료
+# Single injection then exit
 python src/main.py --config config/accurkardia.yaml --once
 ```
 
 ---
 
-## 웹 UI
+## Web UI
 
 ```bash
 make web
-# → http://127.0.0.1:5002
+# → http://localhost:5002
 ```
 
-- 기기 선택 / S-Patch 시리얼 입력 / 실행 시간·간격 설정
-- Regression 테스트 실행 및 결과 확인
-- 실패 아티팩트 브라우저 (`/failures`)
-- 헤더의 **⬇ Mac** / **⬇ Windows** 버튼으로 배포 ZIP 즉시 다운로드
+- Device selection / S-Patch serial input / duration and interval settings
+- Regression test execution and result display
+- Failure artifact browser (`/failures`)
+- **⬇ Mac** / **⬇ Windows** buttons in the header to download distribution ZIPs
 
 ---
 
 ## Makefile
 
 ```bash
-make install          # 가상환경 + 패키지 설치
-make run              # 장기 실행 테스트
-make web              # 웹 UI (포트 5002)
-make dry-run          # 설정 확인
+make install          # create venv + install packages
+make run              # long-run test
+make web              # web UI (port 5002)
+make dry-run          # validate config only
 
 # Regression
-make regression       # 전체 suite 실행
-make reg-main         # 측정 메인 화면 TC
-make reg-diary        # Log Symptoms/Diary TC
-make reg-menu-study   # 측정 중 메뉴 TC
-make reg-serial       # 시리얼 입력 TC
-make reg-menu         # 설정 메뉴 TC
-make reg-signal       # Check Incoming Signal TC
-make reg-study        # Review Study Setting TC
+make regression       # run all suites
+make reg-main         # Main Screen TCs
+make reg-diary        # Log Symptoms TCs
+make reg-menu-study   # Study menu TCs
+make reg-serial       # Serial input TCs
+make reg-menu         # Settings menu TCs
+make reg-signal       # Check Incoming Signal TCs
+make reg-study        # Review Study Setting TCs
 
-# 배포 ZIP 빌드
-make dist             # Mac + Windows 모두 (→ ~/Desktop)
+# Distribution ZIPs
+make dist             # Mac + Windows → ~/Desktop
 make dist-mac
 make dist-windows
-make dist OUT=/tmp    # 출력 경로 지정
+make dist OUT=/tmp    # custom output path
 ```
 
 ---
 
-## 설정 파일
+## Configuration
 
-`config/accurkardia.yaml` 주요 항목:
+Key fields in `config/accurkardia.yaml`:
 
 ```yaml
 run:
-  duration_hours: 72            # 실행 시간 (h)
-  symptom_interval_hours: 1     # 증상 주입 간격 (h)
-  quiet_hours: {start: 2, end: 6}  # 새벽 스킵 구간
+  duration_hours: 72               # total test duration (h)
+  symptom_interval_hours: 1        # injection interval (h)
+  quiet_hours: {start: 2, end: 6}  # skip injections during these hours
 
 android:
-  udid: "55ETQWBXYE1RA1"        # adb devices 로 확인
-  test_serial_number: "610260"  # S-Patch 시리얼
+  udid: "55ETQWBXYE1RA1"           # check with: adb devices
+  test_serial_number: "610260"     # S-Patch serial number
 
 slack:
   enabled: true
-  webhook_url: ""               # .env의 SLACK_WEBHOOK_URL 또는 직접 입력
-  mention: ""                   # Slack User ID (예: U0123ABC)
+  webhook_url: ""                  # set via .env SLACK_WEBHOOK_URL or directly
+  mention: ""                      # Slack User ID (e.g. U0123ABC)
 ```
 
-Slack webhook은 `.env` 파일로 관리할 수 있습니다:
+Slack webhook via `.env` file:
 
 ```bash
 echo "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/..." > .env
@@ -144,90 +144,89 @@ echo "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/..." > .env
 
 ---
 
-## Regression 테스트 Suite
+## Regression Test Suites
 
-| Suite | 선행 조건 | TC 수 | 내용 |
-|-------|-----------|-------|------|
-| `serial` | 기기 연결 | 6 | 시리얼 번호 입력 화면 |
-| `menu` | 기기 연결 | — | Step 1 설정 메뉴 |
-| `signal` | BLE 연결, 검사 미등록 | — | Check Incoming Signal |
-| `study` | BLE 연결, 검사 미등록 | — | Review Study Setting |
-| `main` | **검사 진행 중** | 6 | 측정 메인 화면 UI |
-| `diary` | **검사 진행 중** | 6 | Log Symptoms / Diary |
-| `menu-study` | **검사 진행 중** | 6 | 측정 중 사이드 메뉴 |
+| Suite | Prerequisite | TCs | Description |
+|-------|-------------|-----|-------------|
+| `serial` | Device connected | 6 | Serial number input screen |
+| `menu` | Device connected | — | Step 1 settings menu |
+| `signal` | BLE connected, no study | — | Check Incoming Signal |
+| `study` | BLE connected, no study | — | Review Study Setting |
+| `main` | **Study active** | 6 | Measurement main screen |
+| `diary` | **Study active** | 6 | Log Symptoms sheet |
+| `menu-study` | **Study active** | 6 | Side menu during study |
 
-웹 UI에서 실행 시 기본 suite: `main, diary, menu-study` (검사 중 상태 기준)
+Web UI default suites: `main, diary, menu-study` (study-active state)
 
 ---
 
-## 프로젝트 구조
+## Project Structure
 
 ```
 AK-automation/
-├── install.command / run.command / STOP.command   # macOS 런처
-├── install.bat / run.bat / STOP.bat               # Windows 런처
+├── install.command / run.command / STOP.command   # macOS launchers
+├── install.bat / run.bat / STOP.bat               # Windows launchers
 ├── Makefile
 ├── requirements.txt
 ├── config/
-│   ├── accurkardia.yaml       # 메인 실행 설정
-│   └── run.example.yaml       # 새 앱 추가용 템플릿
+│   ├── accurkardia.yaml       # main config
+│   └── run.example.yaml       # template for adding new apps
 ├── src/
-│   ├── main.py                # 장기 실행 진입점
-│   ├── run_regression.py      # Regression 진입점
-│   ├── scheduler.py           # 주입 스케줄러
-│   ├── driver.py              # AndroidDriver (텍스트 기반 셀렉터)
-│   ├── slack.py               # Slack 알림
+│   ├── main.py                # long-run entry point
+│   ├── run_regression.py      # regression entry point
+│   ├── scheduler.py           # injection scheduler
+│   ├── driver.py              # AndroidDriver (text-based selectors)
+│   ├── slack.py               # Slack notifications
 │   ├── workflows/
-│   │   ├── measurement_start.py   # 측정 메인 화면 복귀
-│   │   └── symptom_inject.py      # 증상 주입 플로우
+│   │   ├── measurement_start.py   # navigate to main screen
+│   │   └── symptom_inject.py      # symptom injection flow
 │   └── regression/
-│       ├── runner.py          # TC 실행기
-│       ├── main_screen.py     # Main Screen TC
-│       ├── add_diary.py       # Diary TC
-│       ├── menu_study.py      # Menu-Study TC
-│       ├── serial_input.py    # Serial TC
+│       ├── runner.py          # TC executor
+│       ├── main_screen.py     # Main Screen TCs
+│       ├── add_diary.py       # Log Symptoms TCs
+│       ├── menu_study.py      # Menu Study TCs
+│       ├── serial_input.py    # Serial TCs
 │       └── helpers.py         # reset_to_step1, go_to_main
 ├── web/
-│   ├── app.py                 # Flask 웹 서버 (포트 5002)
+│   ├── app.py                 # Flask server (port 5002)
 │   └── templates/
-│       ├── index.html         # 메인 UI
-│       ├── failures.html      # 실패 아티팩트 목록
+│       ├── index.html         # main UI
+│       ├── failures.html      # failure artifact list
 │       └── failure_detail.html
 ├── scripts/
-│   ├── build_dist.py          # 배포 ZIP 빌드
-│   └── setup_env.sh           # macOS 환경 설치
-├── artifacts/                 # 실패 스크린샷 / 로그
-└── output/                    # 실행 결과 (JSONL 이벤트 로그)
+│   ├── build_dist.py          # distribution ZIP builder
+│   └── setup_env.sh           # macOS environment setup
+├── artifacts/                 # failure screenshots / logs
+└── output/                    # run results (JSONL event log)
 ```
 
 ---
 
-## 배포 ZIP 생성
+## Building Distribution ZIPs
 
 ```bash
-# 직접 빌드
-python scripts/build_dist.py                  # Mac + Windows → ~/Desktop
-python scripts/build_dist.py --out /tmp       # 경로 지정
-python scripts/build_dist.py --platform mac   # Mac만
+python scripts/build_dist.py                    # Mac + Windows → ~/Desktop
+python scripts/build_dist.py --out /tmp         # custom path
+python scripts/build_dist.py --platform mac     # Mac only
 
-# Makefile
+# via Makefile
 make dist
 ```
 
-생성되는 파일:
+Output:
 - `AccurKardia-Mac-YYYYMMDD.zip`
 - `AccurKardia-Windows-YYYYMMDD.zip`
 
-ZIP 내부 구조: 루트에 런처 스크립트, `automation/` 아래에 소스 코드
+ZIP structure: launchers at root, source code under `automation/`
 
 ---
 
-## 앱 정보
+## App Info
 
-| 항목 | 값 |
-|------|-----|
-| 패키지 | `com.wellysis.accurkardia.accurkardia.mobile` |
+| Field | Value |
+|-------|-------|
+| Package | `com.wellysis.accurkardia.accurkardia.mobile` |
 | Activity | `com.wellysis.accurkardia.accurkardia.mobile.MainActivity` |
-| 언어 | 영어 (기기 언어 설정 따름) |
-| UI 방식 | React Native — resource-id 없음, 텍스트 기반 셀렉터 |
+| Language | English (follows device language setting) |
+| UI | React Native — no resource-id, text-based selectors |
 | Appium Driver | UiAutomator2 |
