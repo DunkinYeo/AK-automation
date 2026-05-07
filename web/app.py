@@ -20,7 +20,7 @@ ARTIFACTS_DIR = ROOT / "artifacts"
 
 app = Flask(__name__)
 
-PORT = 5002
+PORT = 5003
 
 # ── Shared state ─────────────────────────────────────────────────────────────
 _state: dict = {"proc": None, "out_dir": None, "start_ts": None}
@@ -29,6 +29,10 @@ _lock = threading.Lock()
 # ── Regression state ──────────────────────────────────────────────────────────
 _reg_state: dict = {"proc": None, "log": [], "results": None, "done": False, "exit_code": None}
 _reg_lock = threading.Lock()
+
+# ── Hub state (team dashboard) ────────────────────────────────────────────────
+_hub_sessions: dict = {}
+_hub_lock = threading.Lock()
 
 REG_RESULT_JSON = str(ROOT / "output" / "_reg_results.json")
 REG_SUITES = "main,diary,menu-study"
@@ -123,6 +127,71 @@ def find_latest_output_dir(since: float) -> str | None:
     dirs = [d for d in out.iterdir() if d.is_dir() and d.stat().st_mtime >= since - 1]
     dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
     return str(dirs[0]) if dirs else None
+
+
+def _find_latest_output_dir() -> str | None:
+    out = ROOT / "output"
+    if not out.exists():
+        return None
+    dirs = sorted(
+        (d for d in out.iterdir() if d.is_dir() and d.name not in ("regression", "tmp")),
+        key=lambda d: d.stat().st_mtime, reverse=True,
+    )
+    return str(dirs[0]) if dirs else None
+
+
+def _sync_localhost_session():
+    """Mirror the most recent local AK run into _hub_sessions['Localhost']."""
+    while True:
+        time.sleep(4)
+        try:
+            with _lock:
+                proc     = _state["proc"]
+                out_dir  = _state["out_dir"]
+                start_ts = _state["start_ts"]
+                if not out_dir and start_ts:
+                    found = find_latest_output_dir(start_ts)
+                    if found:
+                        _state["out_dir"] = found
+                        out_dir = found
+            if not out_dir:
+                out_dir = _find_latest_output_dir()
+            events = read_events(out_dir) if out_dir else []
+            if not events:
+                continue
+
+            device = ""
+            duration_hours = None
+            interval_hours = None
+            last_ts = ""
+            for e in events:
+                ev   = e.get("event", "")
+                data = e.get("data", {})
+                if ev == "device_info":
+                    model   = data.get("model", "")
+                    android = data.get("android_version", "")
+                    udid    = data.get("udid", "")
+                    ver     = f" · Android {android}" if android else ""
+                    device  = f"{model}{ver} ({udid})" if model else udid
+                elif ev == "run_start":
+                    duration_hours = duration_hours or data.get("duration_hours")
+                    interval_hours = interval_hours or data.get("interval_hours")
+                last_ts = e.get("ts", last_ts)
+
+            names = {e["event"] for e in events}
+            status = "done" if "run_complete" in names else "failed" if "run_failed" in names else "running"
+
+            with _hub_lock:
+                _hub_sessions["Localhost"] = {
+                    "events": events[-200:], "last_seen": last_ts,
+                    "status": status, "device": device,
+                    "duration_hours": duration_hours, "interval_hours": interval_hours,
+                }
+        except Exception:
+            pass
+
+
+threading.Thread(target=_sync_localhost_session, daemon=True).start()
 
 
 def _get_lan_ip() -> str:
@@ -388,6 +457,58 @@ def api_regression_status():
         })
 
 
+# ── Team dashboard ───────────────────────────────────────────────────────────
+
+@app.route("/team")
+def team():
+    return render_template("team_ak.html")
+
+
+@app.route("/api/hub/events", methods=["POST"])
+def api_hub_events():
+    """Receive a single event from a tester's running automation."""
+    data    = request.json or {}
+    tester  = data.get("tester_name") or "unknown"
+    event   = data.get("event") or ""
+    ts      = data.get("ts") or ""
+    payload = data.get("data") or {}
+
+    with _hub_lock:
+        if tester not in _hub_sessions:
+            _hub_sessions[tester] = {
+                "events": [], "last_seen": ts, "status": "running",
+                "device": "", "duration_hours": None, "interval_hours": None,
+            }
+        session = _hub_sessions[tester]
+        session["last_seen"] = ts
+        session["events"].append({"ts": ts, "event": event, "data": payload})
+        if len(session["events"]) > 200:
+            session["events"] = session["events"][-200:]
+        if event == "run_complete":
+            session["status"] = "done"
+        elif event == "run_failed":
+            session["status"] = "failed"
+        else:
+            session["status"] = "running"
+        if event == "run_start":
+            session["duration_hours"] = payload.get("duration_hours") or session["duration_hours"]
+            session["interval_hours"] = payload.get("interval_hours") or session["interval_hours"]
+        if event == "device_info":
+            model   = payload.get("model") or ""
+            android = payload.get("android_version") or ""
+            udid    = payload.get("udid") or ""
+            parts   = [p for p in [model, f"Android {android}" if android else "", f"({udid})" if udid else ""] if p]
+            session["device"] = " · ".join(parts[:2]) + (f" {parts[2]}" if len(parts) > 2 else "")
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/hub/sessions")
+def api_hub_sessions():
+    with _hub_lock:
+        return jsonify(dict(_hub_sessions))
+
+
 # ── ZIP build & download ──────────────────────────────────────────────────────
 
 def _build_zip_in_memory(platform: str) -> tuple[bytes, str]:
@@ -503,7 +624,7 @@ if __name__ == "__main__":
         local_ip = socket.gethostbyname(socket.gethostname())
     except Exception:
         local_ip = "127.0.0.1"
-    threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
-    print(f"\n  S-Patch Accurkardia Test UI   -> http://127.0.0.1:{port}")
+    threading.Timer(1.2, lambda: webbrowser.open(f"http://localhost:{port}")).start()
+    print(f"\n  S-Patch Accurkardia Test UI   -> http://localhost:{port}")
     print(f"  Share on local network        -> http://{local_ip}:{port}\n")
     app.run(host="::", port=port, debug=False, threaded=True)

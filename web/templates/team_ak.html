@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AccurKardia Team Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a3a5c;
+      color: white;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .01em; }
+    .header-sub { font-size: .76rem; color: rgba(255,255,255,.55); margin-top: 2px; }
+    .header-right { font-size: .75rem; color: rgba(255,255,255,.5); }
+
+    main { max-width: 1140px; margin: 24px auto; padding: 0 16px; }
+
+    .empty-state {
+      text-align: center; padding: 80px 0; color: #9ca3af;
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state p { font-size: .95rem; }
+    .empty-state code {
+      display: inline-block; margin-top: 8px;
+      background: #e5e7eb; color: #374151;
+      padding: 4px 12px; border-radius: 6px; font-size: .82rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.04);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid #f3f4f6;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .tester-name { font-size: 1rem; font-weight: 700; color: #1a3a5c; }
+    .tester-device { font-size: .74rem; color: #9ca3af; margin-top: 2px; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 20px;
+      font-size: .75rem; font-weight: 600;
+    }
+    .badge-running { background: rgba(59,130,246,.12); color: #3b82f6; border: 1px solid rgba(59,130,246,.25); }
+    .badge-done    { background: rgba(16,185,129,.12); color: #10b981; border: 1px solid rgba(16,185,129,.25); }
+    .badge-failed  { background: rgba(239,68,68,.12);  color: #ef4444; border: 1px solid rgba(239,68,68,.25); }
+
+    .card-body { padding: 14px 20px 18px; }
+
+    .stat-row {
+      display: flex; gap: 18px; margin-bottom: 12px;
+      font-size: .8rem; color: #6b7280;
+    }
+    .stat-row strong { color: #1a1a2e; }
+
+    .progress-bar-wrap {
+      height: 4px; background: #f3f4f6;
+      border-radius: 2px; margin-bottom: 14px; overflow: hidden;
+    }
+    .progress-bar { height: 100%; background: #3b82f6; border-radius: 2px; transition: width .4s; }
+
+    .log-title {
+      font-size: .72rem; font-weight: 700; color: #9ca3af;
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;
+    }
+    .log-list {
+      max-height: 170px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .log-item {
+      display: flex; align-items: baseline; gap: 8px;
+      font-size: .76rem; padding: 4px 8px; border-radius: 6px;
+      background: #f9fafb;
+    }
+    .log-ts    { color: #9ca3af; flex-shrink: 0; }
+    .log-label { font-weight: 600; }
+
+    .log-item.ev-inject   { background: #eff6ff; }
+    .log-item.ev-inject .log-label { color: #3b82f6; }
+    .log-item.ev-complete { background: #ecfdf5; }
+    .log-item.ev-complete .log-label { color: #10b981; }
+    .log-item.ev-failed   { background: #fef2f2; }
+    .log-item.ev-failed .log-label { color: #ef4444; }
+    .log-item.ev-warn     { background: #fffbeb; }
+    .log-item.ev-warn .log-label { color: #f59e0b; }
+
+    .refresh-note {
+      text-align: right; font-size: .72rem; color: #d1d5db; margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>AccurKardia Team Dashboard</h1>
+    <div class="header-sub">Long-run symptom injection monitoring</div>
+  </div>
+  <div class="header-right" id="last-refresh">-</div>
+</header>
+
+<main>
+  <div id="empty-state" class="empty-state" style="display:none">
+    <div class="icon">&#128225;</div>
+    <p>No test sessions connected yet.</p>
+    <p style="margin-top:8px">Set Hub URL in config to connect remote testers, or run locally.</p>
+    <code id="hub-url-hint">http://&lt;this PC's IP&gt;:5003</code>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="refresh-note">Auto-refreshes every 5 seconds</div>
+</main>
+
+<script>
+const EVENT_LABELS = {
+  run_start:                      { label: 'Test started',            cls: '' },
+  main_screen_confirmed:          { label: 'Main screen confirmed',   cls: '' },
+  scheduler_started:              { label: 'Scheduler started',       cls: '' },
+  inject_start:                   { label: 'Injection started',       cls: 'ev-inject' },
+  inject_done:                    { label: 'Injection complete',      cls: 'ev-inject' },
+  job_result:                     { label: 'Job result',              cls: '' },
+  run_complete:                   { label: 'Test complete',           cls: 'ev-complete' },
+  run_failed:                     { label: 'Test failed',             cls: 'ev-failed' },
+  session_recreating:             { label: 'Session reconnecting',    cls: 'ev-warn' },
+  session_recovery_success:       { label: 'Session recovered',       cls: 'ev-warn' },
+  session_recovery_failed:        { label: 'Recovery failed',        cls: 'ev-failed' },
+  ui_health_check_failed:         { label: 'UI issue detected',       cls: 'ev-warn' },
+  instrumentation_crash_detected: { label: 'UiAutomator crash',       cls: 'ev-warn' },
+  bluetooth_off:                  { label: 'Bluetooth disconnected',  cls: 'ev-warn' },
+  bluetooth_reconnected:          { label: 'Bluetooth reconnected',   cls: '' },
+  wifi_off:                       { label: 'WiFi off detected',       cls: 'ev-warn' },
+  wifi_restored:                  { label: 'WiFi restored',           cls: '' },
+  job_failed:                     { label: 'Job failed',              cls: 'ev-failed' },
+};
+
+function fmtTime(ts) {
+  if (!ts) return '-';
+  return ts.length >= 19 ? ts.slice(11, 19) : ts;
+}
+
+function statusBadge(status) {
+  if (status === 'done')   return '<span class="badge badge-done">Done</span>';
+  if (status === 'failed') return '<span class="badge badge-failed">Failed</span>';
+  return '<span class="badge badge-running">&#9679; Running</span>';
+}
+
+function eventCls(event) {
+  const info = EVENT_LABELS[event];
+  if (info) return info.cls;
+  if (event.includes('inject'))   return 'ev-inject';
+  if (event.includes('fail') || event.includes('error') || event.includes('crash')) return 'ev-failed';
+  if (event.includes('recover') || event.includes('reconnect') || event.includes('warn')) return 'ev-warn';
+  return '';
+}
+
+function eventLabel(event, data) {
+  const info = EVENT_LABELS[event];
+  if (info) {
+    if (event === 'inject_done' && data && data.symptom)
+      return `Injected: ${data.symptom} (${data.elapsed_sec}s)`;
+    if (event === 'job_result')
+      return data && data.success ? `Job ok — #${data.attempt}` : `Job failed`;
+    return info.label;
+  }
+  return event.replace(/_/g, ' ');
+}
+
+function countInjects(events) {
+  return events.filter(e => e.event === 'inject_done' && e.data && e.data.symptom).length;
+}
+
+function calcProgress(events, durationH) {
+  if (!durationH) return null;
+  const start = events.find(e => e.event === 'run_start');
+  if (!start || !start.ts) return null;
+  const startMs = new Date(start.ts).getTime();
+  const nowMs   = Date.now();
+  const elapsed = (nowMs - startMs) / 3600000;
+  return Math.min(100, Math.round((elapsed / durationH) * 100));
+}
+
+function fmtDuration(h)  { return h != null ? `${h}h` : '-'; }
+function fmtInterval(h)  {
+  if (h == null) return '-';
+  return h < 1 ? `every ${Math.round(h * 60)}min` : `every ${h}h`;
+}
+
+function renderCard(name, session) {
+  const events = session.events || [];
+  const recent = [...events].reverse().slice(0, 15);
+
+  const logItems = recent.map(e => {
+    const cls = eventCls(e.event);
+    const lbl = eventLabel(e.event, e.data);
+    return `<div class="log-item ${cls}">
+      <span class="log-ts">${fmtTime(e.ts)}</span>
+      <span class="log-label">${lbl}</span>
+    </div>`;
+  }).join('');
+
+  const injectCount = countInjects(events);
+  const lastSeen    = fmtTime(session.last_seen);
+  const pct         = calcProgress(events, session.duration_hours);
+
+  const progressBar = pct != null
+    ? `<div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>`
+    : '';
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="tester-name">${name}</div>
+          <div class="tester-device">${session.device || 'No device info'}</div>
+        </div>
+        ${statusBadge(session.status)}
+      </div>
+      <div class="card-body">
+        <div class="stat-row">
+          <span>Duration: <strong>${fmtDuration(session.duration_hours)}</strong></span>
+          <span>Interval: <strong>${fmtInterval(session.interval_hours)}</strong></span>
+        </div>
+        <div class="stat-row">
+          <span>Injections: <strong>${injectCount}</strong></span>
+          <span>Last seen: <strong>${lastSeen}</strong></span>
+        </div>
+        ${progressBar}
+        <div class="log-title">Recent Events</div>
+        <div class="log-list">${logItems || '<div style="color:#d1d5db;font-size:.8rem;padding:8px">No events yet</div>'}</div>
+      </div>
+    </div>`;
+}
+
+async function refresh() {
+  try {
+    const sessions = await fetch('/api/hub/sessions').then(r => r.json());
+    const names = Object.keys(sessions);
+    const grid  = document.getElementById('grid');
+    const empty = document.getElementById('empty-state');
+
+    if (names.length === 0) {
+      empty.style.display = 'block';
+      grid.innerHTML = '';
+    } else {
+      empty.style.display = 'none';
+      grid.innerHTML = names.sort().map(n => renderCard(n, sessions[n])).join('');
+    }
+    document.getElementById('last-refresh').textContent =
+      'Updated: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('refresh error', e);
+  }
+}
+
+// Show hub URL hint
+fetch('/api/hub/sessions')
+  .then(() => fetch('/api/local-ip').then(r => r.json()).catch(() => null))
+  .then(info => {
+    if (info && info.ip) {
+      const el = document.getElementById('hub-url-hint');
+      if (el) el.textContent = `http://${info.ip}:5003`;
+    }
+  });
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
