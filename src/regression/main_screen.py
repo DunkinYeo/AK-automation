@@ -1,6 +1,6 @@
 """
-TC-MAIN: 측정 메인 화면 Regression Tests (AK)
-Start Study 이후 메인 측정 화면에서 검증 가능한 케이스들
+TC-MAIN: Measurement main screen regression tests (AK)
+Requires study active (Start Study already tapped).
 """
 import time
 import logging
@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 _MAIN_TEXT    = "My Study Progress"
 _LOG_SYMPTOMS = "Log Symptoms"
 _START_STUDY  = "Start Study"
+_NO_STUDY     = "No study information"
 
 
 def _not_started(drv) -> bool:
@@ -21,13 +22,15 @@ def _not_started(drv) -> bool:
 # ---------------------------------------------------------------------------
 
 def test_main_000_study_started(drv, runner):
-    """Pre-check | 스터디 시작 여부 확인 (Start Study 버튼 미표시)"""
+    """TC-MAIN-000 | Pre-check: study active (Start Study button not visible)"""
+    if drv.is_visible_text(_NO_STUDY, timeout=3):
+        runner.fail("No study registered in web portal")
     if _not_started(drv):
         runner.fail("Study not started — 'Start Study' button still visible")
 
 
 def test_main_001_sections_visible(drv, runner):
-    """TC-MAIN-001 | My Study Progress / Device Status 탭 표시"""
+    """TC-MAIN-001 | My Study Progress / Device Status / Real-time ECG tabs visible"""
     if _not_started(drv):
         return
     runner.assert_true(drv.is_visible_text(_MAIN_TEXT), "My Study Progress not visible")
@@ -36,16 +39,16 @@ def test_main_001_sections_visible(drv, runner):
 
 
 def test_main_002_status_cards_visible(drv, runner):
-    """TC-MAIN-002 | Network / Bluetooth / Battery 카드 표시"""
+    """TC-MAIN-002 | Network / Bluetooth / Battery status cards visible"""
     if _not_started(drv):
         return
-    runner.assert_true(drv.is_visible_text("Network"), "Network card not visible")
+    runner.assert_true(drv.is_visible_text("Network"),   "Network card not visible")
     runner.assert_true(drv.is_visible_text("Bluetooth"), "Bluetooth card not visible")
-    runner.assert_true(drv.is_visible_text("Battery"), "Battery card not visible")
+    runner.assert_true(drv.is_visible_text("Battery"),   "Battery card not visible")
 
 
 def test_main_003_log_symptoms_button(drv, runner):
-    """TC-MAIN-003 | Log Symptoms 버튼 표시 및 활성화"""
+    """TC-MAIN-003 | Log Symptoms button visible and enabled"""
     if _not_started(drv):
         return
     btn = drv.find(_LOG_SYMPTOMS, timeout=5)
@@ -57,20 +60,29 @@ def test_main_003_log_symptoms_button(drv, runner):
 
 
 def test_main_004_realtime_ecg_tab(drv, runner):
-    """TC-MAIN-004 | Real-time ECG 탭 전환 → Live ECG Signal 표시"""
+    """TC-MAIN-004 | Real-time ECG tab → Live ECG Signal visible"""
     if _not_started(drv):
         return
     drv.tap_text("Real-time ECG", timeout=5)
     time.sleep(1.5)
     visible = drv.is_visible_text("Live ECG Signal", timeout=5)
-    # Device Status 탭으로 복귀
     drv.tap_text("Device Status", timeout=5)
     time.sleep(0.5)
     runner.assert_true(visible, "Live ECG Signal not visible on Real-time ECG tab")
 
 
-def test_main_005_back_blocked(drv, runner):
-    """TC-MAIN-005 | 뒤로가기 → 메인 화면 유지"""
+def test_main_005_study_progress_visible(drv, runner):
+    """TC-MAIN-005 | Study progress info visible (elapsed / remaining)"""
+    if _not_started(drv):
+        return
+    runner.assert_true(
+        drv.is_visible_text(_MAIN_TEXT, timeout=3),
+        "My Study Progress section not visible"
+    )
+
+
+def test_main_006_back_blocked(drv, runner):
+    """TC-MAIN-006 | Back button → stays on main screen (cannot navigate away)"""
     if _not_started(drv):
         return
     drv.drv.press_keycode(4)
@@ -91,5 +103,6 @@ TESTS = [
     test_main_002_status_cards_visible,
     test_main_003_log_symptoms_button,
     test_main_004_realtime_ecg_tab,
-    test_main_005_back_blocked,
+    test_main_005_study_progress_visible,
+    test_main_006_back_blocked,
 ]

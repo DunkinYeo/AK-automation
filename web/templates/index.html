@@ -240,8 +240,8 @@
   <div class="header-chips">
     <span class="chip chip-warn" id="appium-chip">Checking Appium...</span>
     <span class="chip chip-warn" id="run-chip">Idle</span>
-    <a href="/api/download/mac"     class="chip chip-blue dl-btn" id="dl-mac"     title="Mac ZIP 다운로드">⬇ Mac</a>
-    <a href="/api/download/windows" class="chip chip-blue dl-btn" id="dl-windows" title="Windows ZIP 다운로드">⬇ Windows</a>
+    <a href="/api/download/mac"     class="chip chip-blue dl-btn" id="dl-mac"     title="Download Mac ZIP">⬇ Mac</a>
+    <a href="/api/download/windows" class="chip chip-blue dl-btn" id="dl-windows" title="Download Windows ZIP">⬇ Windows</a>
   </div>
 </header>
 
@@ -345,41 +345,42 @@
       <div class="card-title">TC List</div>
       <div id="tc-list">
 
-        <div class="tc-group-label">Pre-flight Regression (study active)</div>
+        <div class="tc-group-label">Regression — Study Active Required</div>
 
         <details class="tc-suite">
-          <summary><span class="tc-suite-label">Main Screen</span><span class="tc-count">6 TCs</span></summary>
+          <summary><span class="tc-suite-label">Main Screen</span><span class="tc-count">7 TCs</span></summary>
           <ul class="tc-items">
-            <li><span class="tc-id">TC-MAIN-000</span> Pre-check: study started (Start Study button not shown)</li>
+            <li><span class="tc-id">TC-MAIN-000</span> Pre-check: study active (Start Study button not visible)</li>
             <li><span class="tc-id">TC-MAIN-001</span> My Study Progress / Device Status / Real-time ECG tabs visible</li>
             <li><span class="tc-id">TC-MAIN-002</span> Network / Bluetooth / Battery status cards visible</li>
-            <li><span class="tc-id">TC-MAIN-003</span> Log Symptoms button visible and enabled</li>
+            <li><span class="tc-id">TC-MAIN-003</span> Log Symptoms button visible &amp; enabled</li>
             <li><span class="tc-id">TC-MAIN-004</span> Real-time ECG tab → Live ECG Signal visible</li>
-            <li><span class="tc-id">TC-MAIN-005</span> Back button → stays on main screen (does not return to Step 1)</li>
+            <li><span class="tc-id">TC-MAIN-005</span> My Study Progress section visible (elapsed / remaining)</li>
+            <li><span class="tc-id">TC-MAIN-006</span> Back button → stays on main screen (cannot navigate away)</li>
           </ul>
         </details>
 
         <details class="tc-suite">
-          <summary><span class="tc-suite-label">Log Symptoms (Diary)</span><span class="tc-count">6 TCs</span></summary>
+          <summary><span class="tc-suite-label">Log Symptoms</span><span class="tc-count">6 TCs</span></summary>
           <ul class="tc-items">
-            <li><span class="tc-id">TC-DIARY-000</span> Pre-check: study started</li>
+            <li><span class="tc-id">TC-DIARY-000</span> Pre-check: study active</li>
             <li><span class="tc-id">TC-DIARY-001</span> Log Symptoms tap → sheet opens, Symptom section visible</li>
-            <li><span class="tc-id">TC-DIARY-002</span> All 6 symptoms displayed (Chest pain ~ Nausea)</li>
+            <li><span class="tc-id">TC-DIARY-002</span> All 6 symptoms listed (Chest pain ~ Nausea)</li>
             <li><span class="tc-id">TC-DIARY-003</span> Select symptom → Save → returns to main screen</li>
             <li><span class="tc-id">TC-DIARY-004</span> X button → sheet closes, returns to main screen</li>
-            <li><span class="tc-id">TC-DIARY-005</span> No symptom selected → Save button disabled (client-side)</li>
+            <li><span class="tc-id">TC-DIARY-005</span> No symptom selected → Save button disabled</li>
           </ul>
         </details>
 
         <details class="tc-suite">
-          <summary><span class="tc-suite-label">Menu (Study Active)</span><span class="tc-count">6 TCs</span></summary>
+          <summary><span class="tc-suite-label">Menu (Study)</span><span class="tc-count">6 TCs</span></summary>
           <ul class="tc-items">
             <li><span class="tc-id">TC-MENU-STUDY-000</span> Pre-check: study registered in web portal</li>
-            <li><span class="tc-id">TC-MENU-STUDY-001</span> Study menu → Device Information item visible</li>
-            <li><span class="tc-id">TC-MENU-STUDY-002</span> Study menu → Study Information item visible</li>
-            <li><span class="tc-id">TC-MENU-STUDY-003</span> Menu sections: Setting / Terms / Guide / Version / Patch Placement</li>
-            <li><span class="tc-id">TC-MENU-STUDY-004</span> Study Information tap → enters study info screen</li>
-            <li><span class="tc-id">TC-MENU-STUDY-005</span> Device Information tap → enters device info screen</li>
+            <li><span class="tc-id">TC-MENU-STUDY-001</span> Device Information in menu</li>
+            <li><span class="tc-id">TC-MENU-STUDY-002</span> Study Information in menu</li>
+            <li><span class="tc-id">TC-MENU-STUDY-003</span> All menu sections visible</li>
+            <li><span class="tc-id">TC-MENU-STUDY-004</span> Study Information tap → opens screen</li>
+            <li><span class="tc-id">TC-MENU-STUDY-005</span> Device Information tap → opens screen</li>
           </ul>
         </details>
 
