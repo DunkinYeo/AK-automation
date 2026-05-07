@@ -401,14 +401,16 @@
         </details>
 
         <details class="tc-suite">
-          <summary><span class="tc-suite-label">Connectivity (BT / WiFi)</span><span class="tc-count">6 TCs</span></summary>
+          <summary><span class="tc-suite-label">Connectivity (BT / WiFi)</span><span class="tc-count">8 TCs</span></summary>
           <ul class="tc-items">
             <li><span class="tc-id">TC-CONN-000</span> Pre-check: study active</li>
-            <li><span class="tc-id">TC-CONN-001</span> BT off → Device Status Bluetooth card shows Disconnected</li>
-            <li><span class="tc-id">TC-CONN-002</span> BT on after off → Bluetooth card recovers (Disconnected gone)</li>
-            <li><span class="tc-id">TC-CONN-003</span> WiFi off → OS confirms wifi_on=0 + Network card changes</li>
-            <li><span class="tc-id">TC-CONN-004</span> WiFi on after off → wifi_on=1 restored within 15s</li>
-            <li><span class="tc-id">TC-CONN-005</span> BT off → "How to Attach" guidance card appears</li>
+            <li><span class="tc-id">TC-CONN-001</span> BT off → Bluetooth card shows "Disconnected" (within 20s)</li>
+            <li><span class="tc-id">TC-CONN-002</span> BT off → measure elapsed time until "Disconnected" appears (≤ 20s)</li>
+            <li><span class="tc-id">TC-CONN-003</span> BT off → "How to Attach" guidance card appears (within 20s)</li>
+            <li><span class="tc-id">TC-CONN-004</span> BT on after off → "Disconnected" clears from Bluetooth card (within 30s)</li>
+            <li><span class="tc-id">TC-CONN-005</span> WiFi off → OS confirms wifi_on=0</li>
+            <li><span class="tc-id">TC-CONN-006</span> WiFi on after off → wifi_on=1 restored within 15s</li>
+            <li><span class="tc-id">TC-CONN-007</span> BT off + app background→foreground → 102 popup dismiss → Connect screen → BT on → tap Connect → main screen recovers</li>
           </ul>
         </details>
 

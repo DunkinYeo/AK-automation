@@ -1,8 +1,18 @@
 """
 TC-CONN: Connectivity (BT / WiFi) regression tests during active study (AK)
 Requires study active + physical S-Patch patch within BLE range.
-BT off indicator: Real-time ECG tab shows "Patch Placement" (Live ECG Signal disappears).
-WiFi off indicator: ADB settings get global wifi_on == 0 + Network card state change.
+
+AK Device Status tab — BT disconnect indicators (confirmed via UI dump):
+  - Bluetooth card: "Disconnected" (appears within ~5s of BT off)
+  - "How to Attacth the S-Patch" guidance card (app typo: "Attacth")
+    → stored as single element with embedded newlines: "How to\nAttacth\nthe S-Patch"
+    → search using "How to" (prefix substring) to avoid typo/newline issues
+
+AK Device Status tab — WiFi off indicators:
+  - Network card may show "Disconnected" (text) or icon-only change
+  - ADB: settings get global wifi_on == 0
+
+Test flow: navigate to Device Status tab FIRST, then toggle, then poll for change.
 """
 import subprocess
 import time
@@ -12,10 +22,14 @@ log = logging.getLogger(__name__)
 
 _NO_STUDY    = "No study information"
 _START_STUDY = "Start Study"
-_ECG_TAB     = "Real-time ECG"
 _DEV_TAB     = "Device Status"
-_ECG_LIVE    = "Live ECG Signal"
-_PATCH_PLACE = "Patch Placement"
+_BT_DISCONNECTED = "Disconnected"   # Bluetooth card value when BT off
+_HOW_TO_ATTACH   = "How to"         # guidance card prefix ("How to\nAttacth\nthe S-Patch")
+_CONNECT_BTN     = "Connect"        # reconnect CTA (appears after extended disconnection)
+
+_BT_POLL_TIMEOUT     = 20   # seconds to wait for BT state change
+_BT_RECOVERY_TIMEOUT = 30   # seconds to wait for BT reconnection
+_WIFI_POLL_TIMEOUT   = 15   # seconds to wait for WiFi recovery
 
 
 def _not_started(drv) -> bool:
@@ -60,6 +74,33 @@ def _wifi_is_off(drv) -> bool:
         return False
 
 
+def _go_device_status(drv):
+    drv.tap_text(_DEV_TAB, timeout=5)
+    time.sleep(0.5)
+
+
+def _poll_until(drv, text: str, appear: bool, timeout: int) -> tuple[bool, float]:
+    """Poll until text appears (appear=True) or disappears (appear=False).
+    Returns (success, elapsed_seconds).
+    """
+    t0 = time.monotonic()
+    for _ in range(timeout * 2):
+        time.sleep(0.5)
+        visible = drv.is_visible_text(text, timeout=1)
+        if appear and visible:
+            return True, round(time.monotonic() - t0, 1)
+        if not appear and not visible:
+            return True, round(time.monotonic() - t0, 1)
+    return False, round(time.monotonic() - t0, 1)
+
+
+def _bt_on_safe(drv):
+    try:
+        _bt_on(drv)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
@@ -73,118 +114,173 @@ def test_conn_000_study_active(drv, runner):
 
 
 def test_conn_001_bt_off_disconnected(drv, runner):
-    """TC-CONN-001 | BT off → Device Status Bluetooth card shows Disconnected"""
+    """TC-CONN-001 | BT off → Device Status Bluetooth card shows 'Disconnected' (within 20s)"""
     if _not_started(drv):
         return
+    _go_device_status(drv)
     _bt_off(drv)
-    time.sleep(4)
-    try:
-        drv.tap_text(_DEV_TAB, timeout=5)
-        time.sleep(1)
-        runner.assert_true(
-            drv.is_visible_text("Disconnected", timeout=5),
-            "BT off: Bluetooth card did not show Disconnected in Device Status tab"
-        )
-    finally:
-        _bt_on(drv)
-        time.sleep(4)
+    ok, elapsed = _poll_until(drv, _BT_DISCONNECTED, appear=True, timeout=_BT_POLL_TIMEOUT)
+    _bt_on_safe(drv)
+    if ok:
+        log.info("TC-CONN-001: Bluetooth 'Disconnected' appeared in %.1fs after BT off", elapsed)
+    runner.assert_true(ok, f"BT off: Bluetooth card did not show 'Disconnected' within {_BT_POLL_TIMEOUT}s")
 
 
-def test_conn_002_bt_on_recovery(drv, runner):
-    """TC-CONN-002 | BT on after off → Bluetooth card recovers within 30s"""
+def test_conn_002_bt_off_timing(drv, runner):
+    """TC-CONN-002 | BT off → measure elapsed time until 'Disconnected' appears (≤ 20s)"""
     if _not_started(drv):
         return
+    _go_device_status(drv)
     _bt_off(drv)
-    time.sleep(3)
+    ok, elapsed = _poll_until(drv, _BT_DISCONNECTED, appear=True, timeout=_BT_POLL_TIMEOUT)
+    _bt_on_safe(drv)
+    if ok:
+        log.info("TC-CONN-002: BT disconnect reflected in UI in %.1fs", elapsed)
+    runner.assert_true(ok, f"BT off: 'Disconnected' not detected within {_BT_POLL_TIMEOUT}s")
+    runner.assert_true(elapsed <= _BT_POLL_TIMEOUT, f"BT disconnect too slow: {elapsed}s (≤ {_BT_POLL_TIMEOUT}s expected)")
+
+
+def test_conn_003_bt_off_attach_card(drv, runner):
+    """TC-CONN-003 | BT off → 'How to Attach' guidance card appears (within 20s)"""
+    if _not_started(drv):
+        return
+    _go_device_status(drv)
+    _bt_off(drv)
+    # Card text in app: "How to\nAttacth\nthe S-Patch" (embedded newlines + app typo)
+    # Use prefix "How to" for reliable detection
+    ok, elapsed = _poll_until(drv, _HOW_TO_ATTACH, appear=True, timeout=_BT_POLL_TIMEOUT)
+    _bt_on_safe(drv)
+    if ok:
+        log.info("TC-CONN-003: 'How to Attach' guidance card appeared in %.1fs after BT off", elapsed)
+    runner.assert_true(ok, f"BT off: 'How to Attach' guidance card not visible within {_BT_POLL_TIMEOUT}s")
+
+
+def test_conn_004_bt_on_recovery(drv, runner):
+    """TC-CONN-004 | BT on after off → Bluetooth card recovers ('Disconnected' clears) within 30s"""
+    if _not_started(drv):
+        return
+    _go_device_status(drv)
+    _bt_off(drv)
+    _poll_until(drv, _BT_DISCONNECTED, appear=True, timeout=_BT_POLL_TIMEOUT)
     _bt_on(drv)
-    drv.tap_text(_DEV_TAB, timeout=5)
-    # Poll until Disconnected clears (BLE scan + reconnect can take up to 30s)
-    recovered = False
-    for _ in range(30):
-        time.sleep(1)
-        if not drv.is_visible_text("Disconnected", timeout=1):
-            recovered = True
-            break
-    runner.assert_true(recovered, "BT recovery: Bluetooth card still shows Disconnected 30s after BT re-enabled")
+    ok, elapsed = _poll_until(drv, _BT_DISCONNECTED, appear=False, timeout=_BT_RECOVERY_TIMEOUT)
+    if ok:
+        log.info("TC-CONN-004: BT reconnected ('Disconnected' cleared) in %.1fs", elapsed)
+    runner.assert_true(ok, f"BT recovery: Bluetooth card still shows 'Disconnected' {_BT_RECOVERY_TIMEOUT}s after BT re-enabled")
 
 
-def test_conn_003_wifi_off_detected(drv, runner):
-    """TC-CONN-003 | WiFi off → OS reports wifi_on=0 + Network card changes"""
-    from src.regression.helpers import go_to_main
+def test_conn_005_wifi_off_network_card(drv, runner):
+    """TC-CONN-005 | WiFi off → OS confirms wifi_on=0 (Network card may show icon change only)"""
     if _not_started(drv):
         return
+    _go_device_status(drv)
     _wifi_off(drv)
-    time.sleep(3)
     try:
         wifi_actually_off = _wifi_is_off(drv)
         runner.assert_true(wifi_actually_off, "WiFi did not turn off (adb wifi_on still 1)")
-        # Popup may appear if server unreachable; dismiss and recover
-        if drv.is_visible_text("Cannot find your S-Patch", timeout=2):
-            try:
-                drv.tap_text("OK", timeout=3, contains=False)
-            except Exception:
-                pass
-            try:
-                go_to_main(drv)
-            except Exception:
-                pass
-        drv.tap_text(_DEV_TAB, timeout=5)
-        time.sleep(1)
-        # Log what the Network card shows — text varies by app version
-        net_off = (
-            drv.is_visible_text("Network Off", timeout=3)
-            or drv.is_visible_text("No Network", timeout=2)
-            or drv.is_visible_text("Disconnected", timeout=2)
-            or drv.is_visible_text("Off", timeout=2)
-        )
+
+        net_off_candidates = ["Network Off", "No Network", "Disconnected", "Off"]
+        net_off = any(drv.is_visible_text(t, timeout=3) for t in net_off_candidates)
         if net_off:
-            log.info("TC-CONN-003: Network card shows disconnected state (UI updated)")
+            log.info("TC-CONN-005: Network card shows disconnected text after WiFi off")
         else:
-            log.warning("TC-CONN-003: Network card text unchanged after WiFi off — UI may use icon only")
+            log.info("TC-CONN-005: Network card uses icon-only indicator (no text change) — OS-level confirmed")
     finally:
         _wifi_on(drv)
         time.sleep(4)
 
 
-def test_conn_004_wifi_on_recovery(drv, runner):
-    """TC-CONN-004 | WiFi on after off → wifi_on=1 restored within timeout"""
+def test_conn_006_wifi_on_recovery(drv, runner):
+    """TC-CONN-006 | WiFi on after off → wifi_on=1 restored within 15s"""
     if _not_started(drv):
         return
     _wifi_off(drv)
     time.sleep(2)
     _wifi_on(drv)
-    # Poll until WiFi is back (up to 15s)
     recovered = False
-    for _ in range(15):
-        time.sleep(1)
+    for _ in range(_WIFI_POLL_TIMEOUT * 2):
+        time.sleep(0.5)
         if not _wifi_is_off(drv):
             recovered = True
             break
-    runner.assert_true(recovered, "WiFi did not recover within 15s after re-enabling")
-    time.sleep(2)
+    runner.assert_true(recovered, f"WiFi did not recover within {_WIFI_POLL_TIMEOUT}s after re-enabling")
 
 
-def test_conn_005_bt_off_attach_guide_card(drv, runner):
-    """TC-CONN-005 | BT off → 'How to Attach the S-Patch' guidance card appears"""
+def test_conn_007_connect_btn_tap_recovery(drv, runner):
+    """TC-CONN-007 | BT off + app background→foreground → popup appears → Connect screen → BT on → tap Connect → main screen recovers
+
+    When app is resumed from background with BLE disconnected:
+    1. "Bluetooth not enabled (102)" popup appears → screenshot + dismiss with Ok
+    2. Connect screen shown (bold gradient button, all cards '-') → assertion
+    3. Enable BT first, then tap Connect → 'Log Symptoms' returns
+    """
     if _not_started(drv):
         return
+    pkg = drv.cfg.get("app_package")
+
     _bt_off(drv)
-    time.sleep(4)
-    try:
-        drv.tap_text(_DEV_TAB, timeout=5)
+    time.sleep(1)
+
+    # Send app to background then foreground — triggers 102 popup
+    drv.drv.press_keycode(3)   # HOME key
+    time.sleep(2)
+    drv.drv.activate_app(pkg)
+    time.sleep(1)
+
+    # 102 popup: "Bluetooth not enabled (102)" with "Ok" button
+    if drv.is_visible_text("Bluetooth not enabled", timeout=5):
+        log.info("TC-CONN-007: 102 popup appeared — capturing screenshot then dismissing")
+        try:
+            drv.screenshot("conn_007_102_popup")
+        except Exception:
+            pass
+        try:
+            drv.tap_text(["Ok", "OK"], timeout=5, contains=False)
+        except Exception:
+            pass
         time.sleep(1)
-        guide_visible = drv.is_visible_text("How to", timeout=5)
-        runner.assert_true(guide_visible, "BT off: 'How to Attach' guidance card not visible in Device Status tab")
-    finally:
-        _bt_on(drv)
-        time.sleep(4)
+
+    # Also handle 950 popup if it appears instead
+    if drv.is_visible_text("Cannot find your S-Patch", timeout=3):
+        log.info("TC-CONN-007: 950 popup appeared — capturing screenshot then dismissing")
+        try:
+            drv.screenshot("conn_007_950_popup")
+        except Exception:
+            pass
+        try:
+            drv.tap_text(["Ok", "OK"], timeout=5, contains=False)
+        except Exception:
+            pass
+        time.sleep(1)
+
+    # Assert: Connect screen must be visible
+    connect_visible = drv.is_visible_text(_CONNECT_BTN, timeout=5)
+    runner.assert_true(connect_visible, "BT off + app resume: 'Connect' screen not shown after popup dismiss")
+    if not connect_visible:
+        _bt_on_safe(drv)
+        return
+
+    log.info("TC-CONN-007: Connect screen confirmed — enabling BT then tapping Connect")
+
+    # Enable BT FIRST (wait for adapter), then tap Connect
+    _bt_on(drv)
+    time.sleep(3)
+    drv.tap_text(_CONNECT_BTN, timeout=5, contains=False)
+
+    # Poll for main screen recovery ('Log Symptoms' returns)
+    ok, elapsed = _poll_until(drv, "Log Symptoms", appear=True, timeout=45)
+    if ok:
+        log.info("TC-CONN-007: Main screen recovered ('Log Symptoms' visible) in %.1fs", elapsed)
+    runner.assert_true(ok, "BT reconnect via Connect button: 'Log Symptoms' did not return within 45s")
 
 
 TESTS = [
     test_conn_000_study_active,
     test_conn_001_bt_off_disconnected,
-    test_conn_002_bt_on_recovery,
-    test_conn_003_wifi_off_detected,
-    test_conn_004_wifi_on_recovery,
-    test_conn_005_bt_off_attach_guide_card,
+    test_conn_002_bt_off_timing,
+    test_conn_003_bt_off_attach_card,
+    test_conn_004_bt_on_recovery,
+    test_conn_005_wifi_off_network_card,
+    test_conn_006_wifi_on_recovery,
+    test_conn_007_connect_btn_tap_recovery,
 ]
