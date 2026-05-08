@@ -606,8 +606,15 @@ async function detectWifi() {
   btn.disabled = true;
   try {
     const r = await fetch('/api/detect-wifi', { method: 'POST' }).then(r => r.json());
-    if (r.error) { alert('WiFi 감지 실패: ' + r.error); }
-    else { applyWifiAutoMode(r.wifi_addr); }
+    if (r.error) { alert('WiFi 감지 실패: ' + r.error); return; }
+    applyWifiAutoMode(r.wifi_addr);
+    // Refresh device list and auto-select the WiFi device
+    const init = await fetch('/api/init').then(r => r.json());
+    populateDevices(init.devices);
+    const sel = document.getElementById('device-select');
+    if ([...sel.options].some(o => o.value === r.wifi_addr)) {
+      sel.value = r.wifi_addr;
+    }
   } catch(e) { alert('WiFi 감지 중 오류: ' + e); }
   finally { btn.textContent = '자동 감지'; btn.disabled = false; }
 }
