@@ -153,15 +153,67 @@ echo "  Checking connected devices..."
 if command -v adb >/dev/null 2>&1; then
     ADB_OUT=$(adb devices 2>/dev/null | tail -n +2 | grep -v '^$')
     DEV_OK=0
+    WIFI_LIST=""
+    FIRST_USB_SERIAL=""
     while IFS= read -r line; do
         case "$line" in
+            *:5555$'\t'device | *:5554$'\t'device)
+                DEV_OK=1
+                serial="${line%%$'\t'*}"
+                WIFI_LIST="$WIFI_LIST    [WiFi] $serial\n"
+                ;;
             *$'\t'device)
                 DEV_OK=1
                 serial="${line%%$'\t'*}"
-                echo "    Connected: $serial"
+                echo "    [USB]  $serial"
+                [ -z "$FIRST_USB_SERIAL" ] && FIRST_USB_SERIAL="$serial"
                 ;;
         esac
     done <<< "$ADB_OUT"
+    [ -n "$WIFI_LIST" ] && printf "$WIFI_LIST"
+
+    # USB device found → get WiFi IP, enable tcpip, save to cache
+    if [ -n "$FIRST_USB_SERIAL" ] && command -v adb >/dev/null 2>&1; then
+        _WIFI_IP=$(adb -s "$FIRST_USB_SERIAL" shell ip route 2>/dev/null \
+            | grep -Eo 'src [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}' | head -1)
+        if [ -n "$_WIFI_IP" ]; then
+            adb -s "$FIRST_USB_SERIAL" tcpip 5555 >/dev/null 2>&1
+            sleep 1
+            adb connect "${_WIFI_IP}:5555" >/dev/null 2>&1
+            if adb devices 2>/dev/null | grep -qF "${_WIFI_IP}:5555"$'\t'"device"; then
+                echo "    WiFi device connected: ${_WIFI_IP}:5555"
+            else
+                echo "    WiFi connection failed (IP: ${_WIFI_IP}) — USB will be used"
+            fi
+            echo "    WiFi IP saved: $_WIFI_IP"
+            echo "[run] WiFi IP saved: $_WIFI_IP" >> "$LOG_FILE"
+            mkdir -p "runtime"
+            printf '{"device_id":"%s","wifi_ip":"%s","tcp_port":5555,"updated_at":"%s"}\n' \
+                "$FIRST_USB_SERIAL" "$_WIFI_IP" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                > "runtime/adb_wifi_device.json"
+        fi
+    fi
+
+    # No USB device → try cached WiFi address
+    if [ -z "$FIRST_USB_SERIAL" ]; then
+        _WIFI_CACHE="runtime/adb_wifi_device.json"
+        if [ -f "$_WIFI_CACHE" ]; then
+            _CACHED_IP=$(python3 -c "import json; d=json.load(open('$_WIFI_CACHE')); print(d.get('wifi_ip',''))" 2>/dev/null)
+            _CACHED_PORT=$(python3 -c "import json; d=json.load(open('$_WIFI_CACHE')); print(d.get('tcp_port',5555))" 2>/dev/null)
+            if [ -n "$_CACHED_IP" ] && [ -n "$_CACHED_PORT" ]; then
+                echo "  Trying cached WiFi: ${_CACHED_IP}:${_CACHED_PORT}"
+                echo "[run] Attempting cached WiFi: ${_CACHED_IP}:${_CACHED_PORT}" >> "$LOG_FILE"
+                adb connect "${_CACHED_IP}:${_CACHED_PORT}" >/dev/null 2>&1
+                if adb devices 2>/dev/null | grep -qF "${_CACHED_IP}:${_CACHED_PORT}"$'\t'"device"; then
+                    echo "    Reconnected via WiFi: ${_CACHED_IP}:${_CACHED_PORT}"
+                    DEV_OK=1
+                else
+                    echo "    Cached WiFi unavailable. Connect device via USB."
+                fi
+            fi
+        fi
+    fi
+
     if [ "$DEV_OK" -eq 0 ]; then
         echo ""
         echo "  WARN  No Android device detected."

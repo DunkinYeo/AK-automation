@@ -569,6 +569,7 @@ async function init() {
   const r = await fetch('/api/init').then(r => r.json());
   updateAppiumUI(r.appium);
   populateDevices(r.devices);
+  if (r.cached_wifi) applyWifiAutoMode(r.cached_wifi);
   initSuiteGrid();
 
   const s = await fetch('/api/status').then(r => r.json());
@@ -587,6 +588,13 @@ function updateAppiumUI(ok) {
   chip.className = 'chip ' + (ok ? 'chip-ok' : 'chip-err');
   chip.textContent = ok ? 'Appium ✓' : 'Appium ✗';
   document.getElementById('appium-warn').style.display = ok ? 'none' : 'flex';
+}
+
+function applyWifiAutoMode(wifiAddr) {
+  document.getElementById('conn-wifi').checked = true;
+  document.getElementById('conn-usb').checked = false;
+  document.getElementById('wifi-addr-row').style.display = 'block';
+  document.getElementById('wifi-addr').value = wifiAddr;
 }
 
 function populateDevices(devices) {

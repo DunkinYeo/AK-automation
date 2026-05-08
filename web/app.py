@@ -223,9 +223,22 @@ def index():
     return render_template("index.html")
 
 
+def get_cached_wifi() -> str:
+    """Return cached WiFi address from runtime/adb_wifi_device.json written by run.command."""
+    import json as _json
+    cache = ROOT / "runtime" / "adb_wifi_device.json"
+    try:
+        d = _json.loads(cache.read_text())
+        ip = d.get("wifi_ip", "")
+        port = d.get("tcp_port", 5555)
+        return f"{ip}:{port}" if ip else ""
+    except Exception:
+        return ""
+
+
 @app.route("/api/init")
 def api_init():
-    return jsonify({"devices": get_devices(), "appium": appium_ok()})
+    return jsonify({"devices": get_devices(), "appium": appium_ok(), "cached_wifi": get_cached_wifi()})
 
 
 @app.route("/api/local-ip")
