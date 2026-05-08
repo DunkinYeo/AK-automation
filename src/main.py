@@ -33,7 +33,7 @@ from src.slack import (
     slack_run_complete, slack_run_failed,
 )
 from src.timeline import log_event
-from src.workflows.measurement_start import ensure_on_main_screen
+from src.regression.helpers import go_to_main
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
 from src.artifact_manager import save_failure_artifacts
 
@@ -148,7 +148,7 @@ def _run_once(cfg: dict, reporter: RunReporter, artifacts: ArtifactManager) -> N
     driver = dm.driver
     try:
         reporter.log_event("device_info", driver.get_device_info())
-        ensure_on_main_screen(driver)
+        go_to_main(driver)
 
         if plan and plan[0].get("symptoms"):
             symptoms   = plan[0]["symptoms"]
@@ -260,7 +260,7 @@ def main():
         driver = dm.driver
         reporter.log_event("device_info", driver.get_device_info())
 
-        ensure_on_main_screen(driver)
+        go_to_main(driver)
         reporter.log_event("main_screen_confirmed", {})
         log_event("main screen confirmed — starting scheduler")
 
