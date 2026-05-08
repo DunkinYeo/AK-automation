@@ -86,6 +86,11 @@ def go_to_main(drv, wait_ble: int = 60):
     Study not registered: enter serial + Connect.
     BLE error popups (950/963) are handled automatically.
     """
+    # Already on main screen (e.g. app restarted while study active)
+    if drv.is_visible_text("Log Symptoms", timeout=3):
+        log.info("[go_to_main] Already on main screen")
+        return
+
     # Enter serial if input field is present (not registered state)
     try:
         el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
@@ -97,7 +102,11 @@ def go_to_main(drv, wait_ble: int = 60):
     except Exception:
         log.info("[go_to_main] No EditText — connecting directly with registered device")
 
-    drv.tap_text("Connect", timeout=10, contains=False)
+    # Connect button may not exist if app auto-navigated past it
+    if drv.is_visible_text("Connect", timeout=5, contains=False):
+        drv.tap_text("Connect", timeout=5, contains=False)
+    else:
+        log.info("[go_to_main] No Connect button visible — proceeding to wait loop")
     log.info("[go_to_main] Connect tapped, waiting up to %ds for BLE connection", wait_ble)
 
     deadline = time.monotonic() + wait_ble
