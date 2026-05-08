@@ -55,7 +55,6 @@ from src.slack import slack_daily_report, slack_bug_report, slack_urgent_alert, 
 from src.regression.runner import TestRunner
 from src.regression import serial_input, menu_step1, signal_check, main_screen, add_diary, menu_study
 from src.regression.helpers import reset_to_step1, open_menu
-from src.workflows.measurement_start import ensure_on_main_screen
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS, ACTIVITIES
 from src.workflows.popup_handler import handle_any_popup
 from selenium.webdriver.common.by import By
@@ -333,7 +332,6 @@ def main():
             else:
                 log.info("=" * 55)
                 log.info("REGRESSION — main")
-                ensure_on_main_screen(drv)
                 suite_results["main"] = _run_suite(runner, main_screen.TESTS, "main")
                 reporter.log_event("regression_suite_result", {
                     "suite": "main", **{k: suite_results["main"][k] for k in ("passed", "total", "failures")},
@@ -344,7 +342,6 @@ def main():
 
                 log.info("=" * 55)
                 log.info("REGRESSION — diary")
-                ensure_on_main_screen(drv)
                 suite_results["diary"] = _run_suite(runner, add_diary.TESTS, "diary")
                 reporter.log_event("regression_suite_result", {
                     "suite": "diary", **{k: suite_results["diary"][k] for k in ("passed", "total", "failures")},
@@ -355,7 +352,6 @@ def main():
 
                 log.info("=" * 55)
                 log.info("REGRESSION — menu-study")
-                ensure_on_main_screen(drv)
                 suite_results["menu-study"] = _run_suite(runner, menu_study.TESTS, "menu-study")
                 reporter.log_event("regression_suite_result", {
                     "suite": "menu-study", **{k: suite_results["menu-study"][k] for k in ("passed", "total", "failures")},

@@ -45,10 +45,10 @@ SUITES = {
     "menu":   (menu_step1.TESTS,    "hard"),
     "signal": (signal_check.TESTS,  "soft"),
     "study":  (study_popup.TESTS,   "soft"),
-    "main":         (main_screen.TESTS,    "main"),  # Step 1 → connect → measurement main screen
-    "diary":        (add_diary.TESTS,      "main"),  # Step 1 → connect → measurement main screen
-    "menu-study":   (menu_study.TESTS,     "main"),  # Step 1 → connect → measurement main screen
-    "connectivity": (connectivity.TESTS,   "main"),  # BT / WiFi off-on during active study
+    "main":         (main_screen.TESTS,    "none"),  # run from current screen (study must be active)
+    "diary":        (add_diary.TESTS,      "none"),  # run from current screen (study must be active)
+    "menu-study":   (menu_study.TESTS,     "none"),  # run from current screen (study must be active)
+    "connectivity": (connectivity.TESTS,   "none"),  # run from current screen (study must be active)
 }
 
 
