@@ -392,8 +392,11 @@ def api_start():
         start_ts = time.time()
         _state["start_ts"] = start_ts
         _state["out_dir"]  = None
+        cmd = [sys.executable, str(ROOT / "src" / "main.py"), "--config", str(cfg_path)]
+        if data.get("skip_regression"):
+            cmd.append("--skip-regression")
         _state["proc"]     = subprocess.Popen(
-            [sys.executable, str(ROOT / "src" / "main.py"), "--config", str(cfg_path)],
+            cmd,
             cwd=str(ROOT),
             start_new_session=True,
         )

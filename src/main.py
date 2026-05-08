@@ -34,6 +34,8 @@ from src.slack import (
 )
 from src.timeline import log_event
 from src.regression.helpers import go_to_main
+from src.regression.runner import TestRunner
+from src.regression import main_screen, add_diary, menu_study, connectivity
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
 from src.artifact_manager import save_failure_artifacts
 
@@ -182,6 +184,11 @@ def main():
         action="store_true",
         help="Run a single symptom injection for quick verification, then exit",
     )
+    ap.add_argument(
+        "--skip-regression",
+        action="store_true",
+        help="Skip regression suites and go straight to symptom injection",
+    )
     args = ap.parse_args()
 
     cfg            = load_cfg(args.config)
@@ -262,8 +269,38 @@ def main():
 
         go_to_main(driver)
         reporter.log_event("main_screen_confirmed", {})
-        log_event("main screen confirmed — starting scheduler")
+        log_event("main screen confirmed")
 
+        # ── Regression suites ─────────────────────────────────────────────────
+        reg_suites = [
+            ("main",         main_screen.TESTS),
+            ("diary",        add_diary.TESTS),
+            ("menu-study",   menu_study.TESTS),
+            ("connectivity", connectivity.TESTS),
+        ]
+        if args.skip_regression:
+            log_event("regression: skipped (--skip-regression)")
+            for suite_name, _ in reg_suites:
+                reporter.log_event("regression_suite_result", {
+                    "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
+                })
+        else:
+            runner = TestRunner(driver, artifacts)
+            for suite_name, tests in reg_suites:
+                log_event(f"regression: {suite_name}")
+                pre = len(runner.results)
+                runner.run_all(tests)
+                batch    = runner.results[pre:]
+                passed   = sum(1 for r in batch if r.passed)
+                failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in batch if not r.passed]
+                reporter.log_event("regression_suite_result", {
+                    "suite": suite_name, "passed": passed, "total": len(batch), "failures": failures,
+                })
+                if _slack_on:
+                    from src.slack import slack_regression_suite
+                    slack_regression_suite(_webhook, suite_name, passed, len(batch), failures)
+
+        log_event("starting scheduler")
         serial = a_cfg.get("test_serial_number", a_cfg.get("udid", ""))
         if _slack_on:
             slack_run_start(_webhook, serial=serial, duration_hours=duration_hours,
