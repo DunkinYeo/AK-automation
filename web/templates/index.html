@@ -278,7 +278,7 @@
         <div id="wifi-addr-row" style="display:none;margin-top:6px">
           <div style="display:flex;gap:6px;align-items:center">
             <input type="text" id="wifi-addr" placeholder="e.g. 192.168.0.50:5555" style="flex:1">
-            <button type="button" id="detect-wifi-btn" onclick="detectWifi()" style="white-space:nowrap;padding:6px 10px;font-size:12px;background:#334155;color:#fff;border:none;border-radius:6px;cursor:pointer">자동 감지</button>
+            <button type="button" id="detect-wifi-btn" onclick="detectWifi()" style="white-space:nowrap;padding:6px 10px;font-size:12px;background:#334155;color:#fff;border:none;border-radius:6px;cursor:pointer">Auto Detect</button>
           </div>
         </div>
       </div>
@@ -602,11 +602,11 @@ function applyWifiAutoMode(wifiAddr) {
 
 async function detectWifi() {
   const btn = document.getElementById('detect-wifi-btn');
-  btn.textContent = '감지 중...';
+  btn.textContent = 'Detecting...';
   btn.disabled = true;
   try {
     const r = await fetch('/api/detect-wifi', { method: 'POST' }).then(r => r.json());
-    if (r.error) { alert('WiFi 감지 실패: ' + r.error); return; }
+    if (r.error) { alert('WiFi detect failed: ' + r.error); return; }
     applyWifiAutoMode(r.wifi_addr);
     // Refresh device list and auto-select the WiFi device
     const init = await fetch('/api/init').then(r => r.json());
@@ -615,8 +615,8 @@ async function detectWifi() {
     if ([...sel.options].some(o => o.value === r.wifi_addr)) {
       sel.value = r.wifi_addr;
     }
-  } catch(e) { alert('WiFi 감지 중 오류: ' + e); }
-  finally { btn.textContent = '자동 감지'; btn.disabled = false; }
+  } catch(e) { alert('WiFi detect error: ' + e); }
+  finally { btn.textContent = 'Auto Detect'; btn.disabled = false; }
 }
 
 function populateDevices(devices) {
