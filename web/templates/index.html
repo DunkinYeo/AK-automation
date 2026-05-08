@@ -276,7 +276,10 @@
           </label>
         </div>
         <div id="wifi-addr-row" style="display:none;margin-top:6px">
-          <input type="text" id="wifi-addr" placeholder="e.g. 192.168.0.50:5555">
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="wifi-addr" placeholder="e.g. 192.168.0.50:5555" style="flex:1">
+            <button type="button" id="detect-wifi-btn" onclick="detectWifi()" style="white-space:nowrap;padding:6px 10px;font-size:12px;background:#334155;color:#fff;border:none;border-radius:6px;cursor:pointer">자동 감지</button>
+          </div>
         </div>
       </div>
 
@@ -595,6 +598,18 @@ function applyWifiAutoMode(wifiAddr) {
   document.getElementById('conn-usb').checked = false;
   document.getElementById('wifi-addr-row').style.display = 'block';
   document.getElementById('wifi-addr').value = wifiAddr;
+}
+
+async function detectWifi() {
+  const btn = document.getElementById('detect-wifi-btn');
+  btn.textContent = '감지 중...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/detect-wifi', { method: 'POST' }).then(r => r.json());
+    if (r.error) { alert('WiFi 감지 실패: ' + r.error); }
+    else { applyWifiAutoMode(r.wifi_addr); }
+  } catch(e) { alert('WiFi 감지 중 오류: ' + e); }
+  finally { btn.textContent = '자동 감지'; btn.disabled = false; }
 }
 
 function populateDevices(devices) {
