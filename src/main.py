@@ -296,8 +296,11 @@ def main():
                     "suite": name, "passed": passed, "total": len(batch), "failures": failures,
                 })
                 if _slack_on:
-                    from src.slack import slack_regression_suite
-                    slack_regression_suite(_webhook, name, passed, len(batch), failures)
+                    try:
+                        from src.slack import slack_regression_suite
+                        slack_regression_suite(_webhook, name, passed, len(batch), failures)
+                    except Exception:
+                        pass
 
             # Phase 1: Step 1 — reset app, run serial + menu
             reset_to_step1(driver, hard=True)
