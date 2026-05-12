@@ -41,14 +41,14 @@ logging.basicConfig(
 # setup="soft"  : back button → Step 1 (BLE retained)
 # setup="main"  : Step 1 → Connect → Step 3 → measurement main screen (BLE + study required)
 SUITES = {
-    "serial": (serial_input.TESTS,  "hard"),
-    "menu":   (menu_step1.TESTS,    "hard"),
-    "signal": (signal_check.TESTS,  "soft"),
-    "study":  (study_popup.TESTS,   "soft"),
-    "main":         (main_screen.TESTS,    "none"),  # run from current screen (study must be active)
-    "diary":        (add_diary.TESTS,      "none"),  # run from current screen (study must be active)
-    "menu-study":   (menu_study.TESTS,     "none"),  # run from current screen (study must be active)
-    "connectivity": (connectivity.TESTS,   "none"),  # run from current screen (study must be active)
+    "serial":       (serial_input.TESTS,  "hard"),  # Step 1, no BLE
+    "menu":         (menu_step1.TESTS,    "hard"),  # Step 1 gear icon, no BLE
+    "signal":       (signal_check.TESTS,  "soft"),  # Step 2, BLE connected
+    "study":        (study_popup.TESTS,   "soft"),  # Step 2/3, BLE connected
+    "main":         (main_screen.TESTS,   "none"),  # run from current screen (study must be active)
+    "diary":        (add_diary.TESTS,     "none"),  # run from current screen (study must be active)
+    "menu-study":   (menu_study.TESTS,    "none"),  # run from current screen (study must be active)
+    "connectivity": (connectivity.TESTS,  "none"),  # run from current screen (study must be active)
 }
 
 

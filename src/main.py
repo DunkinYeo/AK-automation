@@ -35,7 +35,8 @@ from src.slack import (
 from src.timeline import log_event
 from src.regression.helpers import go_to_main
 from src.regression.runner import TestRunner
-from src.regression import main_screen, add_diary, menu_study, connectivity
+from src.regression import serial_input, menu_step1, main_screen, add_diary, menu_study, connectivity
+from src.regression.helpers import reset_to_step1
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
 from src.artifact_manager import save_failure_artifacts
 
@@ -267,38 +268,49 @@ def main():
         driver = dm.driver
         reporter.log_event("device_info", driver.get_device_info())
 
-        go_to_main(driver)
-        reporter.log_event("main_screen_confirmed", {})
-        log_event("main screen confirmed")
-
         # ── Regression suites ─────────────────────────────────────────────────
-        reg_suites = [
-            ("main",         main_screen.TESTS),
-            ("diary",        add_diary.TESTS),
-            ("menu-study",   menu_study.TESTS),
-            ("connectivity", connectivity.TESTS),
-        ]
+        # Phase 1: Step 1 suites (serial + menu) — no BLE needed
+        # Phase 2: go_to_main → main/diary/menu-study/connectivity
+        pre_main_suites  = [("serial", serial_input.TESTS), ("menu", menu_step1.TESTS)]
+        post_main_suites = [("main", main_screen.TESTS), ("diary", add_diary.TESTS),
+                            ("menu-study", menu_study.TESTS), ("connectivity", connectivity.TESTS)]
+
         if args.skip_regression:
             log_event("regression: skipped (--skip-regression)")
-            for suite_name, _ in reg_suites:
+            for suite_name, _ in pre_main_suites + post_main_suites:
                 reporter.log_event("regression_suite_result", {
                     "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
                 })
+            go_to_main(driver)
         else:
             runner = TestRunner(driver, artifacts)
-            for suite_name, tests in reg_suites:
-                log_event(f"regression: {suite_name}")
+
+            def _run_suite(name, tests):
+                log_event(f"regression: {name}")
                 pre = len(runner.results)
                 runner.run_all(tests)
                 batch    = runner.results[pre:]
                 passed   = sum(1 for r in batch if r.passed)
                 failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in batch if not r.passed]
                 reporter.log_event("regression_suite_result", {
-                    "suite": suite_name, "passed": passed, "total": len(batch), "failures": failures,
+                    "suite": name, "passed": passed, "total": len(batch), "failures": failures,
                 })
                 if _slack_on:
                     from src.slack import slack_regression_suite
-                    slack_regression_suite(_webhook, suite_name, passed, len(batch), failures)
+                    slack_regression_suite(_webhook, name, passed, len(batch), failures)
+
+            # Phase 1: Step 1 — reset app, run serial + menu
+            reset_to_step1(driver, hard=True)
+            for name, tests in pre_main_suites:
+                _run_suite(name, tests)
+
+            # Phase 2: navigate to main screen, run remaining suites
+            go_to_main(driver)
+            for name, tests in post_main_suites:
+                _run_suite(name, tests)
+
+        reporter.log_event("main_screen_confirmed", {})
+        log_event("main screen confirmed")
 
         log_event("starting scheduler")
         serial = a_cfg.get("test_serial_number", a_cfg.get("udid", ""))
