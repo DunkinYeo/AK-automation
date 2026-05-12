@@ -119,10 +119,11 @@ def test_sn_007_wrong_serial_950_popup(drv, runner):
     drv.tap_text(CONNECT_BUTTON_TEXT, timeout=5, contains=False)
     popup_visible = drv.is_visible_text("Cannot find your S-Patch", timeout=30)
     try:
-        drv.tap_text("OK", timeout=5, contains=False)
+        drv.tap_text(["Ok", "OK"], timeout=5, contains=False)
     except Exception:
         pass
     time.sleep(1)
+    _clear_input(drv)
     runner.assert_true(popup_visible, "950 popup not shown for wrong serial number (112233)")
 
 
@@ -140,10 +141,11 @@ def test_sn_009_wrong_serial_950_popup_timing(drv, runner):
             popup_visible = True
             break
     try:
-        drv.tap_text("OK", timeout=5, contains=False)
+        drv.tap_text(["Ok", "OK"], timeout=5, contains=False)
     except Exception:
         pass
     time.sleep(1)
+    _clear_input(drv)
     if popup_visible:
         log.info("TC-SN-009: 950 popup appeared in %.1fs", elapsed)
     runner.assert_true(popup_visible, "950 popup did not appear within 20s for wrong serial")

@@ -91,6 +91,18 @@ def go_to_main(drv, wait_ble: int = 60):
         log.info("[go_to_main] Already on main screen")
         return
 
+    # Dismiss any lingering 950/963 popup before navigating
+    for popup_text, btn in [("Cannot find your S-Patch", ["Ok", "OK"]),
+                             ("Reset your S-Patch",       ["Ok", "OK"]),
+                             ("Bluetooth not enabled",    ["Ok", "OK"])]:
+        if drv.is_visible_text(popup_text, timeout=1):
+            log.info("[go_to_main] Dismissing lingering popup: %s", popup_text)
+            try:
+                drv.tap_text(btn, timeout=3, contains=False)
+                time.sleep(0.5)
+            except Exception:
+                pass
+
     # Enter serial if input field is present (not registered state)
     try:
         el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
