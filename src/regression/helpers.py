@@ -86,6 +86,15 @@ def go_to_main(drv, wait_ble: int = 60):
     Study not registered: enter serial + Connect.
     BLE error popups (950/963) are handled automatically.
     """
+    # Bring the AK app to foreground first (may be behind another app or in background)
+    try:
+        pkg = drv.cfg.get("app_package")
+        if pkg:
+            drv.drv.activate_app(pkg)
+            time.sleep(1.5)
+    except Exception:
+        pass
+
     # Already on main screen (e.g. app restarted while study active)
     if drv.is_visible_text("Log Symptoms", timeout=3):
         log.info("[go_to_main] Already on main screen")
