@@ -21,6 +21,7 @@ import time
 from src.driver import AndroidDriver
 from src.retry import retry
 from src.workflows.popup_handler import handle_any_popup
+from src.regression.helpers import go_to_main
 
 log = logging.getLogger(__name__)
 
@@ -54,12 +55,16 @@ def inject_symptom_event(
 
     # ── 1. Bring app to foreground ──────────────────────────────────────────────
     d.bring_to_foreground()
-    d.wait_idle(1.0)
+    d.wait_idle(1.5)
 
     # ── 2. Handle known popups ──────────────────────────────────────────
     handle_any_popup(d)
 
-    # ── 3. Confirm main screen ────────────────────────────────────────────
+    # ── 3. Confirm main screen — navigate there if not already on it ──────────
+    if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
+        log.info("[inject] Not on main screen — navigating via go_to_main()")
+        d.screenshot("inject_not_on_main_before_nav")
+        go_to_main(d)
     if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
         d.screenshot("inject_not_on_main_screen")
         raise RuntimeError(f"Not on main measurement screen — '{_MAIN_SCREEN_TEXT}' not displayed")
