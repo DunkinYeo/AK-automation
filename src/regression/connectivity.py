@@ -169,9 +169,18 @@ def test_conn_004_bt_on_recovery(drv, runner):
     runner.assert_true(ok, f"BT recovery: Bluetooth card still shows 'Disconnected' {_BT_RECOVERY_TIMEOUT}s after BT re-enabled")
 
 
+def _is_wifi_adb(drv) -> bool:
+    """Return True if ADB is connected via WiFi (IP:port) — WiFi-off tests must be skipped."""
+    udid = drv.cfg.get("udid", "")
+    return ":" in udid
+
+
 def test_conn_005_wifi_off_network_card(drv, runner):
     """TC-CONN-005 | WiFi off → OS confirms wifi_on=0 (Network card may show icon change only)"""
     if _not_started(drv):
+        return
+    if _is_wifi_adb(drv):
+        log.info("TC-CONN-005: skipped — ADB connected via WiFi; disabling WiFi would drop the session")
         return
     _go_device_status(drv)
     _wifi_off(drv)
@@ -193,6 +202,9 @@ def test_conn_005_wifi_off_network_card(drv, runner):
 def test_conn_006_wifi_on_recovery(drv, runner):
     """TC-CONN-006 | WiFi on after off → wifi_on=1 restored within 15s"""
     if _not_started(drv):
+        return
+    if _is_wifi_adb(drv):
+        log.info("TC-CONN-006: skipped — ADB connected via WiFi; disabling WiFi would drop the session")
         return
     _wifi_off(drv)
     time.sleep(2)
