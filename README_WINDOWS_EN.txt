@@ -59,7 +59,7 @@ How to unblock:
 
   3) Double-click run.bat.
      The browser opens automatically after a few seconds.
-     If not, open manually:  http://127.0.0.1:5002
+     If not, open manually:  http://127.0.0.1:5003
 
   4) Configure in the browser:
      - Device              : Select the connected device
@@ -102,12 +102,19 @@ How to unblock:
     - Re-run install.bat (most issues resolve on retry).
     - If "Windows protected your PC" appears:
       click [More info] → [Run anyway].
+    - If Python is installed but install.bat still fails:
+      Python may have been installed without the "Add to PATH" option.
+      install.bat will automatically search common install locations.
+      If it still fails, run the following manually in CMD:
+        .venv\Scripts\activate
+        pip install -r requirements.txt
+      Then launch run.bat.
 
   Script appears frozen:
     - Press Enter once or twice.
 
   Browser doesn't open:
-    - Navigate to http://127.0.0.1:5002 manually.
+    - Navigate to http://127.0.0.1:5003 manually.
 
   Files blocked after ZIP extraction:
     - Right-click the ZIP → Properties → check [Unblock] → re-extract.

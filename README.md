@@ -13,7 +13,9 @@ and sends Slack notifications on start, injection results, completion, and failu
 - **Slack notifications**: Run start / injection result / complete / failed
 - **Quiet Hours**: Skip injections during configured overnight hours
 - **Regression tests**: 7 suites, automated UI TC verification
-- **Web UI**: Browser-based control, monitoring, and log viewer (port 5002)
+- **Web UI**: Browser-based control, monitoring, and log viewer (port 5003)
+- **ADB WiFi keepalive**: Periodic ADB ping to prevent TCP drop on WiFi connections
+- **Sleep prevention**: macOS caffeinate / Windows SetThreadExecutionState during test run
 - **Distribution ZIP**: Auto-build Mac / Windows deployment packages
 
 ---
@@ -79,7 +81,7 @@ python src/main.py --config config/accurkardia.yaml --once
 
 ```bash
 make web
-# → http://localhost:5002
+# → http://localhost:5003
 ```
 
 - Device selection / S-Patch serial input / duration and interval settings
@@ -94,7 +96,7 @@ make web
 ```bash
 make install          # create venv + install packages
 make run              # long-run test
-make web              # web UI (port 5002)
+make web              # web UI (port 5003)
 make dry-run          # validate config only
 
 # Regression
@@ -188,7 +190,7 @@ AK-automation/
 │       ├── serial_input.py    # Serial TCs
 │       └── helpers.py         # reset_to_step1, go_to_main
 ├── web/
-│   ├── app.py                 # Flask server (port 5002)
+│   ├── app.py                 # Flask server (port 5003)
 │   └── templates/
 │       ├── index.html         # main UI
 │       ├── failures.html      # failure artifact list

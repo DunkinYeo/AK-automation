@@ -58,7 +58,7 @@ Fix options:
 
   3) Double-click run.command in Finder.
      The browser opens automatically after a few seconds.
-     If not, open manually:  http://127.0.0.1:5002
+     If not, open manually:  http://127.0.0.1:5003
 
   4) Configure in the browser:
      - Device              : Select the connected device
@@ -108,7 +108,7 @@ Fix options:
         xattr -d com.apple.quarantine install.command run.command STOP.command
 
   Browser doesn't open:
-    - Navigate to http://127.0.0.1:5002 manually.
+    - Navigate to http://127.0.0.1:5003 manually.
 
   Password requested during install:
     - Enter your Mac login password (not shown on screen — normal).

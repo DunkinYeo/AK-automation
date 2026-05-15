@@ -59,7 +59,7 @@ macOS에서 .command 파일을 처음 실행할 때
 
   3) Finder에서 run.command 를 더블클릭합니다.
      잠시 후 브라우저가 자동으로 열립니다.
-     열리지 않으면 직접 접속하세요:  http://127.0.0.1:5002
+     열리지 않으면 직접 접속하세요:  http://127.0.0.1:5003
 
   4) 브라우저에서 아래 항목을 설정합니다:
      - Device              : 연결된 기기를 선택합니다
@@ -109,7 +109,7 @@ macOS에서 .command 파일을 처음 실행할 때
         xattr -d com.apple.quarantine install.command run.command STOP.command
 
   브라우저가 열리지 않는 경우:
-    - http://127.0.0.1:5002 을 직접 입력하세요.
+    - http://127.0.0.1:5003 을 직접 입력하세요.
 
   설치 중 비밀번호 요청:
     - Homebrew 설치에 관리자 비밀번호가 필요합니다.
