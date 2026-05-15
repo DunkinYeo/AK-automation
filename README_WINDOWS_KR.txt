@@ -53,8 +53,7 @@ Windows 보안 정책에 의해 차단될 수 있습니다.
   2. 테스트 실행
 ------------------------------------------------------------
 
-  1) AccurKardia 앱이 검사 진행 중 상태인지 확인합니다.
-     ("My Study Progress" 화면이 표시되어야 합니다)
+  1) AccurKardia 웹 시스템에 검사(Study)가 등록되어 있는지 확인합니다.
 
   2) Android 기기를 USB로 PC에 연결합니다.
 
@@ -68,17 +67,19 @@ Windows 보안 정책에 의해 차단될 수 있습니다.
      - Test Name           : 테스트 이름을 입력합니다
      - Test Duration       : 테스트 총 시간을 설정합니다
      - Injection Interval  : 증상 주입 간격을 설정합니다
-     - Skip Regression     : 이미 검사가 진행 중인 경우 체크 (아래 참고)
+     - Skip Regression     : 검사가 이미 진행 중인 경우 체크 (아래 참고)
      - Slack Webhook URL   : Slack 알림이 필요하면 입력합니다 (선택)
 
   5) [Start Test] 버튼을 클릭합니다.
 
   ─ 일반 모드 (Skip Regression 미체크):
-       1. Regression 테스트 (main → diary → menu-study 순서)
-       2. 증상 주입 스케줄 시작
+       검사 시작 전 상태의 앱에서 Regression 테스트를 수행합니다.
+       (main → diary → menu-study 순서)
+       완료 후 증상 주입 스케줄이 시작됩니다.
 
-  ─ Skip Regression 모드 (이미 검사 중인 경우):
-       Regression을 건너뛰고 바로 증상 주입만 시작합니다.
+  ─ Skip Regression 모드 (검사가 이미 진행 중인 경우):
+       검사가 진행 중인 앱에서 바로
+       증상 주입(Log Symptoms) + Connectivity 테스트를 수행합니다.
 
   6) 테스트가 끝날 때까지 run.bat 창을 닫지 마세요.
 

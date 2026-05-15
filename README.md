@@ -30,7 +30,7 @@ and sends Slack notifications on start, injection results, completion, and failu
 | ADB (android-platform-tools) | latest |
 | Android device | USB Debugging enabled |
 
-The AccurKardia app must be in an **active study state** ("My Study Progress" screen visible).
+A study must be **registered in the AccurKardia web system** before running.
 
 ---
 
@@ -158,7 +158,7 @@ echo "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/..." > .env
 | `diary` | **Study active** | 6 | Log Symptoms sheet |
 | `menu-study` | **Study active** | 6 | Side menu during study |
 
-Web UI default suites: `main, diary, menu-study` (study-active state)
+Web UI default suites: `main, diary, menu-study` (run before study starts in normal mode)
 
 ---
 

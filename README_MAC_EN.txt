@@ -51,8 +51,7 @@ Fix options:
   2. Running the Test
 ------------------------------------------------------------
 
-  1) Make sure the AccurKardia app is in an active study state.
-     ("My Study Progress" screen must be visible)
+  1) Verify that a study has been registered in the AccurKardia web system.
 
   2) Connect your Android device via USB.
 
@@ -66,17 +65,20 @@ Fix options:
      - Test Name           : Enter a test name
      - Test Duration       : Set total test duration
      - Injection Interval  : Set symptom injection interval
-     - Skip Regression     : Check if study is already active (see below)
+     - Skip Regression     : Check if the study is already in progress (see below)
      - Slack Webhook URL   : Optional Slack notifications
 
   5) Click [Start Test].
 
   ─ Normal mode (Skip Regression unchecked):
-       1. Regression tests (main → diary → menu-study)
-       2. Symptom injection schedule starts
+       Runs Regression tests on the app before the study starts.
+       (main → diary → menu-study)
+       Symptom injection schedule starts after Regression completes.
 
-  ─ Skip Regression mode (study already active):
-       Skips Regression and starts symptom injection immediately.
+  ─ Skip Regression mode (study already in progress):
+       Skips Regression and immediately performs
+       symptom injection (Log Symptoms) + Connectivity tests
+       on the app while the study is active.
 
   6) Keep the terminal window OPEN during the test.
 
