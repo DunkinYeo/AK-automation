@@ -55,6 +55,8 @@ macOS에서 .command 파일을 처음 실행할 때
   1) AccurKardia 웹 시스템에 검사(Study)가 등록되어 있는지 확인합니다.
 
   2) Android 기기를 USB로 Mac에 연결합니다.
+     ※ 최초 1회 USB 연결 이후에는 WiFi로 자동 전환됩니다.
+        이후 실행 시에는 USB 없이 같은 WiFi 환경에서 run.command만 실행하면 됩니다.
 
   3) Finder에서 run.command 를 더블클릭합니다.
      잠시 후 브라우저가 자동으로 열립니다.

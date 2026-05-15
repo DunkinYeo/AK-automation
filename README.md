@@ -14,7 +14,8 @@ and sends Slack notifications on start, injection results, completion, and failu
 - **Quiet Hours**: Skip injections during configured overnight hours
 - **Regression tests**: 7 suites, automated UI TC verification
 - **Web UI**: Browser-based control, monitoring, and log viewer (port 5003)
-- **ADB WiFi keepalive**: Periodic ADB ping to prevent TCP drop on WiFi connections
+- **ADB WiFi auto-switch**: First run via USB; device WiFi IP cached to `runtime/adb_wifi_device.json` — subsequent runs connect over WiFi automatically (no USB required)
+- **ADB WiFi keepalive**: 30-second ADB ping to prevent TCP drop on WiFi connections
 - **Sleep prevention**: macOS caffeinate / Windows SetThreadExecutionState during test run
 - **Distribution ZIP**: Auto-build Mac / Windows deployment packages
 

@@ -54,6 +54,8 @@ Fix options:
   1) Verify that a study has been registered in the AccurKardia web system.
 
   2) Connect your Android device via USB.
+     ※ After the first USB connection, the tool switches to WiFi automatically.
+        For subsequent runs, USB is not required — just stay on the same WiFi.
 
   3) Double-click run.command in Finder.
      The browser opens automatically after a few seconds.
