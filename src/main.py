@@ -275,33 +275,41 @@ def main():
         post_main_suites = [("main", main_screen.TESTS), ("diary", add_diary.TESTS),
                             ("menu-study", menu_study.TESTS), ("connectivity", connectivity.TESTS)]
 
+        runner = TestRunner(driver, artifacts)
+
+        def _run_suite(name, tests):
+            log_event(f"regression: {name}")
+            pre = len(runner.results)
+            runner.run_all(tests)
+            batch    = runner.results[pre:]
+            passed   = sum(1 for r in batch if r.passed)
+            failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in batch if not r.passed]
+            reporter.log_event("regression_suite_result", {
+                "suite": name, "passed": passed, "total": len(batch), "failures": failures,
+            })
+            if _slack_on:
+                try:
+                    from src.slack import slack_regression_suite
+                    slack_regression_suite(_webhook, name, passed, len(batch), failures)
+                except Exception:
+                    pass
+
         if args.skip_regression:
+            # Skip regression TCs (serial/menu/main/diary/menu-study) but still run connectivity
             log_event("regression: skipped (--skip-regression)")
-            for suite_name, _ in pre_main_suites + post_main_suites:
+            for suite_name, _ in pre_main_suites:
+                reporter.log_event("regression_suite_result", {
+                    "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
+                })
+            for suite_name, tests in post_main_suites:
+                if suite_name == "connectivity":
+                    continue
                 reporter.log_event("regression_suite_result", {
                     "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
                 })
             go_to_main(driver)
+            _run_suite("connectivity", connectivity.TESTS)
         else:
-            runner = TestRunner(driver, artifacts)
-
-            def _run_suite(name, tests):
-                log_event(f"regression: {name}")
-                pre = len(runner.results)
-                runner.run_all(tests)
-                batch    = runner.results[pre:]
-                passed   = sum(1 for r in batch if r.passed)
-                failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in batch if not r.passed]
-                reporter.log_event("regression_suite_result", {
-                    "suite": name, "passed": passed, "total": len(batch), "failures": failures,
-                })
-                if _slack_on:
-                    try:
-                        from src.slack import slack_regression_suite
-                        slack_regression_suite(_webhook, name, passed, len(batch), failures)
-                    except Exception:
-                        pass
-
             # Phase 1: Step 1 — reset app, run serial + menu
             reset_to_step1(driver, hard=True)
             for name, tests in pre_main_suites:

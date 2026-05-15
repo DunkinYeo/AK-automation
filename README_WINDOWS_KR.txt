@@ -73,13 +73,13 @@ Windows 보안 정책에 의해 차단될 수 있습니다.
   5) [Start Test] 버튼을 클릭합니다.
 
   ─ 일반 모드 (Skip Regression 미체크):
-       검사 시작 전 상태의 앱에서 Regression 테스트를 수행합니다.
-       (main → diary → menu-study 순서)
+       검사 시작 전 상태의 앱에서 Regression 테스트 전체를 수행합니다.
+       (serial → menu → main → diary → menu-study → connectivity 순서)
        완료 후 증상 주입 스케줄이 시작됩니다.
 
   ─ Skip Regression 모드 (검사가 이미 진행 중인 경우):
-       검사가 진행 중인 앱에서 바로
-       증상 주입(Log Symptoms) + Connectivity 테스트를 수행합니다.
+       serial / menu / main / diary / menu-study Regression은 건너뜁니다.
+       검사가 진행 중인 앱에서 Connectivity 테스트 + 증상 주입을 수행합니다.
 
   6) 테스트가 끝날 때까지 run.bat 창을 닫지 마세요.
 

@@ -72,14 +72,13 @@ How to unblock:
   5) Click [Start Test].
 
   ─ Normal mode (Skip Regression unchecked):
-       Runs Regression tests on the app before the study starts.
-       (main → diary → menu-study)
+       Runs all Regression tests before the study starts.
+       (serial → menu → main → diary → menu-study → connectivity)
        Symptom injection schedule starts after Regression completes.
 
   ─ Skip Regression mode (study already in progress):
-       Skips Regression and immediately performs
-       symptom injection (Log Symptoms) + Connectivity tests
-       on the app while the study is active.
+       Skips serial / menu / main / diary / menu-study Regression.
+       Runs Connectivity tests + symptom injection on the active study app.
 
   6) Keep the run.bat window OPEN during the test.
 
