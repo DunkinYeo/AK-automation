@@ -35,6 +35,17 @@ IF NOT ERRORLEVEL 1 (
     SET "_PY3EXE="
     GOTO :step2
 )
+REM Search common install paths (Python installed without Add-to-PATH)
+SET "_PY_PATH="
+FOR /F "usebackq tokens=*" %%P IN (`powershell -NoProfile -Command "$f=$null;foreach($v in '313','312','311','310'){foreach($b in ([Environment]::GetFolderPath('LocalApplicationData')+'\Programs\Python\Python'+$v,$env:PROGRAMFILES+'\Python'+$v,$env:PROGRAMFILES+'\Python\Python'+$v)){$e=$b+'\python.exe';if(Test-Path $e){$f=$e;break}};if($f){break}};if($f){$f}" 2^>nul`) DO SET "_PY_PATH=%%P"
+IF DEFINED _PY_PATH (
+    SET "PYTHON_EXE=%_PY_PATH%"
+    FOR %%D IN ("%_PY_PATH%") DO SET "PATH=%%~dpD;%%~dpDScripts;%PATH%"
+    SET "_PY_PATH="
+    echo   PASS  Python found at %PYTHON_EXE%
+    echo [1/6] PASS (common path) >> "%LOG%"
+    GOTO :step2
+)
 echo   Python not found. Installing via winget...
 winget --version >nul 2>&1
 IF ERRORLEVEL 1 (
