@@ -245,13 +245,13 @@ fi
 
 # ── [9] Start web server + health-check browser opener ───────
 echo ""
-echo "  Starting web server on port 5002..."
+echo "  Starting web server on port 5003..."
 echo "[run] Starting web server" >> "$LOG_FILE"
 
 (
     for i in $(seq 1 30); do
-        if curl -sf --max-time 2 "http://127.0.0.1:5002" >/dev/null 2>&1; then
-            open "http://127.0.0.1:5002"
+        if curl -sf --max-time 2 "http://127.0.0.1:5003" >/dev/null 2>&1; then
+            open "http://127.0.0.1:5003"
             exit 0
         fi
         sleep 1

@@ -111,10 +111,10 @@ echo [run] Appium started >> "%LOG%"
 
 :start_web
 echo.
-echo   Starting web server on port 5002...
+echo   Starting web server on port 5003...
 echo [run] Starting web server >> "%LOG%"
 
-start "" /B powershell -NoProfile -ExecutionPolicy Bypass -Command "for($i=0;$i-lt30;$i++){try{(New-Object Net.WebClient).DownloadString('http://127.0.0.1:5002')|Out-Null;Start-Process 'http://127.0.0.1:5002';break}catch{Start-Sleep 1}}"
+start "" /B powershell -NoProfile -ExecutionPolicy Bypass -Command "for($i=0;$i-lt30;$i++){try{(New-Object Net.WebClient).DownloadString('http://127.0.0.1:5003')|Out-Null;Start-Process 'http://127.0.0.1:5003';break}catch{Start-Sleep 1}}"
 
 echo   Browser will open automatically when the server is ready.
 echo   Leave this window OPEN during the test.

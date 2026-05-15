@@ -99,6 +99,7 @@ IF ERRORLEVEL 1 (
     echo   FAIL  Node.js not in PATH. Re-run in a new Command Prompt.
     pause
     SET FAILED=1
+    GOTO :step3
 )
 echo   PASS  Node.js installed.
 echo [2/6] PASS >> "%LOG%"
