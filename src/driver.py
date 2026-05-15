@@ -59,6 +59,7 @@ class AndroidDriver:
         opts.device_name = self.cfg.get("device_name", "Android")
         opts.no_reset = bool(self.cfg.get("no_reset", True))
         opts.new_command_timeout = int(self.cfg.get("new_command_timeout", 3600))
+        opts.stay_awake = True
         udid = self.cfg.get("udid", "")
         if not udid:
             # No UDID in config — try adb_wifi_device.json written by run.command/run.bat

@@ -103,6 +103,9 @@ class LongRunScheduler:
 
         sched = BlockingScheduler()
         cooldown = int(self.recovery_cfg.get("cooldown_seconds_between_steps", 30))
+        # Allow missed jobs to fire for up to 1 hour after their scheduled time
+        # so that a brief Mac sleep does not silently skip an injection.
+        grace = int(self.interval_hours * 3600) if self.interval_hours else 3600
 
         for item in self.plan:
             at = float(item.get("at_hour", 0))
@@ -134,7 +137,7 @@ class LongRunScheduler:
                     _run_with_health_check(job_callable, driver, at_h, p, self.reporter, cd)
                 return _job
 
-            sched.add_job(_make_job(at, payload, cooldown), "date", run_date=when)
+            sched.add_job(_make_job(at, payload, cooldown), "date", run_date=when, misfire_grace_time=grace)
 
         sched.add_job(lambda: sched.shutdown(wait=False), "date", run_date=end)
         sched.start()
@@ -147,6 +150,9 @@ class LongRunScheduler:
         sched = BackgroundScheduler()
         counter = [0]
         cooldown = int(self.recovery_cfg.get("cooldown_seconds_between_steps", 30))
+        # Allow missed jobs to fire for up to one full interval after their scheduled
+        # time so that a brief Mac sleep does not silently skip an injection.
+        grace = int(self.interval_hours * 3600)
 
         def _schedule_next():
             counter[0] += 1
@@ -178,7 +184,7 @@ class LongRunScheduler:
                     _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
                 _schedule_next()
 
-            sched.add_job(_job, "date", run_date=next_run)
+            sched.add_job(_job, "date", run_date=next_run, misfire_grace_time=grace)
 
         self.reporter.log_event(
             "scheduler_started",
@@ -205,7 +211,7 @@ class LongRunScheduler:
                 _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
                 _schedule_next()
 
-            sched.add_job(_first_job, "date", run_date=first_run)
+            sched.add_job(_first_job, "date", run_date=first_run, misfire_grace_time=grace)
         else:
             _schedule_next()
 

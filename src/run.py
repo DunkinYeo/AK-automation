@@ -232,8 +232,10 @@ def main():
         from src.slack import slack_run_start
         slack_run_start(webhook, serial, duration_hours, interval_hours)
 
+    _udid = a_cfg.get("udid", "")
+    _wifi_addr = _udid if (_udid and ":" in _udid and not _udid.startswith("/")) else None
     keep_awake = KeepAwake()
-    keep_awake.start()
+    keep_awake.start(adb_wifi_addr=_wifi_addr)
 
     suite_results = {}
     runner = TestRunner(drv, artifacts)
