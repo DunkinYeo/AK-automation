@@ -375,49 +375,59 @@ def main():
                     slack_regression_suite(webhook, "connectivity", r["passed"], r["total"], r.get("failures", []))
 
         # ── 7. Connectivity monitoring thread ─────────────────────
-        _stop_monitor = threading.Event()
+        _stop_monitor    = threading.Event()
+        _airplane_active = threading.Event()
 
         def _connectivity_monitor():
             while not _stop_monitor.is_set():
-                try:
-                    drv.check_connectivity()
-                except Exception as _e:
-                    log.warning("[connectivity monitor] error: %s", _e)
+                if not _airplane_active.is_set():
+                    try:
+                        drv.check_connectivity()
+                    except Exception as _e:
+                        log.warning("[connectivity monitor] error: %s", _e)
                 _stop_monitor.wait(30)  # check every 30 seconds
 
         monitor_thread = threading.Thread(target=_connectivity_monitor, daemon=True)
         monitor_thread.start()
-        log.info("Connectivity monitor started (30s interval)")
+        log.info("Connectivity monitor started (30s interval, paused during airplane mode)")
 
         _first_injection_done = threading.Event()
 
         bt_interval_h  = float(run_cfg.get("bt_disconnect_interval_hours", 0))
         bt_minutes     = float(run_cfg.get("bt_disconnect_minutes", 10))
-        if bt_interval_h > 0:
-            def _bt_loop():
-                _first_injection_done.wait()
-                while not _stop_monitor.is_set():
-                    try:
-                        run_bt_disconnect(drv, bt_minutes)
-                    except Exception as _e:
-                        log.warning("[bt_disconnect] error: %s", _e)
-                    _stop_monitor.wait(bt_interval_h * 3600)
-            threading.Thread(target=_bt_loop, daemon=True).start()
-            log.info("BT disconnect loop started (first run after first injection, then every %.1fh, %.1f min off)", bt_interval_h, bt_minutes)
-
         ap_interval_h  = float(run_cfg.get("airplane_mode_interval_hours", 0))
         ap_minutes     = float(run_cfg.get("airplane_mode_minutes", 5))
-        if ap_interval_h > 0:
-            def _airplane_loop():
+
+        if bt_interval_h > 0 or ap_interval_h > 0:
+            interval_h = bt_interval_h or ap_interval_h
+            def _periodic_loop():
                 _first_injection_done.wait()
                 while not _stop_monitor.is_set():
-                    try:
-                        run_airplane_mode(drv, ap_minutes)
-                    except Exception as _e:
-                        log.warning("[airplane_mode] error: %s", _e)
-                    _stop_monitor.wait(ap_interval_h * 3600)
-            threading.Thread(target=_airplane_loop, daemon=True).start()
-            log.info("Airplane mode loop started (first run after first injection, then every %.1fh, %.1f min on)", ap_interval_h, ap_minutes)
+                    # BT disconnect → wait 1 min
+                    if bt_interval_h > 0:
+                        try:
+                            run_bt_disconnect(drv, bt_minutes)
+                        except Exception as _e:
+                            log.warning("[bt_disconnect] error: %s", _e)
+                        _stop_monitor.wait(60)
+                        if _stop_monitor.is_set():
+                            break
+                    # Airplane mode (connectivity monitor paused) → wait 1 min
+                    if ap_interval_h > 0:
+                        _airplane_active.set()
+                        try:
+                            run_airplane_mode(drv, ap_minutes)
+                        except Exception as _e:
+                            log.warning("[airplane_mode] error: %s", _e)
+                        finally:
+                            _airplane_active.clear()
+                        _stop_monitor.wait(60)
+                        if _stop_monitor.is_set():
+                            break
+                    # Wait remaining interval
+                    _stop_monitor.wait(interval_h * 3600)
+            threading.Thread(target=_periodic_loop, daemon=True).start()
+            log.info("Periodic loop started (after first injection): BT %.1fmin → 1min → airplane %.1fmin → 1min → wait %.1fh", bt_minutes, ap_minutes, interval_h)
 
         # ── 8. Symptom injection schedule ────────────────────────
         log.info("=" * 55)
