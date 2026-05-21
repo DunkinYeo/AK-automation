@@ -318,10 +318,17 @@ def api_status():
         events    = read_events(out_dir)
         exit_code = proc.poll() if proc else None
 
+        run_start_ev = next((e for e in events if e["event"] == "run_start"), None)
+        tail = events[-50:]
+        if run_start_ev and (not tail or tail[0].get("event") != "run_start"):
+            combined = [run_start_ev] + [e for e in tail if e["event"] != "run_start"]
+        else:
+            combined = tail
+
         return jsonify({
             "running":   running,
             "exit_code": exit_code,
-            "events":    events[-50:],
+            "events":    combined,
         })
 
 

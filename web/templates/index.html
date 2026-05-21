@@ -417,6 +417,23 @@
           </ul>
         </details>
 
+        <!-- ── Periodic Tests ── -->
+        <div class="tc-group-label" style="margin-top:10px;color:#7c3aed">Periodic Tests <span style="font-weight:400;color:#9ca3af;font-size:.68rem">background · after first injection · config-enabled</span></div>
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label" style="color:#7c3aed">BT Disconnect</span><span class="tc-count">periodic</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id tc-id-mon">BT-001</span> BT off for N minutes → BT on → app recovers</li>
+            <li style="color:#9ca3af;font-size:.78rem;padding:2px 0">Enable: <code>bt_disconnect_interval_hours</code> &gt; 0 in config</li>
+          </ul>
+        </details>
+        <details class="tc-suite">
+          <summary><span class="tc-suite-label" style="color:#7c3aed">Airplane Mode</span><span class="tc-count">periodic</span></summary>
+          <ul class="tc-items">
+            <li><span class="tc-id tc-id-mon">AP-001</span> Airplane mode on for N minutes → off → app recovers</li>
+            <li style="color:#9ca3af;font-size:.78rem;padding:2px 0">Enable: <code>airplane_mode_interval_hours</code> &gt; 0 in config · USB only</li>
+          </ul>
+        </details>
+
       </div>
     </div>
   </div>
@@ -477,6 +494,13 @@ const EVENT_INFO = {
   regression_suite_result:{ text: null,                       color: 'green'  },
   popup_cannot_find_patch:{ text: '⚠ Popup: Cannot find S-Patch (950)', color: 'red' },
   popup_reset_patch:      { text: '⚠ Popup: Reset S-Patch (963)',       color: 'red' },
+  bt_disconnect_start:    { text: null,                                  color: 'orange' },
+  bt_disconnect_done:     { text: null,                                  color: 'green'  },
+  bt_disconnect_failed:   { text: null,                                  color: 'red'    },
+  airplane_mode_start:    { text: null,                                  color: 'orange' },
+  airplane_mode_done:     { text: null,                                  color: 'green'  },
+  airplane_mode_skipped:  { text: 'Airplane mode skipped (WiFi ADB)',    color: 'gray'   },
+  airplane_mode_failed:   { text: null,                                  color: 'red'    },
 };
 
 function fmtEvent(ev) {
@@ -492,6 +516,18 @@ function fmtEvent(ev) {
     text = `Next injection scheduled → ${t}`;
   } else if (ev.event === 'run_failed') {
     text = `Test failed — ${ev.data?.error || ''}`;
+  } else if (ev.event === 'bt_disconnect_start') {
+    text = `BT disconnect — off for ${ev.data?.minutes ?? '?'} min`;
+  } else if (ev.event === 'bt_disconnect_done') {
+    text = `BT reconnected after ${ev.data?.minutes ?? '?'} min`;
+  } else if (ev.event === 'bt_disconnect_failed') {
+    text = `BT disconnect failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+  } else if (ev.event === 'airplane_mode_start') {
+    text = `Airplane mode ON — ${ev.data?.minutes ?? '?'} min`;
+  } else if (ev.event === 'airplane_mode_done') {
+    text = `Airplane mode OFF after ${ev.data?.minutes ?? '?'} min`;
+  } else if (ev.event === 'airplane_mode_failed') {
+    text = `Airplane mode failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
   } else if (ev.event === 'regression_suite_result') {
     const d = ev.data || {};
     if (d.skipped) return null;

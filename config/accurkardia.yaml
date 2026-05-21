@@ -8,6 +8,10 @@ run:
   quiet_hours:
     start: 2                  # skip injections from 2:00–6:00 (set to 0 to disable)
     end: 6
+  bt_disconnect_interval_hours: 1   # BT disconnect test interval (0 = disabled)
+  bt_disconnect_minutes: 10         # how long BT stays off each cycle
+  airplane_mode_interval_hours: 1   # airplane mode test interval (0 = disabled, USB only)
+  airplane_mode_minutes: 5          # how long airplane mode stays on each cycle
 
 recovery:
   cooldown_seconds_between_steps: 30

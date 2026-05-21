@@ -53,9 +53,11 @@ from src.keep_awake import KeepAwake
 from src.scheduler import LongRunScheduler
 from src.slack import slack_daily_report, slack_bug_report, slack_urgent_alert, slack_injection_notify, slack_regression_suite
 from src.regression.runner import TestRunner
-from src.regression import serial_input, menu_step1, signal_check, main_screen, add_diary, menu_study
+from src.regression import serial_input, menu_step1, signal_check, main_screen, add_diary, menu_study, connectivity
 from src.regression.helpers import reset_to_step1, open_menu
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS, ACTIVITIES
+from src.workflows.bt_disconnect import run_bt_disconnect
+from src.workflows.airplane_mode import run_airplane_mode
 from src.workflows.popup_handler import handle_any_popup
 from selenium.webdriver.common.by import By
 
@@ -246,7 +248,7 @@ def main():
 
         if already_running:
             log.info("Already measuring + skip_regression → skipping entire setup, starting injection immediately")
-            for s in ("serial", "menu", "signal", "main", "diary", "menu-study"):
+            for s in ("serial", "menu", "signal", "main", "diary", "menu-study", "connectivity"):
                 suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
                 reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
             reporter.log_event("study_started", {})
@@ -327,8 +329,8 @@ def main():
 
             # ── 6. Regression: main + diary + menu-study ─────────────
             if skip_regression:
-                log.info("--skip-regression: skipping main / diary / menu-study suites")
-                for s in ("main", "diary", "menu-study"):
+                log.info("--skip-regression: skipping main / diary / menu-study / connectivity suites")
+                for s in ("main", "diary", "menu-study", "connectivity"):
                     suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
                     reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
             else:
@@ -362,6 +364,16 @@ def main():
                     r = suite_results["menu-study"]
                     slack_regression_suite(webhook, "menu-study", r["passed"], r["total"], r.get("failures", []))
 
+                log.info("=" * 55)
+                log.info("REGRESSION — connectivity")
+                suite_results["connectivity"] = _run_suite(runner, connectivity.TESTS, "connectivity")
+                reporter.log_event("regression_suite_result", {
+                    "suite": "connectivity", **{k: suite_results["connectivity"][k] for k in ("passed", "total", "failures")},
+                })
+                if webhook:
+                    r = suite_results["connectivity"]
+                    slack_regression_suite(webhook, "connectivity", r["passed"], r["total"], r.get("failures", []))
+
         # ── 7. Connectivity monitoring thread ─────────────────────
         _stop_monitor = threading.Event()
 
@@ -376,6 +388,36 @@ def main():
         monitor_thread = threading.Thread(target=_connectivity_monitor, daemon=True)
         monitor_thread.start()
         log.info("Connectivity monitor started (30s interval)")
+
+        _first_injection_done = threading.Event()
+
+        bt_interval_h  = float(run_cfg.get("bt_disconnect_interval_hours", 0))
+        bt_minutes     = float(run_cfg.get("bt_disconnect_minutes", 10))
+        if bt_interval_h > 0:
+            def _bt_loop():
+                _first_injection_done.wait()
+                while not _stop_monitor.is_set():
+                    try:
+                        run_bt_disconnect(drv, bt_minutes)
+                    except Exception as _e:
+                        log.warning("[bt_disconnect] error: %s", _e)
+                    _stop_monitor.wait(bt_interval_h * 3600)
+            threading.Thread(target=_bt_loop, daemon=True).start()
+            log.info("BT disconnect loop started (first run after first injection, then every %.1fh, %.1f min off)", bt_interval_h, bt_minutes)
+
+        ap_interval_h  = float(run_cfg.get("airplane_mode_interval_hours", 0))
+        ap_minutes     = float(run_cfg.get("airplane_mode_minutes", 5))
+        if ap_interval_h > 0:
+            def _airplane_loop():
+                _first_injection_done.wait()
+                while not _stop_monitor.is_set():
+                    try:
+                        run_airplane_mode(drv, ap_minutes)
+                    except Exception as _e:
+                        log.warning("[airplane_mode] error: %s", _e)
+                    _stop_monitor.wait(ap_interval_h * 3600)
+            threading.Thread(target=_airplane_loop, daemon=True).start()
+            log.info("Airplane mode loop started (first run after first injection, then every %.1fh, %.1f min on)", ap_interval_h, ap_minutes)
 
         # ── 8. Symptom injection schedule ────────────────────────
         log.info("=" * 55)
@@ -422,6 +464,8 @@ def main():
                         success=False, error=str(e)
                     )
                 raise
+            finally:
+                _first_injection_done.set()
 
         scheduler = LongRunScheduler(
             duration_hours=duration_hours,

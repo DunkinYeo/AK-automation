@@ -4,6 +4,7 @@ Common helper functions
 import time
 import logging
 from selenium.webdriver.common.by import By
+from appium.webdriver.common.appiumby import AppiumBy
 
 log = logging.getLogger(__name__)
 
@@ -185,13 +186,20 @@ def go_to_main(drv, wait_ble: int = 60):
 
 def open_menu(drv, wait: float = 2.0):
     for attempt in range(3):
-        drv.drv.tap([(MENU_BTN_X, MENU_BTN_Y)])
+        try:
+            el = drv.drv.find_element(
+                AppiumBy.ANDROID_UIAUTOMATOR,
+                'new UiSelector().className("android.widget.ImageButton").instance(0)'
+            )
+            el.click()
+        except Exception:
+            drv.drv.tap([(MENU_BTN_X, MENU_BTN_Y)])
         time.sleep(wait)
         if drv.is_visible_text("Setting", timeout=2):
             return
         log.warning("[open_menu] Menu did not open, retrying %d/3", attempt + 1)
         time.sleep(0.5)
-    raise Exception("open_menu: Failed to open menu after 3 attempts")
+    raise Exception("open_menu: failed to open menu after 3 attempts")
 
 
 def close_menu(drv):
