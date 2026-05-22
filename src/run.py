@@ -255,8 +255,14 @@ def main():
         log.info("STEP 1 — App reset")
         reset_to_step1(drv, hard=True)
 
-        # Detect if study is already active (app restarts directly to main screen)
-        already_measuring = drv.is_visible_text(_MAIN_TEXT, timeout=5)
+        # Detect if study is already active (app restarts directly to main screen).
+        # Check multiple texts: "Log Symptoms" may be hidden while BT is reconnecting
+        # ("Please wait..." overlay), but "My Study Progress" and "Device Status" are visible.
+        already_measuring = (
+            drv.is_visible_text(_MAIN_TEXT, timeout=3)
+            or drv.is_visible_text("My Study Progress", timeout=3)
+            or drv.is_visible_text("Device Status", timeout=3)
+        )
 
         if already_measuring:
             log.info("App already measuring — skipping serial/menu/signal regression and Step 2/3 navigation")
