@@ -250,22 +250,22 @@ def main():
     runner = TestRunner(drv, artifacts)
 
     try:
-        # ── 0. Already measuring + skip_regression → skip entire setup ──
-        already_running = skip_regression and drv.is_visible_text(_MAIN_TEXT, timeout=5)
+        # ── 1. App restart ───────────────────────────────────────────
+        log.info("=" * 55)
+        log.info("STEP 1 — App reset")
+        reset_to_step1(drv, hard=True)
 
-        if already_running:
-            log.info("Already measuring + skip_regression → skipping entire setup, starting injection immediately")
-            for s in ("serial", "menu", "signal", "main", "diary", "menu-study", "connectivity"):
+        # Detect if study is already active (app restarts directly to main screen)
+        already_measuring = drv.is_visible_text(_MAIN_TEXT, timeout=5)
+
+        if already_measuring:
+            log.info("App already measuring — skipping serial/menu/signal regression and Step 2/3 navigation")
+            for s in ("serial", "menu", "signal"):
                 suite_results[s] = {"passed": 0, "total": 0, "failures": [], "skipped": True}
                 reporter.log_event("regression_suite_result", {"suite": s, "passed": 0, "total": 0, "failures": [], "skipped": True})
             reporter.log_event("study_started", {})
             log.info("Study in progress confirmed")
         else:
-            # ── 1. App restart → Step 1 ──────────────────────────────
-            log.info("=" * 55)
-            log.info("STEP 1 — App reset")
-            reset_to_step1(drv, hard=True)
-
             if skip_regression:
                 log.info("--skip-regression: skipping serial / menu / signal suites")
                 for s in ("serial", "menu", "signal"):
