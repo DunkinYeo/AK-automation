@@ -377,6 +377,7 @@ def main():
         # ── 7. Connectivity monitoring thread ─────────────────────
         _stop_monitor    = threading.Event()
         _airplane_active = threading.Event()
+        _bt_active       = threading.Event()
 
         def _connectivity_monitor():
             while not _stop_monitor.is_set():
@@ -403,16 +404,19 @@ def main():
             def _periodic_loop():
                 _first_injection_done.wait()
                 while not _stop_monitor.is_set():
-                    # BT disconnect → wait 1 min
+                    # BT disconnect (injection blocked) → wait 1 min
                     if bt_interval_h > 0:
+                        _bt_active.set()
                         try:
                             run_bt_disconnect(drv, bt_minutes)
                         except Exception as _e:
                             log.warning("[bt_disconnect] error: %s", _e)
+                        finally:
+                            _bt_active.clear()
                         _stop_monitor.wait(60)
                         if _stop_monitor.is_set():
                             break
-                    # Airplane mode (connectivity monitor paused) → wait 1 min
+                    # Airplane mode (connectivity monitor + injection blocked) → wait 1 min
                     if ap_interval_h > 0:
                         _airplane_active.set()
                         try:
@@ -449,6 +453,11 @@ def main():
             acts      = payload.get("activities") or [random.choice(activities_pool)]
             symptom   = symptoms[0]
             activity  = acts[0]
+            # Wait until BT disconnect and airplane mode tests are not running
+            if _bt_active.is_set() or _airplane_active.is_set():
+                log.info("[job] BT/airplane test in progress — waiting before injection")
+                while _bt_active.is_set() or _airplane_active.is_set():
+                    time.sleep(5)
             t = time.monotonic()
             try:
                 inject_symptom_event(drv, symptoms=symptoms, activities=acts)
