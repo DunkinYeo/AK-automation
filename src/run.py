@@ -93,10 +93,13 @@ def _connect_to_step2(drv, serial: str, wait_ble: int = 60) -> bool:
     """From Step 1, enter serial → Connect → wait for Step 2. Returns True on success."""
     if not drv.is_visible_text(_STEP1_TEXT, timeout=5):
         return False
-    el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
-    el.clear()
-    el.send_keys(serial)
-    time.sleep(0.5)
+    try:
+        el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
+        el.clear()
+        el.send_keys(serial)
+        time.sleep(0.5)
+    except Exception:
+        log.info("[connect] No EditText — device already registered, connecting directly")
     drv.tap_text("Connect", timeout=5, contains=False)
 
     deadline = time.monotonic() + wait_ble
