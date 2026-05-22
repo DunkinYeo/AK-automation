@@ -71,7 +71,7 @@ _STEP1_TEXT  = "Connect Your S-Patch"
 _STEP2_TEXT  = "Check Incoming Signal"
 _STEP3_TEXT  = "Review Study Setting"
 _START_TEXT  = "Start Study"
-_MAIN_TEXT   = "Study Information"
+_MAIN_TEXT   = "Log Symptoms"
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,11 @@ def _connect_to_step2(drv, serial: str, wait_ble: int = 60) -> bool:
         time.sleep(0.5)
     except Exception:
         log.info("[connect] No EditText — device already registered, connecting directly")
-    drv.tap_text("Connect", timeout=5, contains=False)
+    try:
+        drv.tap_text("Connect", timeout=5, contains=False)
+    except Exception:
+        log.warning("[connect] Connect button not found — screen may have changed")
+        return False
 
     deadline = time.monotonic() + wait_ble
     while time.monotonic() < deadline:
