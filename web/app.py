@@ -364,12 +364,16 @@ def api_start():
         cfg = {
             "platform": "android",
             "run": {
-                "name":                   data.get("run_name") or "ak_run",
-                "duration_hours":         int(data.get("duration_hours", 72)),
-                "symptom_interval_hours": float(data.get("interval_hours", 1)),
-                "start_immediately":      True,
-                "jitter_seconds":         0,
-                "quiet_hours":            {"start": 2, "end": 6},
+                "name":                          data.get("run_name") or "ak_run",
+                "duration_hours":                int(data.get("duration_hours", 72)),
+                "symptom_interval_hours":        float(data.get("interval_hours", 1)),
+                "start_immediately":             True,
+                "jitter_seconds":                0,
+                "quiet_hours":                   {"start": 2, "end": 6},
+                "bt_disconnect_interval_hours":  float(data.get("bt_disconnect_interval_hours", 1)),
+                "bt_disconnect_minutes":         float(data.get("bt_disconnect_minutes", 10)),
+                "airplane_mode_interval_hours":  float(data.get("airplane_mode_interval_hours", 1)),
+                "airplane_mode_minutes":         float(data.get("airplane_mode_minutes", 5)),
             },
             "recovery": {"cooldown_seconds_between_steps": 30},
             "android": {
@@ -665,6 +669,125 @@ def api_screenshots():
         reverse=True,
     )
     return jsonify(files)
+
+
+# ── Report (HTML download) ─────────────────────────────────────────────────────
+
+def _build_report_html(events: list[dict]) -> str:
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    device = start_ts_str = ""
+    duration_h = interval_h = None
+    suites: dict = {}
+    injections: list = []
+    bt_tests: list = []
+    ap_tests: list = []
+
+    for e in events:
+        ev   = e.get("event", "")
+        data = e.get("data", {})
+        ts   = e.get("ts", "")
+        if ev == "run_start":
+            start_ts_str = ts
+            duration_h   = data.get("duration_hours")
+            interval_h   = data.get("interval_hours")
+        elif ev == "device_info":
+            device = f"{data.get('model','')} Android {data.get('android_version','')} ({data.get('udid','')})"
+        elif ev == "regression_suite_result":
+            suites[data.get("suite", "")] = data
+        elif ev == "inject_done":
+            injections.append({"ts": ts, "symptom": data.get("symptom"), "elapsed": data.get("elapsed_sec")})
+        elif ev == "bt_disconnect_done":
+            bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
+        elif ev == "bt_disconnect_failed":
+            bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
+        elif ev == "airplane_mode_done":
+            ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
+        elif ev == "airplane_mode_failed":
+            ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
+
+    elapsed_str = "-"
+    if start_ts_str:
+        try:
+            start_dt = datetime.datetime.fromisoformat(start_ts_str)
+            elapsed  = datetime.datetime.now() - start_dt
+            h, rem   = divmod(int(elapsed.total_seconds()), 3600)
+            elapsed_str = f"{h}h {rem // 60}m"
+        except Exception:
+            pass
+
+    def _t(ts): return ts.split("T")[1][:8] if "T" in ts else ts
+
+    def _table(headers, rows, empty="No data yet."):
+        if not rows:
+            return f"<p style='color:#9ca3af;font-style:italic'>{empty}</p>"
+        ths = "".join(f"<th>{h}</th>" for h in headers)
+        trs = "".join(f"<tr>{''.join(f'<td>{c}</td>' for c in row)}</tr>" for row in rows)
+        return f"<table>{ths}{trs}</table>"
+
+    suite_rows = []
+    for name, d in suites.items():
+        if d.get("skipped"):
+            status = "<span style='color:#d97706'>SKIP</span>"
+        elif d.get("passed") == d.get("total"):
+            status = f"<span style='color:#059669'>✓ {d['passed']}/{d['total']}</span>"
+        else:
+            fails_txt = "<br><small>" + "  ".join(d.get("failures", [])[:3]) + "</small>"
+            status = f"<span style='color:#dc2626'>✗ {d['passed']}/{d['total']}{fails_txt}</span>"
+        suite_rows.append([name, status])
+
+    inj_rows = [[_t(i["ts"]), i["symptom"] or "-", f"{i['elapsed']}s"] for i in injections]
+    bt_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
+                 "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
+                for t in bt_tests]
+    ap_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
+                 "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
+                for t in ap_tests]
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8">
+<title>AK Test Report — {now}</title>
+<style>
+  body{{font-family:-apple-system,sans-serif;margin:40px;color:#1a2533;background:#f9fafb;max-width:900px}}
+  h1{{font-size:1.3rem;color:#0a1f3c;margin-bottom:4px}}
+  h2{{font-size:.95rem;color:#1d4ed8;margin:22px 0 8px;border-bottom:2px solid #dbeafe;padding-bottom:5px}}
+  .meta{{font-size:.8rem;color:#6b7280;margin-bottom:24px}}
+  table{{width:100%;border-collapse:collapse;margin-bottom:4px;font-size:.82rem}}
+  th{{background:#f3f4f6;padding:6px 10px;text-align:left;color:#374151;font-weight:600}}
+  td{{padding:5px 10px;border-bottom:1px solid #e5e7eb}}
+</style>
+</head>
+<body>
+<h1>S-Patch Accurkardia — Test Report</h1>
+<div class="meta">Generated: {now} · Device: {device}<br>
+Elapsed: {elapsed_str} / {duration_h}h · Injection interval: {interval_h}h</div>
+
+<h2>Regression Suites</h2>
+{_table(["Suite", "Result"], suite_rows)}
+
+<h2>Injections ({len(injections)} total)</h2>
+{_table(["Time", "Symptom", "Duration"], inj_rows)}
+
+<h2>BT Disconnect Tests ({len(bt_tests)} total)</h2>
+{_table(["Time", "Duration", "Result"], bt_rows)}
+
+<h2>Airplane Mode Tests ({len(ap_tests)} total)</h2>
+{_table(["Time", "Duration", "Result"], ap_rows)}
+</body></html>"""
+
+
+@app.route("/api/report")
+def api_report():
+    with _lock:
+        out_dir = _state["out_dir"]
+    events = read_events(out_dir) if out_dir else []
+    html   = _build_report_html(events)
+    ts     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Response(
+        html,
+        mimetype="text/html",
+        headers={"Content-Disposition": f"attachment; filename=ak_report_{ts}.html"},
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -150,18 +150,27 @@ class LongRunScheduler:
         sched = BackgroundScheduler()
         counter = [0]
         cooldown = int(self.recovery_cfg.get("cooldown_seconds_between_steps", 30))
-        # Allow missed jobs to fire for up to one full interval after their scheduled
-        # time so that a brief Mac sleep does not silently skip an injection.
-        grace = int(self.interval_hours * 3600)
+        # Grace time = full run duration so that jobs missed during a host sleep/wake
+        # cycle are still executed when the machine wakes up, rather than being dropped.
+        grace = int(self.duration_hours * 3600)
 
         def _schedule_next():
-            counter[0] += 1
-            offset_hours = counter[0] * self.interval_hours
-            jitter = random.uniform(-self.jitter_seconds, self.jitter_seconds) if self.jitter_seconds else 0
-            next_run = start + datetime.timedelta(hours=offset_hours) + datetime.timedelta(seconds=jitter)
-
-            if next_run >= end:
-                return
+            # Advance the counter past any slots already in the past to avoid
+            # a burst of back-to-back injections after a long host sleep.
+            now = datetime.datetime.now()
+            while True:
+                counter[0] += 1
+                offset_hours = counter[0] * self.interval_hours
+                jitter = random.uniform(-self.jitter_seconds, self.jitter_seconds) if self.jitter_seconds else 0
+                next_run = start + datetime.timedelta(hours=offset_hours) + datetime.timedelta(seconds=jitter)
+                if next_run >= end:
+                    return
+                if next_run > now:
+                    break
+                # This slot is in the past — log as skipped and try the next one
+                self.reporter.log_event("job_skipped_host_sleep", {
+                    "index": counter[0], "scheduled": next_run.isoformat(),
+                })
 
             self.reporter.log_event(
                 "schedule_add",

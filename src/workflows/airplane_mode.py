@@ -9,6 +9,18 @@ import time
 
 from src.driver import AndroidDriver
 
+_TICK = 5  # seconds per poll tick
+
+
+def _wall_sleep(seconds: float) -> None:
+    """Sleep for `seconds` of wall-clock time, robust to host sleep/wake."""
+    deadline = time.monotonic() + seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(_TICK, remaining))
+
 log = logging.getLogger(__name__)
 
 
@@ -44,7 +56,7 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
         driver.reporter.log_event("airplane_mode_failed", {"phase": "enable", "error": str(e)})
         return
 
-    time.sleep(airplane_minutes * 60)
+    _wall_sleep(airplane_minutes * 60)
 
     try:
         subprocess.run(adb + ["shell", "settings", "put", "global", "airplane_mode_on", "0"],

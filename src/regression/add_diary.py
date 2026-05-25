@@ -7,7 +7,7 @@ import time
 import random
 import logging
 
-from src.regression.helpers import DIARY_X_BTN, go_to_main
+from src.regression.helpers import close_sheet, go_to_main
 
 log = logging.getLogger(__name__)
 
@@ -52,8 +52,7 @@ def _open_sheet(drv):
 
 
 def _close_sheet(drv):
-    drv.drv.tap([DIARY_X_BTN])
-    time.sleep(0.8)
+    close_sheet(drv)
 
 
 # ---------------------------------------------------------------------------

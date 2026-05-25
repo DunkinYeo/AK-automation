@@ -37,7 +37,6 @@ SYMPTOMS = [
 _MAIN_SCREEN_TEXT  = "Log Symptoms"
 _LOG_SYMPTOMS_BTN  = "Log Symptoms"
 _SAVE_BTN          = "Save"
-_DIARY_X_BTN       = (1009, 1226)   # X close button on Log Symptoms sheet (Pixel 7 reference)
 
 
 @retry(tries=3, delay=5)
@@ -86,7 +85,7 @@ def inject_symptom_event(
     # ── 7. Confirm return to main screen ───────────────────────────────────────────
     if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
         try:
-            d.drv.tap([_DIARY_X_BTN])
+            d.drv.press_keycode(4)  # Back key — close sheet on any device
             d.wait_idle(1.0)
         except Exception:
             pass

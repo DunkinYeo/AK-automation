@@ -163,9 +163,19 @@
     .skip-row input[type=checkbox] { width: 15px; height: 15px; accent-color: #1d4ed8; }
     .skip-row label { font-size: .82rem; color: #6b7280; cursor: pointer; }
 
+    /* ── Injection / periodic stats ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+    .stat-box {
+      background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 7px 10px; font-size: .75rem;
+    }
+    .stat-box .stat-label { color: #9ca3af; font-size: .67rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+    .stat-box .stat-val   { font-weight: 700; color: #0a1f3c; margin-top: 2px; font-size: .82rem; }
+    .stat-box .stat-sub   { color: #9ca3af; font-size: .67rem; margin-top: 1px; }
+
     /* ── Suite status grid (right column) ── */
     #regression-section { margin-bottom: 14px; }
-    .suite-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+    .suite-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
     .suite-card {
       border-radius: 7px; padding: 6px 8px;
       border: 1.5px solid #e5e7eb; background: #f9fafb; transition: all .2s;
@@ -441,7 +451,10 @@
   <!-- ── Right: Progress & Log ── -->
   <div>
     <div class="card">
-      <div class="card-title">Progress</div>
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        Progress
+        <button onclick="downloadReport()" style="padding:4px 10px;font-size:.75rem;background:white;color:#1d4ed8;border:1.5px solid #1d4ed8;border-radius:6px;cursor:pointer;font-weight:600">⬇ Report</button>
+      </div>
 
       <div id="progress-section" style="display:none">
         <div style="font-size:.81rem;color:#6b7280">
@@ -459,6 +472,25 @@
       <div id="next-inject-box" style="display:none">
         Next injection: <strong id="next-inject-time">-</strong>
         <span id="next-inject-countdown" style="color:#6b7280;font-size:.85em;margin-left:4px"></span>
+      </div>
+
+      <!-- Injection / BT / Airplane stats -->
+      <div class="stats-grid" id="stats-grid" style="display:none">
+        <div class="stat-box">
+          <div class="stat-label">Injections</div>
+          <div class="stat-val" id="stat-inject-count">0</div>
+          <div class="stat-sub" id="stat-inject-last">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">BT Tests</div>
+          <div class="stat-val" id="stat-bt-count">0</div>
+          <div class="stat-sub" id="stat-bt-last">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Airplane</div>
+          <div class="stat-val" id="stat-ap-count">0</div>
+          <div class="stat-sub" id="stat-ap-last">-</div>
+        </div>
       </div>
 
       <!-- Suite status grid -->
@@ -540,8 +572,8 @@ function fmtEvent(ev) {
 }
 
 // ── Suite grid ──────────────────────────────────────────────────────────
-const SUITE_ORDER = ['main', 'diary', 'menu-study', 'connectivity'];
-const SUITE_LABEL = { main: 'Main', diary: 'Diary', 'menu-study': 'Menu Study', connectivity: 'Connectivity' };
+const SUITE_ORDER = ['serial', 'menu', 'main', 'diary', 'menu-study', 'connectivity'];
+const SUITE_LABEL = { serial: 'Serial', menu: 'Menu', main: 'Main', diary: 'Diary', 'menu-study': 'Menu Study', connectivity: 'Connectivity' };
 let suiteStates = {};
 
 function initSuiteGrid() {
@@ -600,6 +632,53 @@ function processSuiteEvents(events) {
   }
 }
 
+// ── Injection / periodic stats ───────────────────────────────────────────
+function updateStats(events) {
+  let injectCount = 0, injectLast = '-';
+  let btCount = 0,     btLast = '-';
+  let apCount = 0,     apLast = '-';
+  for (const e of (events || [])) {
+    const d = e.data || {};
+    if (e.event === 'inject_done') {
+      injectCount++;
+      injectLast = d.symptom ? d.symptom.split('/')[0].trim() : '-';
+    } else if (e.event === 'bt_disconnect_done') {
+      btCount++;
+      const t = e.ts ? e.ts.split('T')[1].slice(0,5) : '';
+      btLast = t ? `last ${t}` : '-';
+    } else if (e.event === 'bt_disconnect_failed') {
+      btCount++;
+      btLast = 'failed';
+    } else if (e.event === 'airplane_mode_done') {
+      apCount++;
+      const t = e.ts ? e.ts.split('T')[1].slice(0,5) : '';
+      apLast = t ? `last ${t}` : '-';
+    } else if (e.event === 'airplane_mode_failed') {
+      apCount++;
+      apLast = 'failed';
+    }
+  }
+  const hasStats = injectCount > 0 || btCount > 0 || apCount > 0;
+  document.getElementById('stats-grid').style.display = hasStats ? '' : 'none';
+  if (hasStats) {
+    document.getElementById('stat-inject-count').textContent = injectCount;
+    document.getElementById('stat-inject-last').textContent  = injectLast;
+    document.getElementById('stat-bt-count').textContent     = btCount;
+    document.getElementById('stat-bt-last').textContent      = btLast;
+    document.getElementById('stat-ap-count').textContent     = apCount;
+    document.getElementById('stat-ap-last').textContent      = apLast;
+  }
+}
+
+function downloadReport() {
+  const a = document.createElement('a');
+  a.href = '/api/report';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 // ── State ────────────────────────────────────────────────────────────────
 let pollTimer = null, seenEvents = 0, runStartTs = null, nextInjectTs = null, countdownTimer = null;
 
@@ -617,6 +696,7 @@ async function init() {
     updateProgress(s.events);
     updateNextInject(s.events);
     processSuiteEvents(s.events);
+    updateStats(s.events);
   }
   if (s.running) { setUIRunning(true); startPolling(); }
   else if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
@@ -777,6 +857,7 @@ async function poll() {
   updateProgress(s.events);
   updateNextInject(s.events);
   processSuiteEvents(s.events);
+  updateStats(s.events);
   if (!s.running && pollTimer) {
     stopPolling(); setUIRunning(false); showFinished(s.exit_code ?? -1);
   }

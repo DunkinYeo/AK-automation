@@ -20,7 +20,6 @@ log = logging.getLogger(__name__)
 
 _MAIN_SCREEN_TEXT = "Log Symptoms"   # AK main screen identifier
 _LOG_SYMPTOMS_BTN = "Log Symptoms"
-_DIARY_X_BTN      = (1009, 1226)   # X button on Log Symptoms sheet (Pixel 7 reference)
 
 
 @retry(tries=3, delay=5)
@@ -34,9 +33,9 @@ def ensure_on_main_screen(d: AndroidDriver):
 
     # ── Close Log Symptoms sheet if open ─────────────────────
     if d.is_visible_text("Symptom", timeout=1):
-        log.info("[setup] Log Symptoms sheet open detected → closing with X button")
+        log.info("[setup] Log Symptoms sheet open detected → closing with Back key")
         try:
-            d.drv.tap([_DIARY_X_BTN])
+            d.drv.press_keycode(4)  # Back key — device-independent
             d.wait_idle(1.0)
         except Exception:
             pass

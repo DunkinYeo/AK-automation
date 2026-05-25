@@ -8,12 +8,14 @@ from appium.webdriver.common.appiumby import AppiumBy
 
 log = logging.getLogger(__name__)
 
-# Coordinates for 1080x2400 (Pixel 7) — update if device changes
-# AK app uses a gear icon (top-right) instead of hamburger menu (top-left)
-MENU_BTN_X = 985  # center of gear icon bounds [954,199][1017,262]
-MENU_BTN_Y = 230
-STUDY_POPUP_X_BTN = (252, 358)   # X dismiss button on No Study Information popup
-DIARY_X_BTN = (1009, 1226)       # X close button on Log Symptoms sheet (Pixel 7, bounds [977,1194][1040,1257])
+STUDY_POPUP_X_BTN = None   # kept for legacy import compatibility — no longer used
+DIARY_X_BTN = None         # kept for legacy import compatibility — use close_sheet() instead
+
+
+def close_sheet(drv):
+    """Close a bottom sheet (Log Symptoms, etc.) using Back key — device-independent."""
+    drv.drv.press_keycode(4)
+    time.sleep(0.8)
 
 
 def reset_to_step1(drv, hard: bool = True):
@@ -80,7 +82,7 @@ def go_to_step2(drv, wait_ble: int = 45):
     raise Exception(f"Failed to enter Step 2 ('Check Incoming Signal' not displayed after {wait_ble}s)")
 
 
-def go_to_main(drv, wait_ble: int = 60):
+def go_to_main(drv, wait_ble: int = 120):
     """App initial screen → Connect → (auto-handle Step 2/3/Start Study) → main measurement screen.
 
     Study registered + started: only the Connect button is shown on app restart (no serial input).
@@ -96,15 +98,19 @@ def go_to_main(drv, wait_ble: int = 60):
     except Exception:
         pass
 
-    # Already on main screen (e.g. app restarted while study active)
+    # Already on main screen — only "Log Symptoms" is a reliable indicator.
+    # "My Study Progress" also appears on the disconnected Start Study screen,
+    # so it cannot be used here.
     if drv.is_visible_text("Log Symptoms", timeout=3):
         log.info("[go_to_main] Already on main screen")
         return
 
-    # Dismiss any lingering 950/963 popup before navigating
+    # Dismiss any lingering popups before navigating
     for popup_text, btn in [("Cannot find your S-Patch", ["Ok", "OK"]),
                              ("Reset your S-Patch",       ["Ok", "OK"]),
-                             ("Bluetooth not enabled",    ["Ok", "OK"])]:
+                             ("Bluetooth not enabled",    ["Ok", "OK"]),
+                             ("No Study Information",     ["Confirm", "Ok", "OK"]),
+                             ("No study information",     ["Confirm", "Ok", "OK"])]:
         if drv.is_visible_text(popup_text, timeout=1):
             log.info("[go_to_main] Dismissing lingering popup: %s", popup_text)
             try:
@@ -126,44 +132,74 @@ def go_to_main(drv, wait_ble: int = 60):
 
     # Connect button may not exist if app auto-navigated past it
     if drv.is_visible_text("Connect", timeout=5, contains=False):
-        drv.tap_text("Connect", timeout=5, contains=False)
+        try:
+            drv.tap_text("Connect", timeout=5, contains=False)
+        except Exception:
+            pass
     else:
         log.info("[go_to_main] No Connect button visible — proceeding to wait loop")
-    log.info("[go_to_main] Connect tapped, waiting up to %ds for BLE connection", wait_ble)
+    log.info("[go_to_main] Waiting up to %ds for main screen", wait_ble)
 
     deadline = time.monotonic() + wait_ble
     while time.monotonic() < deadline:
-        # Main measurement screen (AK: "Log Symptoms" button visible = study in progress)
+        # Main measurement screen — only "Log Symptoms" is reliable
         if drv.is_visible_text("Log Symptoms", timeout=1):
             log.info("[go_to_main] Main measurement screen reached")
             return
 
         # Start Study screen (AK specific — after Step 3)
         if drv.is_visible_text("Start Study", timeout=1):
-            log.info("[go_to_main] Start Study screen detected → tapping Start Study")
-            drv.tap_text("Start Study", timeout=5, contains=False)
-            time.sleep(2)
+            log.info("[go_to_main] Start Study screen detected → tapping")
+            try:
+                drv.tap_text("Start Study", timeout=5, contains=False)
+                time.sleep(2)
+            except Exception:
+                pass
             continue
 
-        # Step 3 — Review Study Setting (study registered, Step 2 skipped)
+        # Step 3 — Review Study Setting
         if drv.is_visible_text("Review Study Setting", timeout=1):
             log.info("[go_to_main] Step 3 detected → Continue")
-            drv.tap_text("Continue", timeout=5, contains=False)
-            time.sleep(1)
+            try:
+                drv.tap_text("Continue", timeout=5, contains=False)
+                time.sleep(1)
+            except Exception:
+                pass
             continue
 
-        # Step 2 — Check Incoming Signal (study not registered)
+        # Step 2 — Check Incoming Signal
         if drv.is_visible_text("Check Incoming Signal", timeout=1):
             log.info("[go_to_main] Step 2 detected → Continue")
-            drv.tap_text("Continue", timeout=5, contains=False)
-            time.sleep(1)
+            try:
+                drv.tap_text("Continue", timeout=5, contains=False)
+                time.sleep(1)
+            except Exception:
+                pass
+            continue
+
+        # Returned to Step 1 — re-enter serial and retry Connect
+        if drv.is_visible_text("Connect Your S-Patch", timeout=1):
+            log.info("[go_to_main] Returned to Step 1 — re-entering serial and retrying Connect")
+            try:
+                el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
+                serial = drv.cfg.get("test_serial_number", "")
+                el.clear()
+                el.send_keys(serial)
+                time.sleep(0.5)
+            except Exception:
+                pass
+            try:
+                drv.tap_text("Connect", timeout=5, contains=False)
+            except Exception:
+                pass
+            time.sleep(2)
             continue
 
         # AK error popup — Cannot find your S-Patch (950)
         if drv.is_visible_text("Cannot find your S-Patch", timeout=1):
             log.warning("[go_to_main] BLE error popup (950) detected → Ok")
             try:
-                drv.tap_text("OK", timeout=3, contains=False)
+                drv.tap_text(["OK", "Ok"], timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(2)
@@ -173,10 +209,21 @@ def go_to_main(drv, wait_ble: int = 60):
         if drv.is_visible_text("Reset your S-Patch", timeout=1):
             log.warning("[go_to_main] BLE error popup (963) detected → Ok")
             try:
-                drv.tap_text("OK", timeout=3, contains=False)
+                drv.tap_text(["OK", "Ok"], timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(2)
+            continue
+
+        # No Study Information popup
+        if (drv.is_visible_text("No Study Information", timeout=1)
+                or drv.is_visible_text("No study information", timeout=1)):
+            log.warning("[go_to_main] No Study Information popup → dismissing")
+            try:
+                drv.tap_text(["Confirm", "Ok", "OK"], timeout=3, contains=False)
+            except Exception:
+                pass
+            time.sleep(1)
             continue
 
         time.sleep(1)
@@ -193,7 +240,14 @@ def open_menu(drv, wait: float = 2.0):
             )
             el.click()
         except Exception:
-            drv.drv.tap([(MENU_BTN_X, MENU_BTN_Y)])
+            # Fallback: tap gear icon position as % of screen size (device-independent)
+            try:
+                size = drv.drv.get_window_size()
+                x = int(size["width"]  * 0.915)
+                y = int(size["height"] * 0.096)
+                drv.drv.tap([(x, y)])
+            except Exception:
+                pass
         time.sleep(wait)
         if drv.is_visible_text("Setting", timeout=2):
             return

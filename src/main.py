@@ -1,10 +1,14 @@
 import argparse
 import datetime
+import logging
 import os
 import random
 import subprocess
 import sys
+import threading
 import time
+
+log = logging.getLogger(__name__)
 
 # Allow running as `python src/main.py` from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,7 +42,10 @@ from src.regression.runner import TestRunner
 from src.regression import serial_input, menu_step1, main_screen, add_diary, menu_study, connectivity
 from src.regression.helpers import reset_to_step1
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
+from src.workflows.bt_disconnect import run_bt_disconnect
+from src.workflows.airplane_mode import run_airplane_mode
 from src.artifact_manager import save_failure_artifacts
+from src.keep_awake import KeepAwake
 
 
 def ensure_uiautomator2(reporter: RunReporter) -> None:
@@ -201,6 +208,10 @@ def main():
     jitter_seconds = float(run_cfg.get("jitter_seconds", 0))
     quiet_hours    = run_cfg.get("quiet_hours") or {}
     recovery_cfg   = cfg.get("recovery") or {}
+    bt_interval_h  = float(run_cfg.get("bt_disconnect_interval_hours", 0))
+    bt_minutes     = float(run_cfg.get("bt_disconnect_minutes", 10))
+    ap_interval_h  = float(run_cfg.get("airplane_mode_interval_hours", 0))
+    ap_minutes     = float(run_cfg.get("airplane_mode_minutes", 5))
 
     # Dry run exits before creating output dir or reporter events
     if args.dry_run:
@@ -253,6 +264,7 @@ def main():
 
     # ── Full long-run mode ───────────────────────────────────────────────────
     dm = None
+    keep_awake = KeepAwake()
     try:
         if platform != "android":
             raise RuntimeError(
@@ -262,6 +274,9 @@ def main():
         a_cfg   = cfg.get("android") or {}
         sel     = (cfg.get("selectors") or {}).get("android") or {}
         catalog = cfg.get("symptom_catalog") or []
+
+        wifi_addr = a_cfg.get("udid", "")
+        keep_awake.start(adb_wifi_addr=wifi_addr if ":" in wifi_addr else None)
 
         ensure_uiautomator2(reporter)
         dm = DeviceManager(a_cfg, sel, artifacts=artifacts, reporter=reporter)
@@ -312,10 +327,33 @@ def main():
         else:
             # Phase 1: Step 1 — reset app, run serial + menu
             reset_to_step1(driver, hard=True)
-            for name, tests in pre_main_suites:
-                _run_suite(name, tests)
+
+            # If the study is already active, the app restarts to the main screen
+            # (not Step 1). BLE reconnection can take up to 30s — poll until we
+            # know whether the app settled on Step 1 or the main screen.
+            already_measuring = False
+            for _ in range(10):  # up to 30s (10 × 3s)
+                if driver.is_visible_text("Log Symptoms", timeout=2):
+                    already_measuring = True
+                    break
+                if driver.is_visible_text("Connect Your S-Patch", timeout=1):
+                    break  # confirmed Step 1, no need to wait longer
+                time.sleep(1)
+
+            if already_measuring:
+                log.info("App already measuring — skipping serial/menu regression")
+                for suite_name, _ in pre_main_suites:
+                    reporter.log_event("regression_suite_result", {
+                        "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
+                    })
+            else:
+                for name, tests in pre_main_suites:
+                    _run_suite(name, tests)
 
             # Phase 2: navigate to main screen, run remaining suites
+            # Always call go_to_main — it returns early if already on main screen
+            # (checking only "Log Symptoms"; "My Study Progress" also appears on
+            #  the disconnected Start Study screen so cannot be used as a guard)
             go_to_main(driver)
             for name, tests in post_main_suites:
                 _run_suite(name, tests)
@@ -331,11 +369,52 @@ def main():
 
         symptoms_pool = catalog.get("symptoms", SYMPTOMS) if isinstance(catalog, dict) else SYMPTOMS
 
+        _first_injection_done = threading.Event()
+        _bt_active            = threading.Event()
+        _airplane_active      = threading.Event()
+        _stop_loop            = threading.Event()
+
+        if bt_interval_h > 0 or ap_interval_h > 0:
+            _loop_interval_h = bt_interval_h or ap_interval_h
+            def _periodic_loop():
+                _first_injection_done.wait()
+                while not _stop_loop.is_set():
+                    if bt_interval_h > 0:
+                        _bt_active.set()
+                        try:
+                            run_bt_disconnect(driver, bt_minutes)
+                        except Exception as _e:
+                            log.warning("[bt_disconnect] error: %s", _e)
+                        finally:
+                            _bt_active.clear()
+                        _stop_loop.wait(60)
+                        if _stop_loop.is_set():
+                            break
+                    if ap_interval_h > 0:
+                        _airplane_active.set()
+                        try:
+                            run_airplane_mode(driver, ap_minutes)
+                        except Exception as _e:
+                            log.warning("[airplane_mode] error: %s", _e)
+                        finally:
+                            _airplane_active.clear()
+                        _stop_loop.wait(60)
+                        if _stop_loop.is_set():
+                            break
+                    _stop_loop.wait(_loop_interval_h * 3600)
+            threading.Thread(target=_periodic_loop, daemon=True).start()
+            log.info("Periodic loop started (after first injection): BT %.1fmin → airplane %.1fmin → wait %.1fh",
+                     bt_minutes, ap_minutes, _loop_interval_h)
+
         inject_count = 0
 
         def job(at_hour: float | None = None, payload: dict | None = None):
             nonlocal inject_count
             inject_count += 1
+            if _bt_active.is_set() or _airplane_active.is_set():
+                log.info("[job] BT/airplane test in progress — waiting before injection")
+                while _bt_active.is_set() or _airplane_active.is_set():
+                    time.sleep(5)
             payload  = payload or {}
             symptoms = payload.get("symptoms") or []
             if not symptoms:
@@ -354,6 +433,8 @@ def main():
                                            elapsed_sec=0, success=False, error=str(e),
                                            mention=_mention)
                 raise
+            finally:
+                _first_injection_done.set()
 
         scheduler = LongRunScheduler(
             duration_hours=duration_hours,
@@ -367,6 +448,7 @@ def main():
             recovery_cfg=recovery_cfg,
         )
         scheduler.run(job, driver=driver)
+        _stop_loop.set()
 
         reporter.log_event("run_complete", {"status": "ok"})
         log_event("run complete")
@@ -383,6 +465,7 @@ def main():
         raise
 
     finally:
+        keep_awake.stop()
         if dm:
             dm.close()
         try:
