@@ -1,6 +1,6 @@
 # Changelog — S-Patch AccurKardia Automation
 
-## 2026-05-27
+## [v1.0.0] — 2026-05-28
 
 ### Added
 - **Battery card**: `battery_status` event 처리 추가 — 앱 화면에서 "Good"/"Low"/"Critical" 텍스트 감지 시 배터리 카드 실시간 업데이트 (`web/templates/index.html`, `src/driver.py`)
