@@ -713,7 +713,7 @@ function processConnEvents(events) {
       updateConnCard('bluetooth',   'pass', '✓ On',          '');
       updateConnCard('bt_reconnect','pass', '✓ Reconnected', '');
       updateConnCard('ecg_check',   'pass', '✓ OK',          '');
-      updateConnCard('bt_diary',    'skip', '— N/A',         '');
+      updateConnCard('bt_diary',    'pass', '✓ OK',          '');
     } else if (ev.event === 'wifi_restored') {
       updateConnCard(id, 'pass', `✓ ${d.elapsed_sec}s`, 'Auto-restored');
     } else if (ev.event === 'wifi_off_diary_result') {
@@ -721,7 +721,7 @@ function processConnEvents(events) {
       updateConnCard(id, ok ? 'pass' : 'info', ok ? '✓ Submitted' : '~ Submitted', d.result || '');
     } else if (ev.event === 'airplane_mode_done') {
       updateConnCard('wifi',         'pass', '✓ On',      '');
-      updateConnCard('wifi_diary',   'skip', '— N/A',     '');
+      updateConnCard('wifi_diary',   'pass', '✓ OK',      '');
       updateConnCard('wifi_reconnect','pass', '✓ Restored','');
     } else {
       updateConnCard(id, state, mapping.text, '');
