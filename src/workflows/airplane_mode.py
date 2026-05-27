@@ -56,7 +56,15 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
         driver.reporter.log_event("airplane_mode_failed", {"phase": "enable", "error": str(e)})
         return
 
-    _wall_sleep(airplane_minutes * 60)
+    # Give WiFi time to drop, then run connectivity check to detect wifi_off
+    # and trigger diary submission. Background monitor is paused during airplane mode.
+    time.sleep(3)
+    try:
+        driver.check_connectivity()
+    except Exception as _e:
+        log.warning("[airplane_mode] post-enable connectivity check failed: %s", _e)
+
+    _wall_sleep(airplane_minutes * 60 - 3)
 
     try:
         subprocess.run(adb + ["shell", "settings", "put", "global", "airplane_mode_on", "0"],
@@ -73,3 +81,10 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
 
     driver.reporter.log_event("airplane_mode_done", {"minutes": airplane_minutes})
     log.info("[airplane_mode] Airplane mode disabled after %.1f min", airplane_minutes)
+
+    # Run connectivity check after WiFi restores to emit wifi_off_resolved / wifi_restored.
+    time.sleep(5)
+    try:
+        driver.check_connectivity()
+    except Exception as _e:
+        log.warning("[airplane_mode] post-disable connectivity check failed: %s", _e)

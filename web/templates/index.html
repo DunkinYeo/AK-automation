@@ -197,6 +197,12 @@
     .suite-skip { border-color: #fde68a; background: #fffbeb; }
     .suite-skip .suite-name { color: #d97706; }
     .suite-skip .suite-status { color: #d97706; }
+    .suite-alert { border-color: #fca5a5; background: #fff1f2; }
+    .suite-alert .suite-name { color: #dc2626; }
+    .suite-alert .suite-status { color: #dc2626; }
+    .suite-info { border-color: #93c5fd; background: #eff6ff; }
+    .suite-info .suite-name { color: #1d4ed8; }
+    .suite-info .suite-status { color: #1d4ed8; }
     @keyframes pulse-border {
       from { box-shadow: 0 0 0 0 rgba(29,78,216,.25); }
       to   { box-shadow: 0 0 0 4px rgba(29,78,216,.0); }
@@ -493,6 +499,12 @@
         </div>
       </div>
 
+      <!-- Connectivity monitoring grid -->
+      <div id="conn-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Connectivity</div>
+        <div class="suite-grid" id="conn-grid"></div>
+      </div>
+
       <!-- Suite status grid -->
       <div id="regression-section">
         <div style="font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Regression</div>
@@ -632,6 +644,85 @@ function processSuiteEvents(events) {
   }
 }
 
+// ── Connectivity cards ────────────────────────────────────────────────────
+const CONN_ORDER = ['connection', 'bluetooth', 'bt_diary', 'bt_reconnect', 'ecg_check', 'wifi', 'wifi_diary', 'wifi_reconnect', 'battery'];
+const CONN_LABEL = {
+  connection: 'Connection', bluetooth: 'BT Signal',
+  bt_diary: 'BT Diary', bt_reconnect: 'BT Reconnect',
+  ecg_check: 'ECG Check', wifi: 'WiFi', wifi_diary: 'WiFi Diary',
+  wifi_reconnect: 'WiFi Restore', battery: 'Battery',
+};
+const CONN_EVENT_MAP = {
+  connection_lost:            { id: 'connection',     state: 'alert',   text: '✗ Lost'     },
+  connection_lost_resolved:   { id: 'connection',     state: 'pass',    text: '✓ OK'       },
+  bluetooth_off:              { id: 'bluetooth',      state: 'alert',   text: '✗ Off'      },
+  bluetooth_off_resolved:     { id: 'bluetooth',      state: 'pass',    text: '✓ On'       },
+  bt_disconnect_start:        { id: 'bluetooth',      state: 'running', text: '~ Testing'  },
+  bt_disconnect_done:         { id: 'bluetooth',      state: 'pass',    text: '✓ On'       },
+  bt_disconnect_failed:       { id: 'bluetooth',      state: 'fail',    text: '✗ Failed'   },
+  bt_off_diary_result:        { id: 'bt_diary',       state: null,      text: null         },
+  bluetooth_reconnected:      { id: 'bt_reconnect',   state: 'pass',    text: null         },
+  bt_reconnect_ecg_result:    { id: 'ecg_check',      state: null,      text: null         },
+  wifi_off:                   { id: 'wifi',           state: 'alert',   text: '✗ Off'      },
+  wifi_off_resolved:          { id: 'wifi',           state: 'pass',    text: '✓ On'       },
+  airplane_mode_start:        { id: 'wifi',           state: 'running', text: '~ Testing'  },
+  airplane_mode_done:         { id: 'wifi',           state: 'pass',    text: '✓ On'       },
+  airplane_mode_skipped:      { id: 'wifi',           state: 'skip',    text: '— Skip'     },
+  airplane_mode_failed:       { id: 'wifi',           state: 'fail',    text: '✗ Failed'   },
+  wifi_restored:              { id: 'wifi_reconnect', state: null,      text: null         },
+  wifi_off_diary_result:      { id: 'wifi_diary',     state: null,      text: null         },
+  low_battery_patch:          { id: 'battery',        state: 'alert',   text: '✗ Low'      },
+  low_battery_patch_resolved: { id: 'battery',        state: 'pass',    text: '✓ OK'       },
+};
+
+function initConnGrid() {
+  const grid = document.getElementById('conn-grid');
+  grid.innerHTML = '';
+  CONN_ORDER.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'suite-card suite-pending';
+    card.id = `conn-${c}`;
+    card.innerHTML = `<div class="suite-name">${CONN_LABEL[c]}</div><div class="suite-status">—</div><div class="suite-count"></div>`;
+    grid.appendChild(card);
+  });
+}
+
+function updateConnCard(id, state, statusText, subText) {
+  const card = document.getElementById(`conn-${id}`);
+  if (!card) return;
+  card.className = `suite-card suite-${state}`;
+  card.querySelector('.suite-status').textContent = statusText;
+  card.querySelector('.suite-count').textContent = subText || '';
+}
+
+function processConnEvents(events) {
+  let hasConn = false;
+  for (const ev of (events || [])) {
+    const mapping = CONN_EVENT_MAP[ev.event];
+    if (!mapping) continue;
+    hasConn = true;
+    const { id, state } = mapping;
+    const d = ev.data || {};
+    if (ev.event === 'bt_off_diary_result') {
+      const ok = (d.result || '').includes('returned');
+      updateConnCard(id, ok ? 'pass' : 'info', ok ? '✓ Submitted' : '~ Submitted', d.result || '');
+    } else if (ev.event === 'bluetooth_reconnected') {
+      updateConnCard(id, 'pass', `✓ ${d.elapsed_sec}s`, 'Auto-reconnected');
+    } else if (ev.event === 'bt_reconnect_ecg_result') {
+      const ok = d.result === 'ECG signal visible';
+      updateConnCard(id, ok ? 'pass' : 'fail', ok ? '✓ ECG OK' : '✗ No ECG', d.result || '');
+    } else if (ev.event === 'wifi_restored') {
+      updateConnCard(id, 'pass', `✓ ${d.elapsed_sec}s`, 'Auto-restored');
+    } else if (ev.event === 'wifi_off_diary_result') {
+      const ok = (d.result || '').includes('returned');
+      updateConnCard(id, ok ? 'pass' : 'info', ok ? '✓ Submitted' : '~ Submitted', d.result || '');
+    } else {
+      updateConnCard(id, state, mapping.text, '');
+    }
+  }
+  if (hasConn) document.getElementById('conn-section').style.display = '';
+}
+
 // ── Injection / periodic stats ───────────────────────────────────────────
 function updateStats(events) {
   let injectCount = 0, injectLast = '-';
@@ -689,6 +780,7 @@ async function init() {
   populateDevices(r.devices);
   if (r.cached_wifi) applyWifiAutoMode(r.cached_wifi);
   initSuiteGrid();
+  initConnGrid();
 
   const s = await fetch('/api/status').then(r => r.json());
   if (s.events?.length) {
@@ -697,6 +789,7 @@ async function init() {
     updateNextInject(s.events);
     processSuiteEvents(s.events);
     updateStats(s.events);
+    processConnEvents(s.events);
   }
   if (s.running) { setUIRunning(true); startPolling(); }
   else if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
@@ -813,6 +906,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   document.getElementById('next-inject-box').style.display  = 'none';
   document.getElementById('completion-msg').style.display   = 'none';
   initSuiteGrid();
+  initConnGrid();
   if (body.skip_regression) SUITE_ORDER.forEach(s => updateSuiteCard(s, 'skip', 0, 0, []));
 
   setUIRunning(true); startPolling();
@@ -858,6 +952,7 @@ async function poll() {
   updateNextInject(s.events);
   processSuiteEvents(s.events);
   updateStats(s.events);
+  processConnEvents(s.events);
   if (!s.running && pollTimer) {
     stopPolling(); setUIRunning(false); showFinished(s.exit_code ?? -1);
   }
