@@ -902,7 +902,7 @@ def api_report():
     return Response(
         html,
         mimetype="text/html",
-        headers={"Content-Disposition": f"attachment; filename=ak_report_{ts}.html"},
+        headers={"Content-Disposition": f"inline; filename=ak_report_{ts}.html"},
     )
 
 
