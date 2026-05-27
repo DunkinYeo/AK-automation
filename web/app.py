@@ -743,36 +743,152 @@ def _build_report_html(events: list[dict]) -> str:
                  "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
                 for t in ap_tests]
 
+    total_p = sum(d.get("passed", 0) for d in suites.values() if not d.get("skipped"))
+    total_t = sum(d.get("total",  0) for d in suites.values() if not d.get("skipped"))
+    overall_ok = total_t > 0 and total_p == total_t
+    overall_icon = "✅" if overall_ok else ("⚠️" if total_t == 0 else "❌")
+    overall_label = "PASS" if overall_ok else ("N/A" if total_t == 0 else "FAIL")
+    overall_color = "#059669" if overall_ok else ("#d97706" if total_t == 0 else "#dc2626")
+
+    def _suite_badge(d):
+        if d.get("skipped"):
+            return "<span class='badge badge-skip'>SKIP</span>"
+        ok = d.get("passed") == d.get("total")
+        cls = "badge-pass" if ok else "badge-fail"
+        return f"<span class='badge {cls}'>{'✓' if ok else '✗'} {d['passed']}/{d['total']}</span>"
+
+    suite_html = ""
+    for name, d in suites.items():
+        fails = d.get("failures", [])
+        fail_html = ""
+        if fails and not d.get("skipped") and d.get("passed") != d.get("total"):
+            items = "".join(f"<li>{f[:80]}</li>" for f in fails[:5])
+            fail_html = f"<ul class='fail-list'>{items}</ul>"
+        suite_html += f"<div class='suite-row'><span class='suite-name'>{name}</span>{_suite_badge(d)}{fail_html}</div>"
+
+    inj_html = ""
+    for i in injections:
+        inj_html += f"<div class='list-row'><span class='ts'>{_t(i['ts'])}</span><span class='symptom'>{i['symptom'] or '-'}</span><span class='dur'>{i['elapsed']}s</span></div>"
+
+    bt_html = ""
+    for t in bt_tests:
+        icon = "✓" if t["ok"] else "✗"
+        cls  = "ok" if t["ok"] else "err"
+        bt_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t['minutes']} min</span><span class='{cls}'>{icon}</span></div>"
+
+    ap_html = ""
+    for t in ap_tests:
+        icon = "✓" if t["ok"] else "✗"
+        cls  = "ok" if t["ok"] else "err"
+        ap_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t['minutes']} min</span><span class='{cls}'>{icon}</span></div>"
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8">
 <title>AK Test Report — {now}</title>
 <style>
-  body{{font-family:-apple-system,sans-serif;margin:40px;color:#1a2533;background:#f9fafb;max-width:900px}}
-  h1{{font-size:1.3rem;color:#0a1f3c;margin-bottom:4px}}
-  h2{{font-size:.95rem;color:#1d4ed8;margin:22px 0 8px;border-bottom:2px solid #dbeafe;padding-bottom:5px}}
-  .meta{{font-size:.8rem;color:#6b7280;margin-bottom:24px}}
-  table{{width:100%;border-collapse:collapse;margin-bottom:4px;font-size:.82rem}}
-  th{{background:#f3f4f6;padding:6px 10px;text-align:left;color:#374151;font-weight:600}}
-  td{{padding:5px 10px;border-bottom:1px solid #e5e7eb}}
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1d23;min-height:100vh;padding:32px 16px}}
+  .page{{max-width:700px;margin:0 auto}}
+  /* Header card */
+  .header-card{{background:#1a1d23;border-radius:12px;padding:20px 24px;margin-bottom:16px;color:#fff}}
+  .header-top{{display:flex;align-items:center;gap:10px;margin-bottom:12px}}
+  .rocket{{font-size:1.4rem}}
+  .header-title{{font-size:1.05rem;font-weight:700;color:#fff}}
+  .header-sub{{font-size:.78rem;color:#9ca3af;margin-top:2px}}
+  .meta-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:12px}}
+  .meta-item{{background:#2a2d35;border-radius:7px;padding:8px 12px}}
+  .meta-label{{font-size:.65rem;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}}
+  .meta-val{{font-size:.85rem;font-weight:600;color:#e5e7eb;font-family:'SF Mono','Fira Mono',monospace}}
+  /* Overall badge */
+  .overall{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:.82rem;font-weight:700;margin-top:12px}}
+  .overall-pass{{background:#d1fae5;color:#065f46}}
+  .overall-fail{{background:#fee2e2;color:#991b1b}}
+  .overall-na{{background:#fef3c7;color:#92400e}}
+  /* Section cards */
+  .card{{background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.07)}}
+  .card-header{{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #f3f4f6}}
+  .card-icon{{font-size:1.05rem}}
+  .card-title{{font-size:.88rem;font-weight:700;color:#111827}}
+  .card-count{{margin-left:auto;font-size:.75rem;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px}}
+  /* Suite rows */
+  .suite-row{{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid #f9fafb;flex-wrap:wrap}}
+  .suite-row:last-child{{border-bottom:none}}
+  .suite-name{{font-size:.82rem;font-weight:600;color:#374151;min-width:100px;text-transform:capitalize}}
+  .badge{{font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px}}
+  .badge-pass{{background:#d1fae5;color:#065f46}}
+  .badge-fail{{background:#fee2e2;color:#991b1b}}
+  .badge-skip{{background:#fef3c7;color:#92400e}}
+  .fail-list{{margin:4px 0 0 0;padding-left:16px;font-size:.72rem;color:#dc2626;width:100%;list-style:disc}}
+  .fail-list li{{padding:1px 0}}
+  /* List rows */
+  .list-row{{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f9fafb;font-size:.82rem}}
+  .list-row:last-child{{border-bottom:none}}
+  .ts{{font-family:'SF Mono','Fira Mono',monospace;font-size:.75rem;color:#6b7280;min-width:70px}}
+  .symptom{{flex:1;color:#374151}}
+  .dur{{color:#6b7280;font-size:.75rem;min-width:50px;text-align:right}}
+  .ok{{color:#059669;font-weight:700;min-width:24px;text-align:center}}
+  .err{{color:#dc2626;font-weight:700;min-width:24px;text-align:center}}
+  .empty{{font-size:.8rem;color:#9ca3af;font-style:italic;padding:4px 0}}
 </style>
 </head>
 <body>
-<h1>S-Patch Accurkardia — Test Report</h1>
-<div class="meta">Generated: {now} · Device: {device}<br>
-Elapsed: {elapsed_str} / {duration_h}h · Injection interval: {interval_h}h</div>
+<div class="page">
 
-<h2>Regression Suites</h2>
-{_table(["Suite", "Result"], suite_rows)}
+  <div class="header-card">
+    <div class="header-top">
+      <span class="rocket">🩺</span>
+      <div>
+        <div class="header-title">S-Patch Accurkardia — Test Report</div>
+        <div class="header-sub">Generated {now}</div>
+      </div>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-item"><div class="meta-label">Device</div><div class="meta-val">{device or '-'}</div></div>
+      <div class="meta-item"><div class="meta-label">Elapsed</div><div class="meta-val">{elapsed_str} / {duration_h}h</div></div>
+      <div class="meta-item"><div class="meta-label">Injections</div><div class="meta-val">{len(injections)}</div></div>
+      <div class="meta-item"><div class="meta-label">Interval</div><div class="meta-val">every {interval_h}h</div></div>
+    </div>
+    <div class="overall overall-{'pass' if overall_ok else ('na' if total_t==0 else 'fail')}">{overall_icon} Regression {overall_label} — {total_p}/{total_t}</div>
+  </div>
 
-<h2>Injections ({len(injections)} total)</h2>
-{_table(["Time", "Symptom", "Duration"], inj_rows)}
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">🧪</span>
+      <span class="card-title">Regression Suites</span>
+      <span class="card-count">{len(suites)} suites</span>
+    </div>
+    {suite_html if suite_html else "<div class='empty'>No regression results yet.</div>"}
+  </div>
 
-<h2>BT Disconnect Tests ({len(bt_tests)} total)</h2>
-{_table(["Time", "Duration", "Result"], bt_rows)}
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">💉</span>
+      <span class="card-title">Symptom Injections</span>
+      <span class="card-count">{len(injections)} total</span>
+    </div>
+    {inj_html if inj_html else "<div class='empty'>No injections yet.</div>"}
+  </div>
 
-<h2>Airplane Mode Tests ({len(ap_tests)} total)</h2>
-{_table(["Time", "Duration", "Result"], ap_rows)}
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">📡</span>
+      <span class="card-title">BT Disconnect Tests</span>
+      <span class="card-count">{len(bt_tests)} total</span>
+    </div>
+    {bt_html if bt_html else "<div class='empty'>No BT tests yet.</div>"}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">✈️</span>
+      <span class="card-title">Airplane Mode Tests</span>
+      <span class="card-count">{len(ap_tests)} total</span>
+    </div>
+    {ap_html if ap_html else "<div class='empty'>No airplane tests yet.</div>"}
+  </div>
+
+</div>
 </body></html>"""
 
 
