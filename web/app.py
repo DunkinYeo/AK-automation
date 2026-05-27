@@ -314,21 +314,21 @@ def api_status():
             if found:
                 _state["out_dir"] = found
                 out_dir = found
+        if not out_dir:
+            out_dir = _find_latest_output_dir()
 
         events    = read_events(out_dir)
+        # If test process isn't tracked but events exist and look active, treat as running
+        if not running and events:
+            last_ev = events[-1].get("event", "")
+            if last_ev not in ("run_complete", "run_failed"):
+                running = True
         exit_code = proc.poll() if proc else None
-
-        run_start_ev = next((e for e in events if e["event"] == "run_start"), None)
-        tail = events[-50:]
-        if run_start_ev and (not tail or tail[0].get("event") != "run_start"):
-            combined = [run_start_ev] + [e for e in tail if e["event"] != "run_start"]
-        else:
-            combined = tail
 
         return jsonify({
             "running":   running,
             "exit_code": exit_code,
-            "events":    combined,
+            "events":    events,
         })
 
 
