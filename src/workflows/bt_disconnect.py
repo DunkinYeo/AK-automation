@@ -42,7 +42,15 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
         driver.reporter.log_event("bt_disconnect_failed", {"phase": "disable", "error": str(e)})
         return
 
-    _wall_sleep(disconnect_minutes * 60)
+    # Give app time to detect BT loss, then run connectivity check to emit
+    # bluetooth_off and trigger diary submission.
+    time.sleep(5)
+    try:
+        driver.check_connectivity()
+    except Exception as _e:
+        log.warning("[bt_disconnect] post-disable connectivity check failed: %s", _e)
+
+    _wall_sleep(disconnect_minutes * 60 - 5)
 
     try:
         subprocess.run(adb + ["shell", "svc", "bluetooth", "enable"],
@@ -54,3 +62,10 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
 
     driver.reporter.log_event("bt_disconnect_done", {"minutes": disconnect_minutes})
     log.info("[bt_disconnect] BT re-enabled after %.1f min", disconnect_minutes)
+
+    # Run connectivity check after BT restores to emit bluetooth_reconnected.
+    time.sleep(10)
+    try:
+        driver.check_connectivity()
+    except Exception as _e:
+        log.warning("[bt_disconnect] post-enable connectivity check failed: %s", _e)
