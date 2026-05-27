@@ -285,10 +285,10 @@
         <label>Device Connection <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
         <div style="display:flex;gap:12px;align-items:center">
           <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
-            <input type="radio" name="conn-mode" value="usb" checked id="conn-usb"> USB
+            <input type="radio" name="conn-mode" value="usb" checked id="adb-usb"> USB
           </label>
           <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
-            <input type="radio" name="conn-mode" value="wifi" id="conn-wifi"> WiFi ADB
+            <input type="radio" name="conn-mode" value="wifi" id="adb-wifi"> WiFi ADB
           </label>
         </div>
         <div id="wifi-addr-row" style="display:none;margin-top:6px">
@@ -800,8 +800,8 @@ function updateAppiumUI(ok) {
 }
 
 function applyWifiAutoMode(wifiAddr) {
-  document.getElementById('conn-wifi').checked = true;
-  document.getElementById('conn-usb').checked = false;
+  document.getElementById('adb-wifi').checked = true;
+  document.getElementById('adb-usb').checked = false;
   document.getElementById('wifi-addr-row').style.display = 'block';
   document.getElementById('wifi-addr').value = wifiAddr;
 }
@@ -842,7 +842,7 @@ document.getElementById('duration-group').addEventListener('click', e => {
 document.querySelectorAll('input[name="conn-mode"]').forEach(r => {
   r.addEventListener('change', () => {
     document.getElementById('wifi-addr-row').style.display =
-      document.getElementById('conn-wifi').checked ? 'block' : 'none';
+      document.getElementById('adb-wifi').checked ? 'block' : 'none';
   });
 });
 
@@ -875,7 +875,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   const symptoms = [...document.querySelectorAll('#symptom-grid input:checked')].map(c => c.value);
   if (!symptoms.length) { alert('Please select at least one symptom.'); return; }
 
-  const wifiMode = document.getElementById('conn-wifi').checked;
+  const wifiMode = document.getElementById('adb-wifi').checked;
   const wifiAddr = (document.getElementById('wifi-addr').value || '').trim();
   if (wifiMode && !wifiAddr) { alert('Please enter WiFi address (IP:Port).'); return; }
 
