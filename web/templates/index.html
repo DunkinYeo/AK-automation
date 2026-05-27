@@ -545,6 +545,7 @@ const EVENT_INFO = {
   airplane_mode_done:     { text: null,                                  color: 'green'  },
   airplane_mode_skipped:  { text: 'Airplane mode skipped (WiFi ADB)',    color: 'gray'   },
   airplane_mode_failed:   { text: null,                                  color: 'red'    },
+  battery_status:         { text: null,                                  color: 'green'  },
 };
 
 function fmtEvent(ev) {
@@ -572,6 +573,11 @@ function fmtEvent(ev) {
     text = `Airplane mode OFF after ${ev.data?.minutes ?? '?'} min`;
   } else if (ev.event === 'airplane_mode_failed') {
     text = `Airplane mode failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+  } else if (ev.event === 'battery_status') {
+    const s = ev.data?.status || '';
+    const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
+    text = `Patch battery: ${s}`;
+    return { text, color: isLow ? 'red' : 'green' };
   } else if (ev.event === 'regression_suite_result') {
     const d = ev.data || {};
     if (d.skipped) return null;
@@ -673,6 +679,7 @@ const CONN_EVENT_MAP = {
   wifi_off_diary_result:      { id: 'wifi_diary',     state: null,      text: null         },
   low_battery_patch:          { id: 'battery',        state: 'alert',   text: '✗ Low'      },
   low_battery_patch_resolved: { id: 'battery',        state: 'pass',    text: '✓ OK'       },
+  battery_status:             { id: 'battery',        state: null,      text: null         },
 };
 
 function initConnGrid() {
@@ -723,6 +730,10 @@ function processConnEvents(events) {
       updateConnCard('wifi',         'pass', '✓ On',      '');
       updateConnCard('wifi_diary',   'pass', '✓ OK',      '');
       updateConnCard('wifi_reconnect','pass', '✓ Restored','');
+    } else if (ev.event === 'battery_status') {
+      const s = d.status || '';
+      const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
+      updateConnCard('battery', isLow ? 'alert' : 'pass', isLow ? `✗ ${s}` : `✓ ${s}`, '');
     } else {
       updateConnCard(id, state, mapping.text, '');
     }
