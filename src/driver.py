@@ -560,6 +560,17 @@ class AndroidDriver:
             })
             del self._wifi_off_ts
 
+        # Patch battery status — scan main screen for status text, emit on change
+        battery_status = None
+        for label in ["Good", "Low", "Critical", "Replace", "Full"]:
+            if self.is_visible_text(label, timeout=1):
+                battery_status = label
+                break
+        if battery_status and battery_status != self._conn_state.get("battery_status"):
+            self._conn_state["battery_status"] = battery_status
+            self.reporter.log_event("battery_status", {"status": battery_status})
+            log.info("[connectivity] Patch battery status: %s", battery_status)
+
     # ── Unexpected popup handling ────────────────────────────────────────────
 
     # System packages that may steal focus with dialogs/permissions.

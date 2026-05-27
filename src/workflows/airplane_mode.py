@@ -44,13 +44,8 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     log.info("[airplane_mode] Enabling airplane mode for %.1f min", airplane_minutes)
 
     try:
-        subprocess.run(adb + ["shell", "settings", "put", "global", "airplane_mode_on", "1"],
+        subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "enable"],
                        capture_output=True, timeout=10)
-        subprocess.run(
-            adb + ["shell", "am", "broadcast", "-a",
-                   "android.intent.action.AIRPLANE_MODE", "--ez", "state", "true"],
-            capture_output=True, timeout=10,
-        )
     except Exception as e:
         log.warning("[airplane_mode] enable failed: %s", e)
         driver.reporter.log_event("airplane_mode_failed", {"phase": "enable", "error": str(e)})
@@ -67,13 +62,8 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     _wall_sleep(airplane_minutes * 60 - 3)
 
     try:
-        subprocess.run(adb + ["shell", "settings", "put", "global", "airplane_mode_on", "0"],
+        subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "disable"],
                        capture_output=True, timeout=10)
-        subprocess.run(
-            adb + ["shell", "am", "broadcast", "-a",
-                   "android.intent.action.AIRPLANE_MODE", "--ez", "state", "false"],
-            capture_output=True, timeout=10,
-        )
     except Exception as e:
         log.warning("[airplane_mode] disable failed: %s", e)
         driver.reporter.log_event("airplane_mode_failed", {"phase": "disable", "error": str(e)})
