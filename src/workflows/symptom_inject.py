@@ -34,6 +34,8 @@ SYMPTOMS = [
     "Nausea",
 ]
 
+ACTIVITIES: list[str] = []  # AK has no activity section
+
 _MAIN_SCREEN_TEXT  = "Log Symptoms"
 _LOG_SYMPTOMS_BTN  = "Log Symptoms"
 _SAVE_BTN          = "Save"

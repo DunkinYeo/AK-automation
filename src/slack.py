@@ -89,3 +89,24 @@ def slack_regression_suite(webhook_url: str, suite: str, passed: int, total: int
     for f in failures[:5]:
         lines.append(f"  • {f}")
     _post(webhook_url, {"text": "\n".join(lines)})
+
+
+def slack_daily_report(webhook_url: str, suite_results: dict, injection_result: dict,
+                       duration_hours: float = 0, interval_hours: float = 0,
+                       injection_count: int = 0):
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    inj_ok = (injection_result or {}).get("success", True)
+    inj_icon = ":white_check_mark:" if inj_ok else ":x:"
+    lines = [f":bar_chart: *AccurKardia Daily Report* — {now}",
+             f"  • Duration: `{int(duration_hours)}h` | Interval: `{interval_hours:.0f}h`",
+             f"  • Injections: `{injection_count}` {inj_icon}"]
+    for suite, r in suite_results.items():
+        if r.get("skipped"):
+            continue
+        icon = ":white_check_mark:" if r["passed"] == r["total"] else ":x:"
+        lines.append(f"  • {suite}: {icon} {r['passed']}/{r['total']}")
+    _post(webhook_url, {"text": "\n".join(lines)})
+
+
+def slack_bug_report(webhook_url: str):
+    pass

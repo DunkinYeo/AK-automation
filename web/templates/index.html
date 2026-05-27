@@ -790,6 +790,28 @@ function downloadReport() {
 // ── State ────────────────────────────────────────────────────────────────
 let pollTimer = null, seenEvents = 0, runStartTs = null, nextInjectTs = null, countdownTimer = null;
 
+// ── Field persistence ─────────────────────────────────────────────────────
+const PERSIST_FIELDS = ['serial-input', 'slack-webhook'];
+
+function saveFields() {
+  PERSIST_FIELDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) localStorage.setItem('ak_field_' + id, el.value);
+  });
+}
+
+function restoreFields() {
+  PERSIST_FIELDS.forEach(id => {
+    const val = localStorage.getItem('ak_field_' + id);
+    const el = document.getElementById(id);
+    if (val && el) el.value = val;
+  });
+}
+
+function clearFields() {
+  PERSIST_FIELDS.forEach(id => localStorage.removeItem('ak_field_' + id));
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────
 async function init() {
   const r = await fetch('/api/init').then(r => r.json());
@@ -808,8 +830,13 @@ async function init() {
     updateStats(s.events);
     processConnEvents(s.events);
   }
-  if (s.running) { setUIRunning(true); startPolling(); }
-  else if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
+  if (s.running) {
+    restoreFields();
+    setUIRunning(true); startPolling();
+  } else {
+    clearFields();
+    if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
+  }
 }
 
 function updateAppiumUI(ok) {
@@ -912,6 +939,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
     skip_regression: document.getElementById('skip-regression').checked,
   };
 
+  saveFields();
   const r = await fetch('/api/start', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(r => r.json());
