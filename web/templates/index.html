@@ -500,7 +500,7 @@
       </div>
 
       <!-- Connectivity monitoring grid -->
-      <div id="conn-section" style="display:none;margin-bottom:10px">
+      <div id="conn-section" style="margin-bottom:10px">
         <div style="font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Connectivity</div>
         <div class="suite-grid" id="conn-grid"></div>
       </div>
@@ -696,11 +696,9 @@ function updateConnCard(id, state, statusText, subText) {
 }
 
 function processConnEvents(events) {
-  let hasConn = false;
   for (const ev of (events || [])) {
     const mapping = CONN_EVENT_MAP[ev.event];
     if (!mapping) continue;
-    hasConn = true;
     const { id, state } = mapping;
     const d = ev.data || {};
     if (ev.event === 'bt_off_diary_result') {
@@ -720,7 +718,6 @@ function processConnEvents(events) {
       updateConnCard(id, state, mapping.text, '');
     }
   }
-  if (hasConn) document.getElementById('conn-section').style.display = '';
 }
 
 // ── Injection / periodic stats ───────────────────────────────────────────

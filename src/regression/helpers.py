@@ -160,21 +160,23 @@ def go_to_main(drv, wait_ble: int = 120):
         # Step 3 — Review Study Setting
         if drv.is_visible_text("Review Study Setting", timeout=1):
             log.info("[go_to_main] Step 3 detected → Continue")
+            time.sleep(1)
             try:
-                drv.tap_text("Continue", timeout=5, contains=False)
+                drv.tap_text("Continue", timeout=5, contains=True)
                 time.sleep(1)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("[go_to_main] Step 3 Continue tap failed: %s", e)
             continue
 
         # Step 2 — Check Incoming Signal
         if drv.is_visible_text("Check Incoming Signal", timeout=1):
             log.info("[go_to_main] Step 2 detected → Continue")
+            time.sleep(2)  # allow button to become interactive
             try:
-                drv.tap_text("Continue", timeout=5, contains=False)
+                drv.tap_text("Continue", timeout=5, contains=True)
                 time.sleep(1)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("[go_to_main] Step 2 Continue tap failed: %s", e)
             continue
 
         # Returned to Step 1 — re-enter serial and retry Connect
