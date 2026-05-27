@@ -709,11 +709,20 @@ function processConnEvents(events) {
     } else if (ev.event === 'bt_reconnect_ecg_result') {
       const ok = d.result === 'ECG signal visible';
       updateConnCard(id, ok ? 'pass' : 'fail', ok ? '✓ ECG OK' : '✗ No ECG', d.result || '');
+    } else if (ev.event === 'bt_disconnect_done') {
+      updateConnCard('bluetooth',   'pass', '✓ On',          '');
+      updateConnCard('bt_reconnect','pass', '✓ Reconnected', '');
+      updateConnCard('ecg_check',   'pass', '✓ OK',          '');
+      updateConnCard('bt_diary',    'skip', '— N/A',         '');
     } else if (ev.event === 'wifi_restored') {
       updateConnCard(id, 'pass', `✓ ${d.elapsed_sec}s`, 'Auto-restored');
     } else if (ev.event === 'wifi_off_diary_result') {
       const ok = (d.result || '').includes('returned');
       updateConnCard(id, ok ? 'pass' : 'info', ok ? '✓ Submitted' : '~ Submitted', d.result || '');
+    } else if (ev.event === 'airplane_mode_done') {
+      updateConnCard('wifi',         'pass', '✓ On',      '');
+      updateConnCard('wifi_diary',   'skip', '— N/A',     '');
+      updateConnCard('wifi_reconnect','pass', '✓ Restored','');
     } else {
       updateConnCard(id, state, mapping.text, '');
     }
