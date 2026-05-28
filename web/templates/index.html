@@ -833,12 +833,11 @@ async function init() {
     processConnEvents(s.events);
   }
   if (s.running) {
-    restoreFields();
     setUIRunning(true); startPolling();
   } else {
-    clearFields();
     if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
   }
+  restoreFields();
 }
 
 function updateAppiumUI(ok) {
