@@ -779,9 +779,11 @@ function updateStats(events) {
 }
 
 function downloadReport() {
+  window.open('/api/report', '_blank');
+  const ts = new Date().toISOString().slice(0,19).replace(/[T:]/g, '-');
   const a = document.createElement('a');
   a.href = '/api/report';
-  a.download = '';
+  a.download = `ak_report_${ts}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
