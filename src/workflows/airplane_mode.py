@@ -44,12 +44,23 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     log.info("[airplane_mode] Enabling airplane mode for %.1f min", airplane_minutes)
 
     try:
-        subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "enable"],
-                       capture_output=True, timeout=10)
+        r = subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "enable"],
+                           capture_output=True, timeout=10)
+        if r.returncode != 0 or b"error" in r.stderr.lower():
+            raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
     except Exception as e:
-        log.warning("[airplane_mode] enable failed: %s", e)
-        driver.reporter.log_event("airplane_mode_failed", {"phase": "enable", "error": str(e)})
-        return
+        log.warning("[airplane_mode] enable failed: %s — waiting for ADB reconnect", e)
+        if not driver.wait_for_adb_device(timeout=300):
+            driver.reporter.log_event("airplane_mode_failed", {"phase": "enable", "error": str(e)})
+            return
+        try:
+            r = subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "enable"],
+                               capture_output=True, timeout=10)
+            if r.returncode != 0 or b"error" in r.stderr.lower():
+                raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
+        except Exception as e2:
+            driver.reporter.log_event("airplane_mode_failed", {"phase": "enable", "error": str(e2)})
+            return
 
     # Give WiFi time to drop, then run connectivity check to detect wifi_off
     # and trigger diary submission. Background monitor is paused during airplane mode.
@@ -62,12 +73,23 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     _wall_sleep(airplane_minutes * 60 - 3)
 
     try:
-        subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "disable"],
-                       capture_output=True, timeout=10)
+        r = subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "disable"],
+                           capture_output=True, timeout=10)
+        if r.returncode != 0 or b"error" in r.stderr.lower():
+            raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
     except Exception as e:
-        log.warning("[airplane_mode] disable failed: %s", e)
-        driver.reporter.log_event("airplane_mode_failed", {"phase": "disable", "error": str(e)})
-        return
+        log.warning("[airplane_mode] disable failed: %s — waiting for ADB reconnect", e)
+        if not driver.wait_for_adb_device(timeout=300):
+            driver.reporter.log_event("airplane_mode_failed", {"phase": "disable", "error": str(e)})
+            return
+        try:
+            r = subprocess.run(adb + ["shell", "cmd", "connectivity", "airplane-mode", "disable"],
+                               capture_output=True, timeout=10)
+            if r.returncode != 0 or b"error" in r.stderr.lower():
+                raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
+        except Exception as e2:
+            driver.reporter.log_event("airplane_mode_failed", {"phase": "disable", "error": str(e2)})
+            return
 
     driver.reporter.log_event("airplane_mode_done", {"minutes": airplane_minutes})
     log.info("[airplane_mode] Airplane mode disabled after %.1f min", airplane_minutes)

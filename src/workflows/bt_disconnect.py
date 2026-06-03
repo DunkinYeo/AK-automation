@@ -35,12 +35,23 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     log.info("[bt_disconnect] Disabling BT for %.1f min", disconnect_minutes)
 
     try:
-        subprocess.run(adb + ["shell", "svc", "bluetooth", "disable"],
-                       capture_output=True, timeout=10)
+        r = subprocess.run(adb + ["shell", "svc", "bluetooth", "disable"],
+                           capture_output=True, timeout=10)
+        if r.returncode != 0 or b"error" in r.stderr.lower():
+            raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
     except Exception as e:
-        log.warning("[bt_disconnect] disable failed: %s", e)
-        driver.reporter.log_event("bt_disconnect_failed", {"phase": "disable", "error": str(e)})
-        return
+        log.warning("[bt_disconnect] disable failed: %s — waiting for ADB reconnect", e)
+        if not driver.wait_for_adb_device(timeout=300):
+            driver.reporter.log_event("bt_disconnect_failed", {"phase": "disable", "error": str(e)})
+            return
+        try:
+            r = subprocess.run(adb + ["shell", "svc", "bluetooth", "disable"],
+                               capture_output=True, timeout=10)
+            if r.returncode != 0 or b"error" in r.stderr.lower():
+                raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
+        except Exception as e2:
+            driver.reporter.log_event("bt_disconnect_failed", {"phase": "disable", "error": str(e2)})
+            return
 
     # Give app time to detect BT loss, then run connectivity check to emit
     # bluetooth_off and trigger diary submission.
@@ -53,12 +64,23 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     _wall_sleep(disconnect_minutes * 60 - 5)
 
     try:
-        subprocess.run(adb + ["shell", "svc", "bluetooth", "enable"],
-                       capture_output=True, timeout=10)
+        r = subprocess.run(adb + ["shell", "svc", "bluetooth", "enable"],
+                           capture_output=True, timeout=10)
+        if r.returncode != 0 or b"error" in r.stderr.lower():
+            raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
     except Exception as e:
-        log.warning("[bt_disconnect] re-enable failed: %s", e)
-        driver.reporter.log_event("bt_disconnect_failed", {"phase": "enable", "error": str(e)})
-        return
+        log.warning("[bt_disconnect] re-enable failed: %s — waiting for ADB reconnect", e)
+        if not driver.wait_for_adb_device(timeout=300):
+            driver.reporter.log_event("bt_disconnect_failed", {"phase": "enable", "error": str(e)})
+            return
+        try:
+            r = subprocess.run(adb + ["shell", "svc", "bluetooth", "enable"],
+                               capture_output=True, timeout=10)
+            if r.returncode != 0 or b"error" in r.stderr.lower():
+                raise RuntimeError(r.stderr.decode(errors="replace").strip() or "non-zero exit")
+        except Exception as e2:
+            driver.reporter.log_event("bt_disconnect_failed", {"phase": "enable", "error": str(e2)})
+            return
 
     driver.reporter.log_event("bt_disconnect_done", {"minutes": disconnect_minutes})
     log.info("[bt_disconnect] BT re-enabled after %.1f min", disconnect_minutes)

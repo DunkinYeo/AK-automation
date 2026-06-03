@@ -2,8 +2,10 @@
 S-Patch Accurkardia Long-run Test — Web UI backend
 Run:  python web/app.py   (from project root)
 """
+import atexit
 import datetime
 import json
+import signal
 import subprocess
 import sys
 import threading
@@ -192,6 +194,20 @@ def _sync_localhost_session():
 
 
 threading.Thread(target=_sync_localhost_session, daemon=True).start()
+
+
+def _kill_proc():
+    with _lock:
+        proc = _state.get("proc")
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+atexit.register(_kill_proc)
+signal.signal(signal.SIGTERM, lambda *_: (_kill_proc(), sys.exit(0)))
 
 
 def _get_lan_ip() -> str:
@@ -409,7 +425,6 @@ def api_start():
         _state["proc"]     = subprocess.Popen(
             cmd,
             cwd=str(ROOT),
-            start_new_session=True,
         )
 
         return jsonify({"ok": True})
@@ -421,7 +436,13 @@ def api_stop():
         proc = _state["proc"]
         if proc and proc.poll() is None:
             proc.terminate()
-        _state["proc"] = None
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        _state["proc"]     = None
+        _state["start_ts"] = None
+        _state["out_dir"]  = None
     return jsonify({"ok": True})
 
 
@@ -684,7 +705,7 @@ def _build_report_html(events: list[dict]) -> str:
 
     for e in events:
         ev   = e.get("event", "")
-        data = e.get("data", {})
+        data = e.get("data", {})ㅇ
         ts   = e.get("ts", "")
         if ev == "run_start":
             start_ts_str = ts

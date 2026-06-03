@@ -679,6 +679,31 @@ class AndroidDriver:
 
         return False
 
+    def wait_for_adb_device(self, timeout: int = 300) -> bool:
+        """
+        Poll ADB until device responds or timeout expires.
+        Used by BT/airplane workflows to resume after disconnection.
+        Returns True if device reconnected within timeout.
+        """
+        udid = self.cfg.get("udid", "")
+        cmd = ["adb"] + (["-s", udid] if udid else []) + ["get-state"]
+        deadline = time.time() + timeout
+        self.reporter.log_event("adb_reconnect_wait", {"timeout_sec": timeout})
+        log.info("[adb] Waiting for device reconnect (timeout=%ds)...", timeout)
+        while time.time() < deadline:
+            try:
+                r = subprocess.run(cmd, capture_output=True, timeout=5)
+                if r.returncode == 0 and b"device" in r.stdout:
+                    log.info("[adb] Device reconnected")
+                    self.reporter.log_event("adb_reconnected", {})
+                    return True
+            except Exception:
+                pass
+            time.sleep(5)
+        log.warning("[adb] Device did not reconnect within %ds", timeout)
+        self.reporter.log_event("adb_reconnect_timeout", {"timeout_sec": timeout})
+        return False
+
     def _adb_wifi_off(self) -> bool:
         """Check WiFi on/off state via ADB. Returns False on error (false negatives allowed)."""
         try:
