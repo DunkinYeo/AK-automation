@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = datetime.date.today().strftime("%Y%m%d")
+VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "0.0.0"
 
 # ── Path substitutions ─────────────────────────────────────────────────────
 WIN_SUBS = [
@@ -113,7 +114,7 @@ def _add_config(zf: zipfile.ZipFile, arc_prefix: str):
 
 
 def build_mac(out_dir: Path) -> Path:
-    name = f"AccurKardia-Mac-{TODAY}.zip"
+    name = f"AccurKardia-Mac-v{VERSION}-{TODAY}.zip"
     path = out_dir / name
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         _add(zf, ROOT / "install.command",    "install.command", MAC_SUBS)
@@ -136,7 +137,7 @@ def build_mac(out_dir: Path) -> Path:
 
 
 def build_windows(out_dir: Path) -> Path:
-    name = f"AccurKardia-Windows-{TODAY}.zip"
+    name = f"AccurKardia-Windows-v{VERSION}-{TODAY}.zip"
     path = out_dir / name
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         _add(zf, ROOT / "install.bat", "install.bat", WIN_SUBS, crlf=True)

@@ -330,12 +330,10 @@ def api_status():
             if found:
                 _state["out_dir"] = found
                 out_dir = found
-        if not out_dir:
-            out_dir = _find_latest_output_dir()
 
         events    = read_events(out_dir)
         # If test process isn't tracked but events exist and look active, treat as running
-        if not running and events:
+        if not running and events and (proc or start_ts):
             last_ev = events[-1].get("event", "")
             if last_ev not in ("run_complete", "run_failed"):
                 running = True
@@ -705,7 +703,7 @@ def _build_report_html(events: list[dict]) -> str:
 
     for e in events:
         ev   = e.get("event", "")
-        data = e.get("data", {})ㅇ
+        data = e.get("data", {})
         ts   = e.get("ts", "")
         if ev == "run_start":
             start_ts_str = ts

@@ -184,14 +184,18 @@ class LongRunScheduler:
 
             def _job():
                 # Check quiet hours at run time (interval jobs are chained dynamically)
-                if _is_quiet_hour(datetime.datetime.now(), self.quiet_hours):
-                    self.reporter.log_event(
-                        "job_skipped_quiet_hours",
-                        {"index": counter[0], "quiet_hours": self.quiet_hours},
-                    )
-                else:
-                    _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
-                _schedule_next()
+                try:
+                    if _is_quiet_hour(datetime.datetime.now(), self.quiet_hours):
+                        self.reporter.log_event(
+                            "job_skipped_quiet_hours",
+                            {"index": counter[0], "quiet_hours": self.quiet_hours},
+                        )
+                    else:
+                        _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
+                except Exception:
+                    pass
+                finally:
+                    _schedule_next()
 
             sched.add_job(_job, "date", run_date=next_run, misfire_grace_time=grace)
 
