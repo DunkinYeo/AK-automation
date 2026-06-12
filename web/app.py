@@ -196,6 +196,40 @@ def _sync_localhost_session():
 threading.Thread(target=_sync_localhost_session, daemon=True).start()
 
 
+def _appium_watchdog():
+    """Restart Appium automatically if it dies while a test is running."""
+    import shutil
+    while True:
+        time.sleep(30)
+        try:
+            with _lock:
+                proc = _state.get("proc")
+                running = bool(proc and proc.poll() is None)
+            if not running:
+                continue
+            if appium_ok():
+                continue
+            appium_cmd = _find_appium_cmd()
+            if not appium_cmd:
+                continue
+            log.warning("[watchdog] Appium down — restarting...")
+            subprocess.Popen(
+                [appium_cmd, "--port", "4723"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(3)
+            if appium_ok():
+                log.info("[watchdog] Appium restarted successfully")
+            else:
+                log.warning("[watchdog] Appium restart failed")
+        except Exception:
+            pass
+
+
+threading.Thread(target=_appium_watchdog, daemon=True).start()
+
+
 def _kill_proc():
     with _lock:
         proc = _state.get("proc")
