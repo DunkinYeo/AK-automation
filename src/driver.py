@@ -563,7 +563,7 @@ class AndroidDriver:
         # Patch battery status — scan main screen for status text, emit on change
         battery_status = None
         for label in ["Good", "Low", "Critical", "Replace", "Full"]:
-            if self.is_visible_text(label, timeout=1):
+            if self.is_visible_text(label, contains=False, timeout=1):
                 battery_status = label
                 break
         if battery_status and battery_status != self._conn_state.get("battery_status"):
