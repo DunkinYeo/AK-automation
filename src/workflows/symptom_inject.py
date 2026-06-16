@@ -66,7 +66,9 @@ def inject_symptom_event(
         log.info("[inject] Not on main screen — navigating via go_to_main()")
         d.screenshot("inject_not_on_main_before_nav")
         go_to_main(d)
-    if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
+        d.wait_idle(2.0)
+        handle_any_popup(d)
+    if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=15):
         d.screenshot("inject_not_on_main_screen")
         raise RuntimeError(f"Not on main measurement screen — '{_MAIN_SCREEN_TEXT}' not displayed")
 
