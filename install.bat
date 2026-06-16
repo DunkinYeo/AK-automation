@@ -140,7 +140,7 @@ IF ERRORLEVEL 1 (
     SET FAILED=1
     GOTO :step4
 )
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%_PTZIP%' -ErrorAction SilentlyContinue; Expand-Archive -Path '%_PTZIP%' -DestinationPath '%CD%\runtime' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%_PTZIP%' -ErrorAction SilentlyContinue; Expand-Archive -Path '%_PTZIP%' -DestinationPath '%CD%\runtime' -Force; Get-ChildItem '%CD%\runtime' -Recurse | Unblock-File -ErrorAction SilentlyContinue"
 del "%_PTZIP%" >nul 2>&1
 IF NOT EXIST "runtime\platform-tools\adb.exe" (
     echo   FAIL  adb.exe not found after extraction.
