@@ -742,14 +742,18 @@ function processConnEvents(events) {
 
 // ── Injection / periodic stats ───────────────────────────────────────────
 function updateStats(events) {
-  let injectCount = 0, injectLast = '-';
+  let injectOk = 0, injectTotal = 0, injectLast = '-';
   let btCount = 0,     btLast = '-';
   let apCount = 0,     apLast = '-';
   for (const e of (events || [])) {
     const d = e.data || {};
     if (e.event === 'inject_done') {
-      injectCount++;
+      injectOk++;
+      injectTotal++;
       injectLast = d.symptom ? d.symptom.split('/')[0].trim() : '-';
+    } else if (e.event === 'job_failed') {
+      injectTotal++;
+      injectLast = 'failed';
     } else if (e.event === 'bt_disconnect_done') {
       btCount++;
       const t = e.ts ? e.ts.split('T')[1].slice(0,5) : '';
@@ -766,10 +770,10 @@ function updateStats(events) {
       apLast = 'failed';
     }
   }
-  const hasStats = injectCount > 0 || btCount > 0 || apCount > 0;
+  const hasStats = injectTotal > 0 || btCount > 0 || apCount > 0;
   document.getElementById('stats-grid').style.display = hasStats ? '' : 'none';
   if (hasStats) {
-    document.getElementById('stat-inject-count').textContent = injectCount;
+    document.getElementById('stat-inject-count').textContent = injectTotal > 0 ? `${injectOk}/${injectTotal}` : '0';
     document.getElementById('stat-inject-last').textContent  = injectLast;
     document.getElementById('stat-bt-count').textContent     = btCount;
     document.getElementById('stat-bt-last').textContent      = btLast;
