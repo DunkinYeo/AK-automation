@@ -748,7 +748,9 @@ def _build_report_html(events: list[dict]) -> str:
         elif ev == "regression_suite_result":
             suites[data.get("suite", "")] = data
         elif ev == "inject_done":
-            injections.append({"ts": ts, "symptom": data.get("symptom"), "elapsed": data.get("elapsed_sec")})
+            injections.append({"ts": ts, "symptom": data.get("symptom"), "elapsed": data.get("elapsed_sec"), "ok": True})
+        elif ev == "job_failed":
+            injections.append({"ts": ts, "symptom": data.get("symptom", "-"), "elapsed": None, "ok": False, "error": data.get("error", "")})
         elif ev == "bt_disconnect_done":
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
         elif ev == "bt_disconnect_failed":
@@ -788,7 +790,9 @@ def _build_report_html(events: list[dict]) -> str:
             status = f"<span style='color:#dc2626'>✗ {d['passed']}/{d['total']}{fails_txt}</span>"
         suite_rows.append([name, status])
 
-    inj_rows = [[_t(i["ts"]), i["symptom"] or "-", f"{i['elapsed']}s"] for i in injections]
+    inj_ok    = sum(1 for i in injections if i.get("ok"))
+    inj_total = len(injections)
+    inj_rate  = f"{inj_ok}/{inj_total}" if inj_total else "-"
     bt_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
                  "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
                 for t in bt_tests]
@@ -821,7 +825,11 @@ def _build_report_html(events: list[dict]) -> str:
 
     inj_html = ""
     for i in injections:
-        inj_html += f"<div class='list-row'><span class='ts'>{_t(i['ts'])}</span><span class='symptom'>{i['symptom'] or '-'}</span><span class='dur'>{i['elapsed']}s</span></div>"
+        if i.get("ok"):
+            inj_html += f"<div class='list-row'><span class='ts'>{_t(i['ts'])}</span><span class='symptom'>{i.get('symptom') or '-'}</span><span class='dur'>{i['elapsed']}s</span></div>"
+        else:
+            err = (i.get('error') or '')[:80]
+            inj_html += f"<div class='list-row' style='opacity:.7'><span class='ts'>{_t(i['ts'])}</span><span class='symptom' style='color:#dc2626'>{i.get('symptom') or '-'} ✗</span><span class='dur' style='color:#dc2626;font-size:11px'>{err}</span></div>"
 
     bt_html = ""
     for t in bt_tests:
@@ -899,7 +907,7 @@ def _build_report_html(events: list[dict]) -> str:
     <div class="meta-grid">
       <div class="meta-item"><div class="meta-label">Device</div><div class="meta-val">{device or '-'}</div></div>
       <div class="meta-item"><div class="meta-label">Elapsed</div><div class="meta-val">{elapsed_str} / {duration_h}h</div></div>
-      <div class="meta-item"><div class="meta-label">Injections</div><div class="meta-val">{len(injections)}</div></div>
+      <div class="meta-item"><div class="meta-label">Injections</div><div class="meta-val">{inj_rate}</div></div>
       <div class="meta-item"><div class="meta-label">Interval</div><div class="meta-val">every {interval_h}h</div></div>
     </div>
     <div class="overall overall-{'pass' if overall_ok else ('na' if total_t==0 else 'fail')}">{overall_icon} Regression {overall_label} — {total_p}/{total_t}</div>
@@ -918,7 +926,7 @@ def _build_report_html(events: list[dict]) -> str:
     <div class="card-header">
       <span class="card-icon">💉</span>
       <span class="card-title">Symptom Injections</span>
-      <span class="card-count">{len(injections)} total</span>
+      <span class="card-count">{inj_rate} succeeded</span>
     </div>
     {inj_html if inj_html else "<div class='empty'>No injections yet.</div>"}
   </div>
