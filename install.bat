@@ -2,6 +2,14 @@
 setlocal
 cd /d "%~dp0"
 
+REM ── Auto-elevate to Administrator if not already elevated ─────────────────
+net session >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo   Requesting Administrator privileges...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    EXIT /B 0
+)
+
 SET "LOG=%TEMP%\ak_install.log"
 SET FAILED=0
 SET "PYTHON_EXE=python"
