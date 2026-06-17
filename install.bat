@@ -149,6 +149,14 @@ IF NOT EXIST "runtime\platform-tools\adb.exe" (
     GOTO :step4
 )
 SET "PATH=%CD%\runtime\platform-tools;%PATH%"
+adb version >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo   FAIL  adb.exe found but not executable. Antivirus may have blocked it.
+    echo         Try: Add runtime\platform-tools to your antivirus exclusion list.
+    pause
+    SET FAILED=1
+    GOTO :step4
+)
 echo   PASS  ADB installed to runtime\platform-tools
 echo [3/6] PASS >> "%LOG%"
 

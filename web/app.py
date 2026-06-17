@@ -183,6 +183,16 @@ def _sync_localhost_session():
             names = {e["event"] for e in events}
             status = "done" if "run_complete" in names else "failed" if "run_failed" in names else "running"
 
+            # Auto-save report when test completes
+            if status in ("done", "failed") and out_dir:
+                report_path = Path(out_dir) / "report.html"
+                if not report_path.exists():
+                    try:
+                        report_path.write_text(_build_report_html(events), encoding="utf-8")
+                        log.info("[report] Auto-saved to %s", report_path)
+                    except Exception:
+                        pass
+
             with _hub_lock:
                 _hub_sessions["Localhost"] = {
                     "events": events[-200:], "last_seen": last_ts,
@@ -376,6 +386,7 @@ def api_status():
         return jsonify({
             "running":   running,
             "exit_code": exit_code,
+            "appium":    appium_ok(),
             "events":    events,
         })
 
@@ -793,6 +804,10 @@ def _build_report_html(events: list[dict]) -> str:
     inj_ok    = sum(1 for i in injections if i.get("ok"))
     inj_total = len(injections)
     inj_rate  = f"{inj_ok}/{inj_total}" if inj_total else "-"
+    bt_ok     = sum(1 for t in bt_tests if t["ok"])
+    bt_rate   = f"{bt_ok}/{len(bt_tests)}" if bt_tests else "-"
+    ap_ok     = sum(1 for t in ap_tests if t["ok"])
+    ap_rate   = f"{ap_ok}/{len(ap_tests)}" if ap_tests else "-"
     bt_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
                  "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
                 for t in bt_tests]
@@ -935,7 +950,7 @@ def _build_report_html(events: list[dict]) -> str:
     <div class="card-header">
       <span class="card-icon">📡</span>
       <span class="card-title">BT Disconnect Tests</span>
-      <span class="card-count">{len(bt_tests)} total</span>
+      <span class="card-count">{bt_rate} succeeded</span>
     </div>
     {bt_html if bt_html else "<div class='empty'>No BT tests yet.</div>"}
   </div>
@@ -944,7 +959,7 @@ def _build_report_html(events: list[dict]) -> str:
     <div class="card-header">
       <span class="card-icon">✈️</span>
       <span class="card-title">Airplane Mode Tests</span>
-      <span class="card-count">{len(ap_tests)} total</span>
+      <span class="card-count">{ap_rate} succeeded</span>
     </div>
     {ap_html if ap_html else "<div class='empty'>No airplane tests yet.</div>"}
   </div>

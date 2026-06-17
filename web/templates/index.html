@@ -1003,6 +1003,7 @@ async function poll() {
   processSuiteEvents(s.events);
   updateStats(s.events);
   processConnEvents(s.events);
+  if (s.appium !== undefined) updateAppiumUI(s.appium);
   if (!s.running && pollTimer) {
     stopPolling(); setUIRunning(false); showFinished(s.exit_code ?? -1);
   }
