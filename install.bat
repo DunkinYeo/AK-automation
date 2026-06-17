@@ -132,6 +132,8 @@ IF NOT ERRORLEVEL 1 (
 )
 echo   ADB not found. Downloading Android platform-tools...
 IF NOT EXIST "runtime" mkdir runtime
+echo   Adding runtime folder to Windows Defender exclusions (if allowed)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-MpPreference -ExclusionPath '%CD%\runtime' -ErrorAction SilentlyContinue" >nul 2>&1
 SET "_PTZIP=%TEMP%\ak_pt.zip"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip' -OutFile '%_PTZIP%' -UseBasicParsing"
 IF ERRORLEVEL 1 (
