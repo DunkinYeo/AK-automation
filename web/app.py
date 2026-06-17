@@ -486,7 +486,33 @@ def api_stop():
         _state["proc"]     = None
         _state["start_ts"] = None
         _state["out_dir"]  = None
+    _clear_interval_override()
     return jsonify({"ok": True})
+
+
+def _clear_interval_override():
+    try:
+        p = ROOT / "runtime" / "interval_override.json"
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
+
+
+@app.route("/api/set-interval", methods=["POST"])
+def api_set_interval():
+    data = request.json or {}
+    hours = float(data.get("interval_hours", 0))
+    if hours <= 0:
+        return jsonify({"error": "interval_hours must be > 0"}), 400
+    try:
+        p = ROOT / "runtime" / "interval_override.json"
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(json.dumps({"interval_hours": hours}))
+        print(f"[set-interval] Override set to {hours:.2f}h", flush=True)
+        return jsonify({"ok": True, "interval_hours": hours})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Regression ────────────────────────────────────────────────────────────────

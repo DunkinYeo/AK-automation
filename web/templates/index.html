@@ -480,6 +480,13 @@
         <span id="next-inject-countdown" style="color:#6b7280;font-size:.85em;margin-left:4px"></span>
       </div>
 
+      <div id="interval-control" style="display:none;align-items:center;gap:6px;margin-top:6px">
+        <span style="font-size:.8rem;color:#6b7280">Interval:</span>
+        <input id="interval-input" type="number" min="0.1" step="0.5" style="width:64px;padding:3px 6px;font-size:.82rem;border:1px solid #d1d5db;border-radius:6px" placeholder="h">
+        <button class="btn-secondary" style="padding:3px 10px;font-size:.8rem" onclick="setInterval_()">Apply</button>
+        <span id="interval-feedback" style="font-size:.78rem;color:#059669"></span>
+      </div>
+
       <!-- Injection / BT / Airplane stats -->
       <div class="stats-grid" id="stats-grid" style="display:none">
         <div class="stat-box">
@@ -973,9 +980,25 @@ async function stopTest() {
 function setUIRunning(running) {
   document.getElementById('start-btn').disabled = running;
   document.getElementById('stop-btn').style.display = running ? '' : 'none';
+  document.getElementById('interval-control').style.display = running ? 'flex' : 'none';
   const chip = document.getElementById('run-chip');
   chip.className = 'chip ' + (running ? 'chip-blue' : 'chip-warn');
   chip.textContent = running ? 'Running' : 'Idle';
+}
+
+async function setInterval_() {
+  const h = parseFloat(document.getElementById('interval-input').value);
+  const fb = document.getElementById('interval-feedback');
+  if (!h || h <= 0) { fb.style.color='#dc2626'; fb.textContent='유효한 시간을 입력하세요'; return; }
+  try {
+    const r = await fetch('/api/set-interval', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({interval_hours: h})
+    }).then(r => r.json());
+    if (r.ok) { fb.style.color='#059669'; fb.textContent=`✓ ${h}h 적용됨`; }
+    else       { fb.style.color='#dc2626'; fb.textContent=r.error || 'Error'; }
+  } catch { fb.style.color='#dc2626'; fb.textContent='요청 실패'; }
+  setTimeout(() => { fb.textContent = ''; }, 3000);
 }
 
 function showFinished(code) {

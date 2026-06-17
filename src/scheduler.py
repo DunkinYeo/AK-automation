@@ -17,8 +17,12 @@ Any check failure triggers 3-step escalating recovery before the job runs.
 
 import dataclasses
 import datetime
+import json
 import random
 import time
+from pathlib import Path
+
+_OVERRIDE_FILE = Path(__file__).resolve().parent.parent / "runtime" / "interval_override.json"
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -155,22 +159,36 @@ class LongRunScheduler:
         grace = int(self.duration_hours * 3600)
 
         def _schedule_next():
-            # Advance the counter past any slots already in the past to avoid
-            # a burst of back-to-back injections after a long host sleep.
+            # Check for mid-test interval override from web UI
+            override_h = None
+            try:
+                if _OVERRIDE_FILE.exists():
+                    override_h = float(json.loads(_OVERRIDE_FILE.read_text()).get("interval_hours", 0)) or None
+            except Exception:
+                pass
+
             now = datetime.datetime.now()
-            while True:
+            jitter = random.uniform(-self.jitter_seconds, self.jitter_seconds) if self.jitter_seconds else 0
+            if override_h:
+                # Schedule relative to now using the new interval
                 counter[0] += 1
-                offset_hours = counter[0] * self.interval_hours
-                jitter = random.uniform(-self.jitter_seconds, self.jitter_seconds) if self.jitter_seconds else 0
-                next_run = start + datetime.timedelta(hours=offset_hours) + datetime.timedelta(seconds=jitter)
+                next_run = now + datetime.timedelta(hours=override_h) + datetime.timedelta(seconds=jitter)
                 if next_run >= end:
                     return
-                if next_run > now:
-                    break
-                # This slot is in the past — log as skipped and try the next one
-                self.reporter.log_event("job_skipped_host_sleep", {
-                    "index": counter[0], "scheduled": next_run.isoformat(),
-                })
+            else:
+                # Advance the counter past any slots already in the past to avoid
+                # a burst of back-to-back injections after a long host sleep.
+                while True:
+                    counter[0] += 1
+                    offset_hours = counter[0] * self.interval_hours
+                    next_run = start + datetime.timedelta(hours=offset_hours) + datetime.timedelta(seconds=jitter)
+                    if next_run >= end:
+                        return
+                    if next_run > now:
+                        break
+                    self.reporter.log_event("job_skipped_host_sleep", {
+                        "index": counter[0], "scheduled": next_run.isoformat(),
+                    })
 
             self.reporter.log_event(
                 "schedule_add",
