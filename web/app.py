@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -97,13 +98,19 @@ def get_devices() -> list[str]:
         return []
 
 
-def appium_ok() -> bool:
+_appium_cache: dict = {"ok": False, "ts": 0.0}
+
+def appium_ok(force: bool = False) -> bool:
+    if not force and time.time() - _appium_cache["ts"] < 10:
+        return _appium_cache["ok"]
     try:
-        import urllib.request
         with urllib.request.urlopen("http://127.0.0.1:4723/status", timeout=2) as r:
-            return json.loads(r.read()).get("value", {}).get("ready", False)
+            result = json.loads(r.read()).get("value", {}).get("ready", False)
     except Exception:
-        return False
+        result = False
+    _appium_cache["ok"] = result
+    _appium_cache["ts"] = time.time()
+    return result
 
 
 def read_events(out_dir: str | None) -> list[dict]:
@@ -217,22 +224,22 @@ def _appium_watchdog():
                 running = bool(proc and proc.poll() is None)
             if not running:
                 continue
-            if appium_ok():
+            if appium_ok(force=True):
                 continue
             appium_cmd = _find_appium_cmd()
             if not appium_cmd:
                 continue
-            log.warning("[watchdog] Appium down — restarting...")
+            print("[watchdog] Appium down — restarting...", flush=True)
             subprocess.Popen(
                 [appium_cmd, "--port", "4723"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
             time.sleep(3)
-            if appium_ok():
-                log.info("[watchdog] Appium restarted successfully")
+            if appium_ok(force=True):
+                print("[watchdog] Appium restarted successfully", flush=True)
             else:
-                log.warning("[watchdog] Appium restart failed")
+                print("[watchdog] Appium restart failed", flush=True)
         except Exception:
             pass
 
@@ -469,7 +476,7 @@ def api_start():
             cmd,
             cwd=str(ROOT),
         )
-
+        _clear_interval_override()
         return jsonify({"ok": True})
 
 
