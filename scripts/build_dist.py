@@ -19,7 +19,9 @@ Usage:
 
 import argparse
 import datetime
+import io
 import os
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -103,6 +105,24 @@ def _add_dir(zf: zipfile.ZipFile, src_dir: Path, arc_prefix: str, subs: list = N
 
 EXCLUDE_CONFIG = {"_web_run.yaml", "_web_reg.yaml"}
 
+# Files to bundle from Google platform-tools (Windows only)
+ADB_FILES = {"platform-tools/adb.exe", "platform-tools/AdbWinApi.dll", "platform-tools/AdbWinUsbApi.dll"}
+
+def _bundle_adb(zf: zipfile.ZipFile, arc_prefix: str):
+    """Download platform-tools and bundle adb.exe + DLLs into the zip."""
+    url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+    print("  Downloading adb (platform-tools)...", end=" ", flush=True)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r:
+            data = r.read()
+        with zipfile.ZipFile(io.BytesIO(data)) as pt:
+            for name in pt.namelist():
+                if name in ADB_FILES:
+                    zf.writestr(f"{arc_prefix}/{name}", pt.read(name))
+        print("done")
+    except Exception as e:
+        print(f"SKIP ({e}) — adb will be downloaded at install time")
+
 
 def _add_config(zf: zipfile.ZipFile, arc_prefix: str):
     config_dir = ROOT / "config"
@@ -154,6 +174,7 @@ def build_windows(out_dir: Path) -> Path:
         _add_dir(zf, ROOT / "web",     f"{P}/web")
         _add_dir(zf, ROOT / "scripts", f"{P}/scripts", MAC_SUBS)
         _add_config(zf, f"{P}/config")
+        _bundle_adb(zf, f"{P}/runtime")
 
     print(f"Windows ZIP: {path}  ({path.stat().st_size // 1024} KB)")
     return path
