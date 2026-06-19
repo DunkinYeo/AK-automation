@@ -17,6 +17,7 @@ import yaml
 from flask import Flask, jsonify, render_template, request, send_from_directory, Response
 
 ROOT = Path(__file__).resolve().parent.parent
+_INTERVAL_OVERRIDE = ROOT / "runtime" / "interval_override.json"
 sys.path.insert(0, str(ROOT))
 
 ARTIFACTS_DIR = ROOT / "artifacts"
@@ -215,7 +216,6 @@ threading.Thread(target=_sync_localhost_session, daemon=True).start()
 
 def _appium_watchdog():
     """Restart Appium automatically if it dies while a test is running."""
-    import shutil
     while True:
         time.sleep(30)
         try:
@@ -499,7 +499,7 @@ def api_stop():
 
 def _clear_interval_override():
     try:
-        p = ROOT / "runtime" / "interval_override.json"
+        p = _INTERVAL_OVERRIDE
         if p.exists():
             p.unlink()
     except Exception:
@@ -513,7 +513,7 @@ def api_set_interval():
     if hours <= 0:
         return jsonify({"error": "interval_hours must be > 0"}), 400
     try:
-        p = ROOT / "runtime" / "interval_override.json"
+        p = _INTERVAL_OVERRIDE
         p.parent.mkdir(exist_ok=True)
         p.write_text(json.dumps({"interval_hours": hours}))
         print(f"[set-interval] Override set to {hours:.2f}h", flush=True)

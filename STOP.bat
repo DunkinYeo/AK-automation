@@ -9,10 +9,10 @@ echo   ^|  AccurKardia -- Stopping All Services...  ^|
 echo   +==============================================+
 echo.
 
-REM -- Stop web server (port 5002) -----------------------------
-echo   Stopping web server (port 5002)...
+REM -- Stop web server (port 5003) -----------------------------
+echo   Stopping web server (port 5003)...
 SET _STOPPED_WEB=0
-FOR /F "tokens=5" %%P IN ('netstat -ano 2^>nul ^| findstr ":5002 " ^| findstr "LISTENING"') DO (
+FOR /F "tokens=5" %%P IN ('netstat -ano 2^>nul ^| findstr ":5003 " ^| findstr "LISTENING"') DO (
     IF NOT "%%P"=="0" (
         taskkill /PID %%P /F >nul 2>&1
         SET _STOPPED_WEB=1
@@ -21,7 +21,7 @@ FOR /F "tokens=5" %%P IN ('netstat -ano 2^>nul ^| findstr ":5002 " ^| findstr "L
 IF "%_STOPPED_WEB%"=="1" (
     echo   OK  Web server stopped.
 ) ELSE (
-    echo   Web server was not running on port 5002.
+    echo   Web server was not running on port 5003.
 )
 
 REM -- Stop Appium (port 4723) ---------------------------------

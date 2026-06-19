@@ -37,6 +37,7 @@ WIN_SUBS = [
     ('-r requirements.txt',          '-r automation\\requirements.txt'),
     ('"runtime\\platform-tools\\',  '"automation\\runtime\\platform-tools\\'),
     ('"runtime\\android-sdk\\',     '"automation\\runtime\\android-sdk\\'),
+    ("%CD%\\runtime'",              "%CD%\\automation\\runtime'"),
     ('%CD%\\runtime"',              '%CD%\\automation\\runtime"'),
     ('%CD%\\runtime\\',             '%CD%\\automation\\runtime\\'),
     ('IF NOT EXIST "logs"',         'IF NOT EXIST "automation\\logs"'),
