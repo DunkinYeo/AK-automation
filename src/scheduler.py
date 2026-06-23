@@ -22,7 +22,8 @@ import random
 import time
 from pathlib import Path
 
-_OVERRIDE_FILE = Path(__file__).resolve().parent.parent / "runtime" / "interval_override.json"
+_OVERRIDE_FILE    = Path(__file__).resolve().parent.parent / "runtime" / "interval_override.json"
+_INJECT_NOW_FILE  = Path(__file__).resolve().parent.parent / "runtime" / "inject_now.json"
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -247,6 +248,26 @@ class LongRunScheduler:
             _schedule_next()
 
         sched.start()
+
+        def _inject_now_watcher():
+            import threading as _t
+            while datetime.datetime.now() < end:
+                time.sleep(5)
+                try:
+                    if _INJECT_NOW_FILE.exists():
+                        _INJECT_NOW_FILE.unlink()
+                        self.reporter.log_event("inject_now_triggered", {})
+                        sched.add_job(
+                            lambda: _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown),
+                            "date",
+                            run_date=datetime.datetime.now() + datetime.timedelta(seconds=1),
+                            misfire_grace_time=grace,
+                        )
+                except Exception:
+                    pass
+
+        import threading as _th
+        _th.Thread(target=_inject_now_watcher, daemon=True).start()
 
         while datetime.datetime.now() < end:
             time.sleep(10)

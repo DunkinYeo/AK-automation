@@ -480,6 +480,11 @@
         <span id="next-inject-countdown" style="color:#6b7280;font-size:.85em;margin-left:4px"></span>
       </div>
 
+      <div id="inject-now-row" style="display:none;margin-top:6px">
+        <button id="inject-now-btn" class="btn-secondary" style="font-size:.82rem;padding:4px 12px" onclick="injectNow()">⚡ Inject Now</button>
+        <span id="inject-now-feedback" style="font-size:.78rem;color:#059669;margin-left:6px"></span>
+      </div>
+
       <div id="interval-control" style="display:none;align-items:center;gap:6px;margin-top:6px">
         <span style="font-size:.8rem;color:#6b7280">Interval:</span>
         <input id="interval-input" type="number" min="0.1" step="0.5" style="width:60px;padding:3px 6px;font-size:.82rem;border:1px solid #d1d5db;border-radius:6px" placeholder="1.0" oninput="updateIntervalHint()">
@@ -572,16 +577,16 @@ function fmtEvent(ev) {
     text = `Test failed — ${ev.data?.error || ''}`;
   } else if (ev.event === 'bt_disconnect_start') {
     text = `BT disconnect — off for ${ev.data?.minutes ?? '?'} min`;
-  } else if (ev.event === 'bt_disconnect_done') {
-    text = `BT reconnected after ${ev.data?.minutes ?? '?'} min`;
-  } else if (ev.event === 'bt_disconnect_failed') {
-    text = `BT disconnect failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+    setInjectNowEnabled(false);
+  } else if (ev.event === 'bt_disconnect_done' || ev.event === 'bt_disconnect_failed') {
+    text = ev.event === 'bt_disconnect_done' ? `BT reconnected after ${ev.data?.minutes ?? '?'} min` : `BT disconnect failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+    setInjectNowEnabled(true);
   } else if (ev.event === 'airplane_mode_start') {
     text = `Airplane mode ON — ${ev.data?.minutes ?? '?'} min`;
-  } else if (ev.event === 'airplane_mode_done') {
-    text = `Airplane mode OFF after ${ev.data?.minutes ?? '?'} min`;
-  } else if (ev.event === 'airplane_mode_failed') {
-    text = `Airplane mode failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+    setInjectNowEnabled(false);
+  } else if (ev.event === 'airplane_mode_done' || ev.event === 'airplane_mode_failed') {
+    text = ev.event === 'airplane_mode_done' ? `Airplane mode OFF after ${ev.data?.minutes ?? '?'} min` : `Airplane mode failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+    setInjectNowEnabled(true);
   } else if (ev.event === 'battery_status') {
     const s = ev.data?.status || '';
     const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
@@ -982,10 +987,30 @@ async function stopTest() {
 function setUIRunning(running) {
   document.getElementById('start-btn').disabled = running;
   document.getElementById('stop-btn').style.display = running ? '' : 'none';
+  document.getElementById('inject-now-row').style.display = running ? '' : 'none';
   document.getElementById('interval-control').style.display = running ? 'flex' : 'none';
   const chip = document.getElementById('run-chip');
   chip.className = 'chip ' + (running ? 'chip-blue' : 'chip-warn');
   chip.textContent = running ? 'Running' : 'Idle';
+}
+
+function setInjectNowEnabled(enabled) {
+  const btn = document.getElementById('inject-now-btn');
+  if (btn) {
+    btn.disabled = !enabled;
+    btn.style.opacity = enabled ? '' : '0.4';
+    btn.title = enabled ? '' : 'BT/Airplane 테스트 중에는 사용할 수 없습니다';
+  }
+}
+
+async function injectNow() {
+  const fb = document.getElementById('inject-now-feedback');
+  try {
+    const r = await fetch('/api/inject-now', { method: 'POST' }).then(r => r.json());
+    if (r.ok) { fb.style.color='#059669'; fb.textContent='✓ 요청됨 (5초 내 실행)'; }
+    else       { fb.style.color='#dc2626'; fb.textContent=r.error || 'Error'; }
+  } catch { fb.style.color='#dc2626'; fb.textContent='요청 실패'; }
+  setTimeout(() => { fb.textContent = ''; }, 4000);
 }
 
 function updateIntervalHint() {

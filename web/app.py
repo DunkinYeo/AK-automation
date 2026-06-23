@@ -18,6 +18,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory,
 
 ROOT = Path(__file__).resolve().parent.parent
 _INTERVAL_OVERRIDE = ROOT / "runtime" / "interval_override.json"
+_INJECT_NOW_FILE   = ROOT / "runtime" / "inject_now.json"
 sys.path.insert(0, str(ROOT))
 
 ARTIFACTS_DIR = ROOT / "artifacts"
@@ -518,6 +519,19 @@ def api_set_interval():
         p.write_text(json.dumps({"interval_hours": hours}))
         print(f"[set-interval] Override set to {hours:.2f}h", flush=True)
         return jsonify({"ok": True, "interval_hours": hours})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/inject-now", methods=["POST"])
+def api_inject_now():
+    with _lock:
+        if not (_state["proc"] and _state["proc"].poll() is None):
+            return jsonify({"error": "No test running"}), 400
+    try:
+        _INJECT_NOW_FILE.parent.mkdir(exist_ok=True)
+        _INJECT_NOW_FILE.write_text("{}")
+        return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
