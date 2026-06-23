@@ -833,7 +833,19 @@ function clearFields() {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────
+function notify(title, body) {
+  if (Notification.permission !== 'granted') return;
+  new Notification(title, { body, icon: '' });
+}
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
 async function init() {
+  requestNotificationPermission();
   const r = await fetch('/api/init').then(r => r.json());
   updateAppiumUI(r.appium);
   populateDevices(r.devices);
@@ -1081,6 +1093,12 @@ function renderLog(events, reset = false) {
     const div = document.createElement('div'); div.className = `log-item ${fmt.color}`;
     div.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${fmt.text}</span>`;
     wrap.appendChild(div); seenEvents++; added++;
+    if (!reset) {
+      if (ev.event === 'job_failed') notify('⚠️ Injection 실패', ev.data?.error?.slice(0,80) || '');
+      else if (ev.event === 'run_complete') notify('✅ 테스트 완료', `총 ${ev.data?.injection_count ?? '?'}회 injection`);
+      else if (ev.event === 'run_failed') notify('❌ 테스트 실패', ev.data?.error?.slice(0,80) || '');
+      else if (ev.event === 'session_recovery_failed') notify('⚠️ Session Recovery 실패', '앱 상태를 확인하세요');
+    }
   }
   if (added > 0) wrap.scrollTop = wrap.scrollHeight;
   const empty = wrap.querySelector('.log-empty');
