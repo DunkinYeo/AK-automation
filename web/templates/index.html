@@ -482,7 +482,9 @@
 
       <div id="interval-control" style="display:none;align-items:center;gap:6px;margin-top:6px">
         <span style="font-size:.8rem;color:#6b7280">Interval:</span>
-        <input id="interval-input" type="number" min="0.1" step="0.5" style="width:64px;padding:3px 6px;font-size:.82rem;border:1px solid #d1d5db;border-radius:6px" placeholder="h">
+        <input id="interval-input" type="number" min="0.1" step="0.5" style="width:60px;padding:3px 6px;font-size:.82rem;border:1px solid #d1d5db;border-radius:6px" placeholder="1.0" oninput="updateIntervalHint()">
+        <span style="font-size:.78rem;color:#6b7280">h</span>
+        <span id="interval-hint" style="font-size:.75rem;color:#9ca3af"></span>
         <button class="btn-secondary" style="padding:3px 10px;font-size:.8rem" onclick="setInterval_()">Apply</button>
         <span id="interval-feedback" style="font-size:.78rem;color:#059669"></span>
       </div>
@@ -984,6 +986,16 @@ function setUIRunning(running) {
   const chip = document.getElementById('run-chip');
   chip.className = 'chip ' + (running ? 'chip-blue' : 'chip-warn');
   chip.textContent = running ? 'Running' : 'Idle';
+}
+
+function updateIntervalHint() {
+  const h = parseFloat(document.getElementById('interval-input').value);
+  const hint = document.getElementById('interval-hint');
+  if (!h || h <= 0) { hint.textContent = ''; return; }
+  const total = Math.round(h * 60);
+  if (total < 60) hint.textContent = `(${total}분)`;
+  else if (total % 60 === 0) hint.textContent = `(${total / 60}시간)`;
+  else hint.textContent = `(${Math.floor(total/60)}시간 ${total%60}분)`;
 }
 
 async function setInterval_() {
