@@ -11,18 +11,31 @@ Sleep prevention is active during the test run.
 
 
 ------------------------------------------------------------
-  Before You Start — Grant Execution Permission
+  Before You Start — macOS Security Warning (first run only)
 ------------------------------------------------------------
 
-macOS may show "Cannot be opened because the developer
-cannot be verified" when double-clicking .command files.
+Files downloaded from the internet trigger a macOS security
+warning on first launch:
 
-Fix options:
-  Option 1) Right-click the file → select [Open]
-  Option 2) Run in Terminal:
-               chmod +x install.command run.command STOP.command
-  Option 3) Remove quarantine flag in Terminal:
-               xattr -d com.apple.quarantine install.command run.command STOP.command
+  "Apple could not verify [filename] is free of malware"
+
+This happens with all unsigned apps and does not mean the
+file is malicious.
+
+  ▶ How to allow it (macOS 13 Ventura and later)
+
+  1) Double-click run.command.
+     → If you see "cannot be opened", click [OK].
+
+  2) Go to System Settings → Privacy & Security.
+
+  3) Find the message "run.command was blocked" near the
+     bottom and click [Open Anyway].
+
+  4) Enter your Mac password to confirm.
+
+  ※ This is required only once per machine.
+     All subsequent launches will run without any warning.
 
 
 ------------------------------------------------------------
@@ -101,14 +114,9 @@ Fix options:
     - Verify USB Debugging is enabled.
     - Tap [Allow] on any popup on the device screen.
 
-  .command file won't open:
-    - Right-click → [Open].
-    - Or in Terminal:
-        chmod +x install.command run.command STOP.command
-
-  Blocked by macOS security:
-    - In Terminal:
-        xattr -d com.apple.quarantine install.command run.command STOP.command
+  "Apple could not verify is free of malware" message:
+    - System Settings → Privacy & Security → [Open Anyway]
+    - Enter Mac password when prompted (one-time only)
 
   Browser doesn't open:
     - Navigate to http://127.0.0.1:5003 manually.
