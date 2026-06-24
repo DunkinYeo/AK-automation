@@ -200,15 +200,16 @@ def build(out_dir: Path):
         _bundle_adb(tmp)
 
         print(f"  Packaging zip...", end=" ", flush=True)
+        R = f"AccurKardia-Windows-Standalone-v{VERSION}"
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
             # Root launchers
-            zf.writestr("run.bat", RUN_BAT.replace("\n", "\r\n"))
-            zf.write(ROOT / "STOP.bat", "STOP.bat")
+            zf.writestr(f"{R}/run.bat", RUN_BAT.replace("\n", "\r\n"))
+            zf.write(ROOT / "STOP.bat", f"{R}/STOP.bat")
             for fname in ["README_WINDOWS_KR.txt", "README_WINDOWS_EN.txt"]:
                 if (ROOT / fname).exists():
-                    zf.write(ROOT / fname, fname)
+                    zf.write(ROOT / fname, f"{R}/{fname}")
 
-            P = "automation"
+            P = f"{R}/automation"
             # Bundled runtimes
             _add_dir(zf, python_dir,        f"{P}/python")
             _add_dir(zf, node_dir,          f"{P}/node")

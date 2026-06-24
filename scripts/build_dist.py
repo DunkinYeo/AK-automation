@@ -137,15 +137,16 @@ def _add_config(zf: zipfile.ZipFile, arc_prefix: str):
 def build_mac(out_dir: Path) -> Path:
     name = f"AccurKardia-Mac-v{VERSION}-{TODAY}.zip"
     path = out_dir / name
+    R = f"AccurKardia-Mac-v{VERSION}"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        _add(zf, ROOT / "install.command",    "install.command", MAC_SUBS)
-        _add(zf, ROOT / "run.command",        "run.command",     MAC_SUBS)
-        _add(zf, ROOT / "STOP.command",       "STOP.command")
+        _add(zf, ROOT / "install.command",    f"{R}/install.command", MAC_SUBS)
+        _add(zf, ROOT / "run.command",        f"{R}/run.command",     MAC_SUBS)
+        _add(zf, ROOT / "STOP.command",       f"{R}/STOP.command")
 
         for fname in ["README_MAC_KR.txt", "README_MAC_EN.txt"]:
-            _add(zf, ROOT / fname, fname)
+            _add(zf, ROOT / fname, f"{R}/{fname}")
 
-        P = "automation"
+        P = f"{R}/automation"
         _add(zf, ROOT / "requirements.txt",   f"{P}/requirements.txt")
         _add(zf, ROOT / "README.md",           f"{P}/README.md")
         _add_dir(zf, ROOT / "src",     f"{P}/src")
@@ -160,15 +161,16 @@ def build_mac(out_dir: Path) -> Path:
 def build_windows(out_dir: Path) -> Path:
     name = f"AccurKardia-Windows-v{VERSION}-{TODAY}.zip"
     path = out_dir / name
+    R = f"AccurKardia-Windows-v{VERSION}"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        _add(zf, ROOT / "install.bat", "install.bat", WIN_SUBS, crlf=True)
-        _add(zf, ROOT / "run.bat",     "run.bat",     WIN_SUBS, crlf=True)
-        _add(zf, ROOT / "STOP.bat",    "STOP.bat",    crlf=True)
+        _add(zf, ROOT / "install.bat", f"{R}/install.bat", WIN_SUBS, crlf=True)
+        _add(zf, ROOT / "run.bat",     f"{R}/run.bat",     WIN_SUBS, crlf=True)
+        _add(zf, ROOT / "STOP.bat",    f"{R}/STOP.bat",    crlf=True)
 
         for fname in ["README_WINDOWS_KR.txt", "README_WINDOWS_EN.txt"]:
-            _add(zf, ROOT / fname, fname)
+            _add(zf, ROOT / fname, f"{R}/{fname}")
 
-        P = "automation"
+        P = f"{R}/automation"
         _add(zf, ROOT / "requirements.txt",   f"{P}/requirements.txt")
         _add(zf, ROOT / "README.md",           f"{P}/README.md")
         _add_dir(zf, ROOT / "src",     f"{P}/src")
