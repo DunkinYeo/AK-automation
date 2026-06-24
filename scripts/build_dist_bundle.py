@@ -63,34 +63,37 @@ echo   +==============================================+
 echo.
 
 REM ── Java (JDK) 감지 ────────────────────────────────────────────────────────
-IF "%JAVA_HOME%"=="" (
-    FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
-        SET "_JAVA_BIN=%%J"
-        FOR %%D IN ("%%~dpJ..") DO SET "JAVA_HOME=%%~fD"
-        GOTO :java_found
-    )
-    REM 일반적인 설치 경로 탐색
-    FOR /D %%D IN (
-        "%ProgramFiles%\Java\jdk*"
-        "%ProgramFiles%\Eclipse Adoptium\jdk*"
-        "%ProgramFiles%\Microsoft\jdk*"
-        "%ProgramFiles%\OpenJDK\jdk*"
-    ) DO (
-        IF EXIST "%%D\bin\java.exe" (
-            SET "JAVA_HOME=%%D"
-            GOTO :java_found
+REM Labels must live outside IF blocks in CMD — use top-level GOTOs
+IF NOT "%JAVA_HOME%"=="" GOTO :java_set_path
+
+REM 1) where java — keytool 있는 진짜 JDK만 허용 (Windows Store stub 제외)
+FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
+    FOR %%P IN ("%%~dpJ..") DO (
+        IF EXIST "%%~fP\bin\keytool.exe" (
+            SET "JAVA_HOME=%%~fP"
+            GOTO :java_set_path
         )
     )
-    echo   WARN  Java(JDK) not found. Install from:
-    echo         https://adoptium.net  or  winget install Microsoft.OpenJDK.21
-    echo.
-    GOTO :java_done
-    :java_found
-    SET "PATH=%JAVA_HOME%\bin;%PATH%"
-    :java_done
-) ELSE (
-    SET "PATH=%JAVA_HOME%\bin;%PATH%"
 )
+
+REM 2) 일반 설치 경로 탐색
+FOR %%B IN ("%ProgramFiles%\Eclipse Adoptium" "%ProgramFiles%\Java" "%ProgramFiles%\Microsoft" "%ProgramFiles%\OpenJDK") DO (
+    FOR /D %%D IN ("%%~B\jdk*") DO (
+        IF EXIST "%%D\bin\keytool.exe" (
+            SET "JAVA_HOME=%%D"
+            GOTO :java_set_path
+        )
+    )
+)
+
+echo   WARN  Java(JDK) not found. Install:  winget install Microsoft.OpenJDK.21
+echo.
+GOTO :java_done
+
+:java_set_path
+SET "PATH=%JAVA_HOME%\bin;%PATH%"
+
+:java_done
 
 REM ── Install Appium if needed (first run only) ──────────────────────────────
 IF NOT EXIST "%_APPIUM_CMD%" (
@@ -98,6 +101,7 @@ IF NOT EXIST "%_APPIUM_CMD%" (
     call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress 2>>"%LOG%"
     IF ERRORLEVEL 1 (
         echo   FAIL  Appium installation failed. Check internet connection.
+        echo   Log: %LOG%
         pause & EXIT /B 1
     )
     echo   OK    Appium installed.
@@ -107,8 +111,8 @@ IF NOT EXIST "%_APPIUM_CMD%" (
 REM ── Install UiAutomator2 driver if needed ──────────────────────────────────
 "%_APPIUM_CMD%" driver list --installed 2>nul | findstr /I "uiautomator2" >nul
 IF ERRORLEVEL 1 (
-    echo   Installing UiAutomator2 driver (one-time only^)...
-    "%_APPIUM_CMD%" driver install uiautomator2 2>&1 | tee "%TEMP%\ak_driver.log"
+    echo   Installing UiAutomator2 driver (one-time, ~1 min^)...
+    "%_APPIUM_CMD%" driver install uiautomator2 >> "%TEMP%\ak_driver.log" 2>&1
     IF ERRORLEVEL 1 (
         echo   FAIL  UiAutomator2 driver installation failed.
         echo   Log: %TEMP%\ak_driver.log
@@ -118,9 +122,11 @@ IF ERRORLEVEL 1 (
     echo.
 )
 
-REM ── Start Appium ────────────────────────────────────────────────────────────
+REM ── Start Appium via temp bat (avoids nested-quote + spaces-in-path issues) -
+echo @echo off > "%TEMP%\ak_appium.bat"
+echo "%_APPIUM_CMD%" --relaxed-security ^>^> "%LOG%" 2^>^&1 >> "%TEMP%\ak_appium.bat"
 echo   Starting Appium...
-start "AK - Appium" /B cmd /c "SET APPIUM_HOME=%APPIUM_HOME% && SET ANDROID_HOME=%ANDROID_HOME% && SET ANDROID_SDK_ROOT=%ANDROID_SDK_ROOT% && SET JAVA_HOME=%JAVA_HOME% && SET PATH=%NODE%;%ADB%;%JAVA_HOME%\bin;%PATH% && "%_APPIUM_CMD%" --relaxed-security >> "%LOG%" 2>&1"
+start "AK - Appium" /B cmd /c "%TEMP%\ak_appium.bat"
 timeout /t 3 /nobreak >nul
 
 REM ── Open browser when server is ready ──────────────────────────────────────
