@@ -37,19 +37,24 @@ ADB_FILES = {"platform-tools/adb.exe", "platform-tools/AdbWinApi.dll", "platform
 SKIP_PACKAGES = {"black", "ruff", "pre-commit"}  # dev-only, not needed at runtime
 
 RUN_BAT = r"""@echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 SET "A=%CD%\automation"
 SET "PY=%A%\python\python.exe"
 SET "NODE=%A%\node"
 SET "ADB=%A%\runtime\platform-tools"
-SET "APPIUM_HOME=%A%\appium"
-SET "_APPIUM_CMD=%APPIUM_HOME%\node_modules\.bin\appium.cmd"
+SET "APPIUM_INSTALL=%A%\appium"
+SET "APPIUM_HOME=%A%\appium_home"
+SET "_APPIUM_CMD=%APPIUM_INSTALL%\node_modules\.bin\appium.cmd"
 SET "LOG=%TEMP%\ak_run.log"
 
+SET "ANDROID_HOME=%A%\runtime"
+SET "ANDROID_SDK_ROOT=%A%\runtime"
 SET "PATH=%ADB%;%NODE%;%PATH%"
 SET "PYTHONPATH=%A%"
+
+IF NOT EXIST "%APPIUM_HOME%" mkdir "%APPIUM_HOME%"
 
 echo.
 echo   +==============================================+
@@ -57,22 +62,65 @@ echo   ^|   AccurKardia -- Starting (Standalone)     ^|
 echo   +==============================================+
 echo.
 
+REM ── Java (JDK) 감지 ────────────────────────────────────────────────────────
+IF "%JAVA_HOME%"=="" (
+    FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
+        SET "_JAVA_BIN=%%J"
+        FOR %%D IN ("%%~dpJ..") DO SET "JAVA_HOME=%%~fD"
+        GOTO :java_found
+    )
+    REM 일반적인 설치 경로 탐색
+    FOR /D %%D IN (
+        "%ProgramFiles%\Java\jdk*"
+        "%ProgramFiles%\Eclipse Adoptium\jdk*"
+        "%ProgramFiles%\Microsoft\jdk*"
+        "%ProgramFiles%\OpenJDK\jdk*"
+    ) DO (
+        IF EXIST "%%D\bin\java.exe" (
+            SET "JAVA_HOME=%%D"
+            GOTO :java_found
+        )
+    )
+    echo   WARN  Java(JDK) not found. Install from:
+    echo         https://adoptium.net  or  winget install Microsoft.OpenJDK.21
+    echo.
+    GOTO :java_done
+    :java_found
+    SET "PATH=%JAVA_HOME%\bin;%PATH%"
+    :java_done
+) ELSE (
+    SET "PATH=%JAVA_HOME%\bin;%PATH%"
+)
+
 REM ── Install Appium if needed (first run only) ──────────────────────────────
 IF NOT EXIST "%_APPIUM_CMD%" (
     echo   Installing Appium (first run only, please wait ~2 min^)...
-    call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_HOME%" --quiet --no-progress 2>>"%LOG%"
+    call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress 2>>"%LOG%"
     IF ERRORLEVEL 1 (
         echo   FAIL  Appium installation failed. Check internet connection.
         pause & EXIT /B 1
     )
-    call "%NODE%\npm.cmd" exec --prefix "%APPIUM_HOME%" -- appium driver install uiautomator2 --quiet 2>>"%LOG%"
     echo   OK    Appium installed.
+    echo.
+)
+
+REM ── Install UiAutomator2 driver if needed ──────────────────────────────────
+"%_APPIUM_CMD%" driver list --installed 2>nul | findstr /I "uiautomator2" >nul
+IF ERRORLEVEL 1 (
+    echo   Installing UiAutomator2 driver (one-time only^)...
+    "%_APPIUM_CMD%" driver install uiautomator2 2>&1 | tee "%TEMP%\ak_driver.log"
+    IF ERRORLEVEL 1 (
+        echo   FAIL  UiAutomator2 driver installation failed.
+        echo   Log: %TEMP%\ak_driver.log
+        pause & EXIT /B 1
+    )
+    echo   OK    UiAutomator2 driver installed.
     echo.
 )
 
 REM ── Start Appium ────────────────────────────────────────────────────────────
 echo   Starting Appium...
-start "AK - Appium" /B cmd /c "set "PATH=%NODE%;%PATH%" && "%_APPIUM_CMD%" --relaxed-security >> "%LOG%" 2>&1"
+start "AK - Appium" /B cmd /c "SET APPIUM_HOME=%APPIUM_HOME% && SET ANDROID_HOME=%ANDROID_HOME% && SET ANDROID_SDK_ROOT=%ANDROID_SDK_ROOT% && SET JAVA_HOME=%JAVA_HOME% && SET PATH=%NODE%;%ADB%;%JAVA_HOME%\bin;%PATH% && "%_APPIUM_CMD%" --relaxed-security >> "%LOG%" 2>&1"
 timeout /t 3 /nobreak >nul
 
 REM ── Open browser when server is ready ──────────────────────────────────────
