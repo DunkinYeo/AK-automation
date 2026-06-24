@@ -11,10 +11,11 @@
 #    [1] Python 3.10+
 #    [2] Node.js / npm
 #    [3] ADB / platform-tools
-#    [4] Appium
-#    [5] UiAutomator2 driver
-#    [6] Python virtual environment + packages
-#    [7] Create runtime folders
+#    [4] Java (JDK)
+#    [5] Appium
+#    [6] UiAutomator2 driver
+#    [7] Python virtual environment + packages
+#    [8] Create runtime folders
 # ============================================================
 
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$PATH"
@@ -175,10 +176,50 @@ else
 fi
 
 # ============================================================
-# [4] Appium
+# [4] Java (JDK) — keytool / APK signing
 # ============================================================
 echo ""
-echo "[4] Appium..."
+echo "[4] Java (JDK)..."
+JAVA_FOUND=0
+
+# 이미 설치된 경우
+if command -v java >/dev/null 2>&1; then
+    _JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
+    if [ -n "$_JAVA_HOME" ] && [ -d "$_JAVA_HOME" ]; then
+        export JAVA_HOME="$_JAVA_HOME"
+        export PATH="$JAVA_HOME/bin:$PATH"
+        echo "  PASS  Java $( java -version 2>&1 | head -1 )"
+        echo "[4] PASS: $JAVA_HOME" >> "$LOG_FILE"
+        JAVA_FOUND=1
+    fi
+fi
+
+# 없으면 brew로 설치
+if [ "$JAVA_FOUND" -eq 0 ]; then
+    echo "  Java not found. Installing via Homebrew (openjdk)..."
+    brew install openjdk --quiet
+    if [ $? -eq 0 ]; then
+        _JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
+        if [ -n "$_JAVA_HOME" ] && [ -d "$_JAVA_HOME" ]; then
+            export JAVA_HOME="$_JAVA_HOME"
+            export PATH="$JAVA_HOME/bin:$PATH"
+            echo "  PASS  Java installed: $JAVA_HOME"
+            echo "[4] PASS after brew" >> "$LOG_FILE"
+            JAVA_FOUND=1
+        fi
+    fi
+fi
+
+if [ "$JAVA_FOUND" -eq 0 ]; then
+    echo "  WARN  Java 설치에 실패했습니다. 수동 설치: brew install openjdk"
+    echo "[4] WARN: java not found" >> "$LOG_FILE"
+fi
+
+# ============================================================
+# [5] Appium
+# ============================================================
+echo ""
+echo "[5] Appium..."
 if command -v appium >/dev/null 2>&1; then
     echo "  PASS  Appium $(appium -v 2>&1 | head -1)"
     echo "[4] PASS" >> "$LOG_FILE"
@@ -196,45 +237,45 @@ else
 fi
 
 # ============================================================
-# [5] UiAutomator2 driver
+# [6] UiAutomator2 driver
 # ============================================================
 echo ""
-echo "[5] UiAutomator2 driver..."
+echo "[6] UiAutomator2 driver..."
 if ! command -v appium >/dev/null 2>&1; then
     echo "  SKIP  Appium unavailable."
-    echo "[5] SKIP" >> "$LOG_FILE"
+    echo "[7] SKIP" >> "$LOG_FILE"
 else
     DRIVER_TMP="/tmp/ak_drivers_$$.txt"
     appium driver list --installed > "$DRIVER_TMP" 2>&1
     if grep -qi "uiautomator2" "$DRIVER_TMP"; then
         echo "  PASS  UiAutomator2 driver already installed."
-        echo "[5] PASS" >> "$LOG_FILE"
+        echo "[8] PASS" >> "$LOG_FILE"
     else
         echo "  UiAutomator2 not found. Installing..."
         appium driver install uiautomator2
         if [ $? -ne 0 ]; then
             echo "  ERROR  Failed. Try: appium driver install uiautomator2"
-            echo "[5] FAIL" >> "$LOG_FILE"
+            echo "[7] FAIL" >> "$LOG_FILE"
             FAIL=1
         else
             echo "  PASS  UiAutomator2 driver installed."
-            echo "[5] PASS" >> "$LOG_FILE"
+            echo "[8] PASS" >> "$LOG_FILE"
         fi
     fi
     rm -f "$DRIVER_TMP"
 fi
 
 # ============================================================
-# [6] Python virtual environment + packages
+# [7] Python virtual environment + packages
 # ============================================================
 echo ""
-echo "[6] Python virtual environment..."
+echo "[7] Python virtual environment..."
 if [ -z "$PYTHON_EXE" ]; then
     echo "  SKIP  Python not available."
-    echo "[6] SKIP" >> "$LOG_FILE"
+    echo "[7] SKIP" >> "$LOG_FILE"
 elif [ ! -f "requirements.txt" ]; then
     echo "  ERROR  requirements.txt not found."
-    echo "[6] FAIL: requirements.txt missing" >> "$LOG_FILE"
+    echo "[7] FAIL: requirements.txt missing" >> "$LOG_FILE"
     FAIL=1
 else
     if [ ! -f ".venv/bin/activate" ]; then
@@ -242,7 +283,7 @@ else
         "$PYTHON_EXE" -m venv .venv
         if [ $? -ne 0 ]; then
             echo "  ERROR  Failed to create .venv."
-            echo "[6] FAIL: venv create" >> "$LOG_FILE"
+            echo "[7] FAIL: venv create" >> "$LOG_FILE"
             FAIL=1
         fi
     else
@@ -254,23 +295,23 @@ else
         .venv/bin/python -m pip install -r requirements.txt --quiet
         if [ $? -ne 0 ]; then
             echo "  ERROR  pip install failed."
-            echo "[6] FAIL: pip install" >> "$LOG_FILE"
+            echo "[7] FAIL: pip install" >> "$LOG_FILE"
             FAIL=1
         else
             echo "  PASS  Python packages installed."
-            echo "[6] PASS" >> "$LOG_FILE"
+            echo "[8] PASS" >> "$LOG_FILE"
         fi
     fi
 fi
 
 # ============================================================
-# [7] Create runtime folders
+# [8] Create runtime folders
 # ============================================================
 echo ""
-echo "[7] Runtime folders..."
+echo "[8] Runtime folders..."
 mkdir -p logs runtime
 echo "  PASS  logs/ and runtime/ are ready."
-echo "[7] PASS" >> "$LOG_FILE"
+echo "[8] PASS" >> "$LOG_FILE"
 
 # ============================================================
 # Summary

@@ -79,9 +79,24 @@ fi
 if [ -n "$JAVA_HOME" ]; then
     export PATH="$JAVA_HOME/bin:$PATH"
 else
-    echo "  WARN  Java(JDK)를 찾을 수 없습니다."
-    echo "        Appium이 APK 서명 시 오류가 발생할 수 있습니다."
-    echo "        설치:  brew install openjdk"
+    echo "  Java not found. Installing via Homebrew (one-time only)..."
+    if ! command -v brew >/dev/null 2>&1; then
+        NONINTERACTIVE=1 /bin/bash -c \
+            "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+            >> "$LOG" 2>&1
+        for _b in "/opt/homebrew/bin/brew" "/usr/local/bin/brew"; do
+            [ -f "$_b" ] && eval "$("$_b" shellenv)" 2>/dev/null && break
+        done
+    fi
+    brew install openjdk --quiet >> "$LOG" 2>&1
+    _java=$(/usr/libexec/java_home 2>/dev/null)
+    if [ -n "$_java" ] && [ -d "$_java" ]; then
+        export JAVA_HOME="$_java"
+        export PATH="$JAVA_HOME/bin:$PATH"
+        echo "  OK  Java installed."
+    else
+        echo "  WARN  Java 설치 실패. 수동 설치: brew install openjdk"
+    fi
     echo ""
 fi
 
