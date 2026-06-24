@@ -47,6 +47,8 @@ ADB="$A/runtime/platform-tools"
 APPIUM_INSTALL="$A/appium"
 APPIUM_CMD="$APPIUM_INSTALL/bin/appium"
 export APPIUM_HOME="$A/appium_home"
+export ANDROID_HOME="$A/runtime"
+export ANDROID_SDK_ROOT="$A/runtime"
 mkdir -p "$APPIUM_HOME"
 LOG="/tmp/ak_run_$(date +%Y%m%d_%H%M%S).log"
 
@@ -58,6 +60,30 @@ echo "  =============================================="
 echo "  |  AccurKardia -- Starting (Standalone)     |"
 echo "  =============================================="
 echo ""
+
+# ── Gatekeeper 격리 해제 (인터넷 다운로드 후 실행 차단 방지) ──────────────
+xattr -rd com.apple.quarantine "$A" 2>/dev/null || true
+chmod +x "$ADB/adb" "$NODE/node" "$NODE/npm" "$NODE/npx" 2>/dev/null || true
+
+# ── Java 감지 ──────────────────────────────────────────────────────────────
+if [ -z "$JAVA_HOME" ]; then
+    _java=$(/usr/libexec/java_home 2>/dev/null)
+    [ -n "$_java" ] && [ -d "$_java" ] && export JAVA_HOME="$_java"
+fi
+if [ -z "$JAVA_HOME" ]; then
+    for _p in /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home \
+              /Library/Java/JavaVirtualMachines/*/Contents/Home; do
+        [ -d "$_p" ] && export JAVA_HOME="$_p" && break
+    done
+fi
+if [ -n "$JAVA_HOME" ]; then
+    export PATH="$JAVA_HOME/bin:$PATH"
+else
+    echo "  WARN  Java(JDK)를 찾을 수 없습니다."
+    echo "        Appium이 APK 서명 시 오류가 발생할 수 있습니다."
+    echo "        설치:  brew install openjdk"
+    echo ""
+fi
 
 # ── Check python3 ──────────────────────────────────────────────────────────
 if ! command -v python3 >/dev/null 2>&1; then
