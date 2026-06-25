@@ -8,6 +8,10 @@ REM Double-click to start Appium + Web UI.
 
 FOR /F "usebackq tokens=*" %%T IN (`powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"`) DO SET _TS=%%T
 SET "LOG=%TEMP%\ak_run_%_TS%.log"
+
+REM ── Enable long paths (silently skipped without admin) ──────────────────────
+powershell -NoProfile -WindowStyle Hidden -Command ^
+  "Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1 -ErrorAction SilentlyContinue" >nul 2>&1
 echo AccurKardia run started %DATE% %TIME% > "%LOG%"
 
 echo.
