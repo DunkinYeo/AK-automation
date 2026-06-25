@@ -274,6 +274,15 @@ def _get_lan_ip() -> str:
 
 def _find_appium_cmd() -> str | None:
     import shutil, os
+    from pathlib import Path
+    # Bundled standalone path: web/app.py → web/ → automation/ → appium/
+    here = Path(__file__).resolve().parent.parent  # automation/
+    if sys.platform == "win32":
+        bundled = here / "appium" / "node_modules" / ".bin" / "appium.cmd"
+    else:
+        bundled = here / "appium" / "bin" / "appium"
+    if bundled.is_file():
+        return str(bundled)
     cmd = shutil.which("appium")
     if cmd:
         return cmd

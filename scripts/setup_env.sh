@@ -199,7 +199,16 @@ if [ "$JAVA_FOUND" -eq 0 ]; then
     echo "  Java not found. Installing via Homebrew (openjdk)..."
     brew install openjdk --quiet
     if [ $? -eq 0 ]; then
+        # /usr/libexec/java_home 먼저 시도
         _JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
+        # brew keg-only 경우 java_home에 안 잡힘 — 직접 경로 fallback
+        if [ -z "$_JAVA_HOME" ]; then
+            for _p in \
+                "$(brew --prefix openjdk 2>/dev/null)/libexec/openjdk.jdk/Contents/Home" \
+                "/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home"; do
+                [ -d "$_p" ] && _JAVA_HOME="$_p" && break
+            done
+        fi
         if [ -n "$_JAVA_HOME" ] && [ -d "$_JAVA_HOME" ]; then
             export JAVA_HOME="$_JAVA_HOME"
             export PATH="$JAVA_HOME/bin:$PATH"
@@ -222,17 +231,17 @@ echo ""
 echo "[5] Appium..."
 if command -v appium >/dev/null 2>&1; then
     echo "  PASS  Appium $(appium -v 2>&1 | head -1)"
-    echo "[4] PASS" >> "$LOG_FILE"
+    echo "[5] PASS" >> "$LOG_FILE"
 else
     echo "  Appium not found. Installing globally via npm..."
     npm install -g appium
     if [ $? -ne 0 ]; then
         echo "  ERROR  Failed to install Appium. Try: sudo npm install -g appium"
-        echo "[4] FAIL" >> "$LOG_FILE"
+        echo "[5] FAIL" >> "$LOG_FILE"
         FAIL=1
     else
         echo "  PASS  Appium $(appium -v 2>&1 | head -1)"
-        echo "[4] PASS after npm" >> "$LOG_FILE"
+        echo "[5] PASS after npm" >> "$LOG_FILE"
     fi
 fi
 
@@ -243,23 +252,23 @@ echo ""
 echo "[6] UiAutomator2 driver..."
 if ! command -v appium >/dev/null 2>&1; then
     echo "  SKIP  Appium unavailable."
-    echo "[7] SKIP" >> "$LOG_FILE"
+    echo "[6] SKIP" >> "$LOG_FILE"
 else
     DRIVER_TMP="/tmp/ak_drivers_$$.txt"
     appium driver list --installed > "$DRIVER_TMP" 2>&1
     if grep -qi "uiautomator2" "$DRIVER_TMP"; then
         echo "  PASS  UiAutomator2 driver already installed."
-        echo "[8] PASS" >> "$LOG_FILE"
+        echo "[6] PASS" >> "$LOG_FILE"
     else
         echo "  UiAutomator2 not found. Installing..."
         appium driver install uiautomator2
         if [ $? -ne 0 ]; then
             echo "  ERROR  Failed. Try: appium driver install uiautomator2"
-            echo "[7] FAIL" >> "$LOG_FILE"
+            echo "[6] FAIL" >> "$LOG_FILE"
             FAIL=1
         else
             echo "  PASS  UiAutomator2 driver installed."
-            echo "[8] PASS" >> "$LOG_FILE"
+            echo "[6] PASS" >> "$LOG_FILE"
         fi
     fi
     rm -f "$DRIVER_TMP"
@@ -299,7 +308,7 @@ else
             FAIL=1
         else
             echo "  PASS  Python packages installed."
-            echo "[8] PASS" >> "$LOG_FILE"
+            echo "[7] PASS" >> "$LOG_FILE"
         fi
     fi
 fi

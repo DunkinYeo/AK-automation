@@ -13,9 +13,9 @@ echo "  |  AccurKardia -- Stopping All Services...  |"
 echo "  =============================================="
 echo ""
 
-# ── Stop web server (port 5002) ──────────────────────────────
-echo "  Stopping web server (port 5002)..."
-WEB_PIDS=$(lsof -ti tcp:5002 2>/dev/null)
+# ── Stop web server (port 5003) ──────────────────────────────
+echo "  Stopping web server (port 5003)..."
+WEB_PIDS=$(lsof -ti tcp:5003 2>/dev/null)
 if [ -n "$WEB_PIDS" ]; then
     echo "$WEB_PIDS" | xargs kill -9 2>/dev/null || true
     echo "  OK  Web server stopped."

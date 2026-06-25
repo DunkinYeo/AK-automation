@@ -89,7 +89,16 @@ else
         done
     fi
     brew install openjdk --quiet >> "$LOG" 2>&1
+    # /usr/libexec/java_home 시도 (brew keg-only라 안 잡힐 수 있음)
     _java=$(/usr/libexec/java_home 2>/dev/null)
+    # 직접 경로 fallback (Apple Silicon / Intel)
+    if [ -z "$_java" ]; then
+        for _p in \
+            "$(brew --prefix openjdk 2>/dev/null)/libexec/openjdk.jdk/Contents/Home" \
+            "/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home"; do
+            [ -d "$_p" ] && _java="$_p" && break
+        done
+    fi
     if [ -n "$_java" ] && [ -d "$_java" ]; then
         export JAVA_HOME="$_java"
         export PATH="$JAVA_HOME/bin:$PATH"
@@ -116,7 +125,19 @@ fi
 if [ ! -f "$A/.venv/bin/python" ]; then
     echo "  First run: setting up Python environment (~1 min)..."
     python3 -m venv "$A/.venv"
+    if [ $? -ne 0 ]; then
+        echo "  FAIL  Python venv 생성 실패."
+        echo "        xcode-select --install 실행 후 재시도하세요."
+        read -r -p "  Press Enter to close... " _
+        exit 1
+    fi
     "$A/.venv/bin/pip" install -r "$A/requirements.txt" -q
+    if [ $? -ne 0 ]; then
+        rm -rf "$A/.venv"
+        echo "  FAIL  Python 패키지 설치 실패. 인터넷 연결을 확인하세요."
+        read -r -p "  Press Enter to close... " _
+        exit 1
+    fi
     echo "  OK  Python packages installed."
     echo ""
 fi

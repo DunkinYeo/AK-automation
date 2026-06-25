@@ -175,7 +175,7 @@ def build_windows(out_dir: Path) -> Path:
         _add(zf, ROOT / "README.md",           f"{P}/README.md")
         _add_dir(zf, ROOT / "src",     f"{P}/src")
         _add_dir(zf, ROOT / "web",     f"{P}/web")
-        _add_dir(zf, ROOT / "scripts", f"{P}/scripts", MAC_SUBS)
+        _add_dir(zf, ROOT / "scripts", f"{P}/scripts")
         _add_config(zf, f"{P}/config")
         _bundle_adb(zf, f"{P}/runtime")
 

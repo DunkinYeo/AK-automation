@@ -62,8 +62,20 @@ echo   ^|   AccurKardia -- Starting (Standalone)     ^|
 echo   +==============================================+
 echo.
 
+REM ── 이미 실행 중인지 확인 (포트 5003) ─────────────────────────────────────
+netstat -ano 2>nul | findstr ":5003 " | findstr "LISTENING" >nul
+IF NOT ERRORLEVEL 1 (
+    echo   AccurKardia가 이미 실행 중입니다.
+    echo   브라우저를 열어 http://localhost:5003 을 확인하세요.
+    start http://localhost:5003
+    pause & EXIT /B 0
+)
+
+REM ── Windows Defender 예외 추가 (adb.exe, node.exe 격리 방지) ───────────────
+powershell -NoProfile -WindowStyle Hidden -Command ^
+  "Add-MpPreference -ExclusionPath '%A%' -ErrorAction SilentlyContinue" >nul 2>&1
+
 REM ── Java (JDK) 감지 ────────────────────────────────────────────────────────
-REM Labels must live outside IF blocks in CMD — use top-level GOTOs
 IF NOT "%JAVA_HOME%"=="" GOTO :java_set_path
 
 REM 1) where java — keytool 있는 진짜 JDK만 허용 (Windows Store stub 제외)
@@ -86,7 +98,29 @@ FOR %%B IN ("%ProgramFiles%\Eclipse Adoptium" "%ProgramFiles%\Java" "%ProgramFil
     )
 )
 
-echo   WARN  Java(JDK) not found. Install:  winget install Microsoft.OpenJDK.21
+REM 3) Java 없음 — winget으로 자동 설치 시도
+echo   Java not found. Installing via winget (one-time, ~2 min^)...
+winget install --id Microsoft.OpenJDK.21 --silent ^
+  --accept-package-agreements --accept-source-agreements >nul 2>&1
+IF NOT ERRORLEVEL 1 (
+    FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
+        FOR %%P IN ("%%~dpJ..") DO (
+            IF EXIST "%%~fP\bin\keytool.exe" (
+                SET "JAVA_HOME=%%~fP"
+                GOTO :java_set_path
+            )
+        )
+    )
+    FOR %%B IN ("%ProgramFiles%\Microsoft\jdk*" "%ProgramFiles%\Eclipse Adoptium\jdk*") DO (
+        IF EXIST "%%B\bin\keytool.exe" (
+            SET "JAVA_HOME=%%B"
+            GOTO :java_set_path
+        )
+    )
+)
+echo   WARN  Java(JDK) 설치 실패. 수동 설치:
+echo         https://adoptium.net  또는  winget install Microsoft.OpenJDK.21
+echo   (Java 없이도 첫 연결은 가능하나 일부 기능이 제한될 수 있습니다)
 echo.
 GOTO :java_done
 
@@ -127,7 +161,21 @@ echo @echo off > "%TEMP%\ak_appium.bat"
 echo "%_APPIUM_CMD%" --relaxed-security ^>^> "%LOG%" 2^>^&1 >> "%TEMP%\ak_appium.bat"
 echo   Starting Appium...
 start "AK - Appium" /B cmd /c "%TEMP%\ak_appium.bat"
-timeout /t 3 /nobreak >nul
+
+REM Appium 준비 대기 (최대 30초)
+SET _APPIUM_READY=0
+FOR /L %%i IN (1,1,15) DO (
+    IF !_APPIUM_READY!==0 (
+        powershell -NoProfile -Command ^
+          "try{if((iwr 'http://localhost:4723/status' -TimeoutSec 1 -UseBasic).StatusCode -eq 200){exit 0}else{exit 1}}catch{exit 1}" >nul 2>&1
+        IF NOT ERRORLEVEL 1 SET _APPIUM_READY=1
+        IF !_APPIUM_READY!==0 timeout /t 2 /nobreak >nul
+    )
+)
+IF !_APPIUM_READY!==0 (
+    echo   WARN  Appium이 응답하지 않습니다. 계속 시도 중...
+    echo   Log: %LOG%
+)
 
 REM ── Open browser when server is ready ──────────────────────────────────────
 start "" /B powershell -NoProfile -Command ^
