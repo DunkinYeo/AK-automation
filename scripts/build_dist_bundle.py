@@ -66,19 +66,22 @@ REM ── 이미 실행 중인지 확인 (포트 5003) ────────
 netstat -ano 2>nul | findstr ":5003 " | findstr "LISTENING" >nul
 IF NOT ERRORLEVEL 1 (
     echo   AccurKardia가 이미 실행 중입니다.
-    echo   브라우저를 열어 http://localhost:5003 을 확인하세요.
     start http://localhost:5003
     pause & EXIT /B 0
 )
 
-REM ── Windows Defender 예외 추가 (adb.exe, node.exe 격리 방지) ───────────────
+REM ── Unblock-File: 인터넷 다운로드 격리 해제 (관리자 권한 불필요) ──────────
+powershell -NoProfile -WindowStyle Hidden -Command ^
+  "Get-ChildItem '%A%' -Recurse | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
+
+REM ── Windows Defender 예외 추가 (관리자 권한 있을 때만 동작, 없으면 무시) ──
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Add-MpPreference -ExclusionPath '%A%' -ErrorAction SilentlyContinue" >nul 2>&1
 
 REM ── Java (JDK) 감지 ────────────────────────────────────────────────────────
 IF NOT "%JAVA_HOME%"=="" GOTO :java_set_path
 
-REM 1) where java — keytool 있는 진짜 JDK만 허용 (Windows Store stub 제외)
+REM 1) PATH에서 탐색 — keytool 있는 진짜 JDK만 허용 (Windows Store stub 제외)
 FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
     FOR %%P IN ("%%~dpJ..") DO (
         IF EXIST "%%~fP\bin\keytool.exe" (
@@ -88,8 +91,14 @@ FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
     )
 )
 
-REM 2) 일반 설치 경로 탐색
-FOR %%B IN ("%ProgramFiles%\Eclipse Adoptium" "%ProgramFiles%\Java" "%ProgramFiles%\Microsoft" "%ProgramFiles%\OpenJDK") DO (
+REM 2) 일반 설치 경로 직접 탐색 (PATH 갱신 불필요)
+FOR %%B IN (
+    "%ProgramFiles%\Eclipse Adoptium"
+    "%ProgramFiles%\Java"
+    "%ProgramFiles%\Microsoft"
+    "%ProgramFiles%\OpenJDK"
+    "%ProgramFiles(x86)%\Java"
+) DO (
     FOR /D %%D IN ("%%~B\jdk*") DO (
         IF EXIST "%%D\bin\keytool.exe" (
             SET "JAVA_HOME=%%D"
@@ -98,65 +107,90 @@ FOR %%B IN ("%ProgramFiles%\Eclipse Adoptium" "%ProgramFiles%\Java" "%ProgramFil
     )
 )
 
-REM 3) Java 없음 — winget으로 자동 설치 시도
-echo   Java not found. Installing via winget (one-time, ~2 min^)...
-winget install --id Microsoft.OpenJDK.21 --silent ^
-  --accept-package-agreements --accept-source-agreements >nul 2>&1
-IF NOT ERRORLEVEL 1 (
-    FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
-        FOR %%P IN ("%%~dpJ..") DO (
-            IF EXIST "%%~fP\bin\keytool.exe" (
-                SET "JAVA_HOME=%%~fP"
-                GOTO :java_set_path
-            )
-        )
-    )
-    FOR %%B IN ("%ProgramFiles%\Microsoft\jdk*" "%ProgramFiles%\Eclipse Adoptium\jdk*") DO (
-        IF EXIST "%%B\bin\keytool.exe" (
-            SET "JAVA_HOME=%%B"
+REM 3) Java 없음 — winget으로 자동 설치 (user scope, 관리자 불필요)
+echo   Java(JDK) not found. Installing automatically via winget...
+echo   (one-time, ~2 min, internet required)
+winget install --id Microsoft.OpenJDK.21 --scope user --silent ^
+  --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
+IF ERRORLEVEL 1 (
+    REM user scope 실패 시 machine scope 재시도 (관리자 필요할 수 있음)
+    winget install --id Microsoft.OpenJDK.21 --silent ^
+      --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
+)
+
+REM winget 설치 후 PATH 갱신 없이 파일 경로로 직접 탐색
+FOR %%B IN (
+    "%ProgramFiles%\Microsoft"
+    "%ProgramFiles%\Eclipse Adoptium"
+    "%LOCALAPPDATA%\Microsoft"
+    "%LOCALAPPDATA%\Programs\Eclipse Adoptium"
+) DO (
+    FOR /D %%D IN ("%%~B\jdk*") DO (
+        IF EXIST "%%D\bin\keytool.exe" (
+            SET "JAVA_HOME=%%D"
             GOTO :java_set_path
         )
     )
 )
-echo   WARN  Java(JDK) 설치 실패. 수동 설치:
-echo         https://adoptium.net  또는  winget install Microsoft.OpenJDK.21
-echo   (Java 없이도 첫 연결은 가능하나 일부 기능이 제한될 수 있습니다)
+
+echo   WARN  Java(JDK) 자동 설치 실패.
+echo         수동 설치 후 재실행하세요: https://adoptium.net
+echo         또는 터미널에서: winget install Microsoft.OpenJDK.21
 echo.
 GOTO :java_done
 
 :java_set_path
 SET "PATH=%JAVA_HOME%\bin;%PATH%"
+echo   Java: %JAVA_HOME%
 
 :java_done
 
 REM ── Install Appium if needed (first run only) ──────────────────────────────
 IF NOT EXIST "%_APPIUM_CMD%" (
-    echo   Installing Appium (first run only, please wait ~2 min^)...
+    echo.
+    echo   Installing Appium (first run only, ~2 min^)...
     call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress 2>>"%LOG%"
     IF ERRORLEVEL 1 (
-        echo   FAIL  Appium installation failed. Check internet connection.
+        echo.
+        echo   FAIL  Appium 설치 실패.
+        echo         인터넷 연결을 확인하고 재실행하세요.
         echo   Log: %LOG%
         pause & EXIT /B 1
     )
     echo   OK    Appium installed.
-    echo.
 )
 
 REM ── Install UiAutomator2 driver if needed ──────────────────────────────────
 "%_APPIUM_CMD%" driver list --installed 2>nul | findstr /I "uiautomator2" >nul
 IF ERRORLEVEL 1 (
+    echo.
     echo   Installing UiAutomator2 driver (one-time, ~1 min^)...
     "%_APPIUM_CMD%" driver install uiautomator2 >> "%TEMP%\ak_driver.log" 2>&1
     IF ERRORLEVEL 1 (
-        echo   FAIL  UiAutomator2 driver installation failed.
+        echo.
+        echo   FAIL  UiAutomator2 driver 설치 실패.
         echo   Log: %TEMP%\ak_driver.log
         pause & EXIT /B 1
     )
     echo   OK    UiAutomator2 driver installed.
-    echo.
 )
 
-REM ── Start Appium via temp bat (avoids nested-quote + spaces-in-path issues) -
+REM ── adb 동작 확인 (백신 격리 감지) ────────────────────────────────────────
+echo.
+"%ADB%\adb.exe" version >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo   WARN  ADB를 실행할 수 없습니다.
+    echo         백신 프로그램이 adb.exe를 차단했을 수 있습니다.
+    echo.
+    echo   해결 방법:
+    echo   1. 백신 프로그램에서 아래 폴더를 예외로 추가하세요:
+    echo      %A%
+    echo   2. 이후 run.bat을 다시 실행하세요.
+    echo.
+    pause & EXIT /B 1
+)
+
+REM ── Start Appium via temp bat (nested-quote + spaces-in-path safe) ─────────
 echo @echo off > "%TEMP%\ak_appium.bat"
 echo "%_APPIUM_CMD%" --relaxed-security ^>^> "%LOG%" 2^>^&1 >> "%TEMP%\ak_appium.bat"
 echo   Starting Appium...
@@ -167,14 +201,13 @@ SET _APPIUM_READY=0
 FOR /L %%i IN (1,1,15) DO (
     IF !_APPIUM_READY!==0 (
         powershell -NoProfile -Command ^
-          "try{if((iwr 'http://localhost:4723/status' -TimeoutSec 1 -UseBasic).StatusCode -eq 200){exit 0}else{exit 1}}catch{exit 1}" >nul 2>&1
+          "try{if((Invoke-WebRequest 'http://localhost:4723/status' -TimeoutSec 1 -UseBasicParsing).StatusCode -eq 200){exit 0}else{exit 1}}catch{exit 1}" >nul 2>&1
         IF NOT ERRORLEVEL 1 SET _APPIUM_READY=1
         IF !_APPIUM_READY!==0 timeout /t 2 /nobreak >nul
     )
 )
 IF !_APPIUM_READY!==0 (
-    echo   WARN  Appium이 응답하지 않습니다. 계속 시도 중...
-    echo   Log: %LOG%
+    echo   WARN  Appium이 응답하지 않습니다. Log: %LOG%
 )
 
 REM ── Open browser when server is ready ──────────────────────────────────────
@@ -182,6 +215,7 @@ start "" /B powershell -NoProfile -Command ^
   "$u='http://localhost:5003';for($i=0;$i-lt 30;$i++){try{if((Invoke-WebRequest $u -TimeoutSec 1 -UseBasicParsing).StatusCode -eq 200){start $u;break}}catch{};Start-Sleep 1}"
 
 REM ── Start web server ────────────────────────────────────────────────────────
+echo.
 echo   Starting web server at http://localhost:5003
 echo   (Close this window or run STOP.bat to stop)
 echo.
