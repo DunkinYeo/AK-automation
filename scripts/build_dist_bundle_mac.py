@@ -199,6 +199,7 @@ echo "  Starting web server at http://localhost:5003"
 echo "  (Close this window or run STOP.command to stop)"
 echo ""
 
+export AK_NO_BROWSER=1
 "$PYTHON" "$A/web/app.py"
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────

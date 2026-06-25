@@ -129,6 +129,7 @@ echo while ($true) { try { [NW.W32]::SetThreadExecutionState(0x80000003) ^| Out-
 start "" /B powershell -NoProfile -ExecutionPolicy Bypass -File "%_SLEEP_PS1%"
 echo   Sleep prevention enabled.
 
+SET "AK_NO_BROWSER=1"
 IF EXIST ".venv\Scripts\python.exe" (
     .venv\Scripts\python.exe "web\app.py"
 ) ELSE (

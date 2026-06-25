@@ -265,6 +265,7 @@ echo "  Leave this window OPEN during the test."
 echo ""
 
 # ── Start web server in background to get PID ─────────────────
+export AK_NO_BROWSER=1
 $PYTHON web/app.py &
 WEB_PID=$!
 echo "[run] Web server PID=$WEB_PID" >> "$LOG_FILE"

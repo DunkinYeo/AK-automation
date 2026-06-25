@@ -70,6 +70,10 @@ IF NOT ERRORLEVEL 1 (
     pause & EXIT /B 0
 )
 
+REM ── Enable long paths (Windows 10 1607+, silently skipped without admin) ───────
+powershell -NoProfile -WindowStyle Hidden -Command ^
+  "Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1 -ErrorAction SilentlyContinue" >nul 2>&1
+
 REM ── Unblock-File: remove internet download quarantine (no admin required) ─────
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Get-ChildItem '%A%' -Recurse | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
@@ -219,6 +223,7 @@ echo.
 echo   Starting web server at http://localhost:5003
 echo   (Close this window or run STOP.bat to stop)
 echo.
+SET "AK_NO_BROWSER=1"
 "%PY%" "%A%\web\app.py"
 """
 
