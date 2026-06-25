@@ -62,26 +62,26 @@ echo   ^|   AccurKardia -- Starting (Standalone)     ^|
 echo   +==============================================+
 echo.
 
-REM ── 이미 실행 중인지 확인 (포트 5003) ─────────────────────────────────────
+REM ── Check if already running (port 5003) ──────────────────────────────────────
 netstat -ano 2>nul | findstr ":5003 " | findstr "LISTENING" >nul
 IF NOT ERRORLEVEL 1 (
-    echo   AccurKardia가 이미 실행 중입니다.
+    echo   AccurKardia is already running.
     start http://localhost:5003
     pause & EXIT /B 0
 )
 
-REM ── Unblock-File: 인터넷 다운로드 격리 해제 (관리자 권한 불필요) ──────────
+REM ── Unblock-File: remove internet download quarantine (no admin required) ─────
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Get-ChildItem '%A%' -Recurse | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
 
-REM ── Windows Defender 예외 추가 (관리자 권한 있을 때만 동작, 없으면 무시) ──
+REM ── Windows Defender exclusion (silently skipped if no admin rights) ──────────
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Add-MpPreference -ExclusionPath '%A%' -ErrorAction SilentlyContinue" >nul 2>&1
 
-REM ── Java (JDK) 감지 ────────────────────────────────────────────────────────
+REM ── Java (JDK) detection ───────────────────────────────────────────────────────
 IF NOT "%JAVA_HOME%"=="" GOTO :java_set_path
 
-REM 1) PATH에서 탐색 — keytool 있는 진짜 JDK만 허용 (Windows Store stub 제외)
+REM 1) Search PATH — only accept real JDK with keytool (excludes Windows Store stub)
 FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
     FOR %%P IN ("%%~dpJ..") DO (
         IF EXIST "%%~fP\bin\keytool.exe" (
@@ -91,7 +91,7 @@ FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
     )
 )
 
-REM 2) 일반 설치 경로 직접 탐색 (PATH 갱신 불필요)
+REM 2) Scan common install paths directly (no PATH refresh needed)
 FOR %%B IN (
     "%ProgramFiles%\Eclipse Adoptium"
     "%ProgramFiles%\Java"
@@ -107,18 +107,18 @@ FOR %%B IN (
     )
 )
 
-REM 3) Java 없음 — winget으로 자동 설치 (user scope, 관리자 불필요)
+REM 3) Java not found — auto-install via winget (user scope, no admin needed)
 echo   Java(JDK) not found. Installing automatically via winget...
 echo   (one-time, ~2 min, internet required)
 winget install --id Microsoft.OpenJDK.21 --scope user --silent ^
   --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
 IF ERRORLEVEL 1 (
-    REM user scope 실패 시 machine scope 재시도 (관리자 필요할 수 있음)
+    REM fallback: machine scope (may require admin UAC prompt)
     winget install --id Microsoft.OpenJDK.21 --silent ^
       --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
 )
 
-REM winget 설치 후 PATH 갱신 없이 파일 경로로 직접 탐색
+REM Re-scan paths after winget (PATH not updated yet in current session)
 FOR %%B IN (
     "%ProgramFiles%\Microsoft"
     "%ProgramFiles%\Eclipse Adoptium"
@@ -133,9 +133,9 @@ FOR %%B IN (
     )
 )
 
-echo   WARN  Java(JDK) 자동 설치 실패.
-echo         수동 설치 후 재실행하세요: https://adoptium.net
-echo         또는 터미널에서: winget install Microsoft.OpenJDK.21
+echo   WARN  Java(JDK) auto-install failed.
+echo         Install manually then re-run: https://adoptium.net
+echo         Or run: winget install Microsoft.OpenJDK.21
 echo.
 GOTO :java_done
 
@@ -152,8 +152,8 @@ IF NOT EXIST "%_APPIUM_CMD%" (
     call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress 2>>"%LOG%"
     IF ERRORLEVEL 1 (
         echo.
-        echo   FAIL  Appium 설치 실패.
-        echo         인터넷 연결을 확인하고 재실행하세요.
+        echo   FAIL  Appium installation failed.
+        echo         Check your internet connection and re-run.
         echo   Log: %LOG%
         pause & EXIT /B 1
     )
@@ -168,24 +168,24 @@ IF ERRORLEVEL 1 (
     "%_APPIUM_CMD%" driver install uiautomator2 >> "%TEMP%\ak_driver.log" 2>&1
     IF ERRORLEVEL 1 (
         echo.
-        echo   FAIL  UiAutomator2 driver 설치 실패.
+        echo   FAIL  UiAutomator2 driver installation failed.
         echo   Log: %TEMP%\ak_driver.log
         pause & EXIT /B 1
     )
     echo   OK    UiAutomator2 driver installed.
 )
 
-REM ── adb 동작 확인 (백신 격리 감지) ────────────────────────────────────────
+REM ── Verify adb is accessible (detect AV quarantine) ───────────────────────────
 echo.
 "%ADB%\adb.exe" version >nul 2>&1
 IF ERRORLEVEL 1 (
-    echo   WARN  ADB를 실행할 수 없습니다.
-    echo         백신 프로그램이 adb.exe를 차단했을 수 있습니다.
+    echo   WARN  ADB cannot be executed.
+    echo         Your antivirus may have quarantined adb.exe.
     echo.
-    echo   해결 방법:
-    echo   1. 백신 프로그램에서 아래 폴더를 예외로 추가하세요:
+    echo   Fix:
+    echo   1. Add the following folder to your antivirus exclusion list:
     echo      %A%
-    echo   2. 이후 run.bat을 다시 실행하세요.
+    echo   2. Then re-run run.bat.
     echo.
     pause & EXIT /B 1
 )
@@ -196,7 +196,7 @@ echo "%_APPIUM_CMD%" --relaxed-security ^>^> "%LOG%" 2^>^&1 >> "%TEMP%\ak_appium
 echo   Starting Appium...
 start "AK - Appium" /B cmd /c "%TEMP%\ak_appium.bat"
 
-REM Appium 준비 대기 (최대 30초)
+REM Wait for Appium to be ready (up to 30s)
 SET _APPIUM_READY=0
 FOR /L %%i IN (1,1,15) DO (
     IF !_APPIUM_READY!==0 (
@@ -207,7 +207,7 @@ FOR /L %%i IN (1,1,15) DO (
     )
 )
 IF !_APPIUM_READY!==0 (
-    echo   WARN  Appium이 응답하지 않습니다. Log: %LOG%
+    echo   WARN  Appium did not respond. Log: %LOG%
 )
 
 REM ── Open browser when server is ready ──────────────────────────────────────

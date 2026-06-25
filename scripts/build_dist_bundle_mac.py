@@ -61,11 +61,11 @@ echo "  |  AccurKardia -- Starting (Standalone)     |"
 echo "  =============================================="
 echo ""
 
-# ── Gatekeeper 격리 해제 (인터넷 다운로드 후 실행 차단 방지) ──────────────
+# ── Remove Gatekeeper quarantine from bundled binaries ───────────────────────
 xattr -rd com.apple.quarantine "$A" 2>/dev/null || true
 chmod +x "$ADB/adb" "$NODE/node" "$NODE/npm" "$NODE/npx" 2>/dev/null || true
 
-# ── Java 감지 ──────────────────────────────────────────────────────────────
+# ── Java detection ─────────────────────────────────────────────────────────────
 if [ -z "$JAVA_HOME" ]; then
     _java=$(/usr/libexec/java_home 2>/dev/null)
     [ -n "$_java" ] && [ -d "$_java" ] && export JAVA_HOME="$_java"
@@ -89,9 +89,9 @@ else
         done
     fi
     brew install openjdk --quiet >> "$LOG" 2>&1
-    # /usr/libexec/java_home 시도 (brew keg-only라 안 잡힐 수 있음)
+    # Try /usr/libexec/java_home first (brew openjdk is keg-only, may not register)
     _java=$(/usr/libexec/java_home 2>/dev/null)
-    # 직접 경로 fallback (Apple Silicon / Intel)
+    # Direct path fallback (Apple Silicon / Intel)
     if [ -z "$_java" ]; then
         for _p in \
             "$(brew --prefix openjdk 2>/dev/null)/libexec/openjdk.jdk/Contents/Home" \
@@ -104,7 +104,7 @@ else
         export PATH="$JAVA_HOME/bin:$PATH"
         echo "  OK  Java installed."
     else
-        echo "  WARN  Java 설치 실패. 수동 설치: brew install openjdk"
+        echo "  WARN  Java install failed. Install manually: brew install openjdk"
     fi
     echo ""
 fi
@@ -126,15 +126,15 @@ if [ ! -f "$A/.venv/bin/python" ]; then
     echo "  First run: setting up Python environment (~1 min)..."
     python3 -m venv "$A/.venv"
     if [ $? -ne 0 ]; then
-        echo "  FAIL  Python venv 생성 실패."
-        echo "        xcode-select --install 실행 후 재시도하세요."
+        echo "  FAIL  Python virtual environment creation failed."
+        echo "        Run: xcode-select --install  then re-open this file."
         read -r -p "  Press Enter to close... " _
         exit 1
     fi
     "$A/.venv/bin/pip" install -r "$A/requirements.txt" -q
     if [ $? -ne 0 ]; then
         rm -rf "$A/.venv"
-        echo "  FAIL  Python 패키지 설치 실패. 인터넷 연결을 확인하세요."
+        echo "  FAIL  Python packages installation failed. Check internet connection."
         read -r -p "  Press Enter to close... " _
         exit 1
     fi

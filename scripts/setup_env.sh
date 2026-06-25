@@ -182,7 +182,7 @@ echo ""
 echo "[4] Java (JDK)..."
 JAVA_FOUND=0
 
-# 이미 설치된 경우
+# Already installed
 if command -v java >/dev/null 2>&1; then
     _JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
     if [ -n "$_JAVA_HOME" ] && [ -d "$_JAVA_HOME" ]; then
@@ -194,14 +194,14 @@ if command -v java >/dev/null 2>&1; then
     fi
 fi
 
-# 없으면 brew로 설치
+# Not found — install via Homebrew
 if [ "$JAVA_FOUND" -eq 0 ]; then
     echo "  Java not found. Installing via Homebrew (openjdk)..."
     brew install openjdk --quiet
     if [ $? -eq 0 ]; then
-        # /usr/libexec/java_home 먼저 시도
+        # Try /usr/libexec/java_home first
         _JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
-        # brew keg-only 경우 java_home에 안 잡힘 — 직접 경로 fallback
+        # brew openjdk is keg-only; not registered with java_home — use direct path
         if [ -z "$_JAVA_HOME" ]; then
             for _p in \
                 "$(brew --prefix openjdk 2>/dev/null)/libexec/openjdk.jdk/Contents/Home" \
@@ -220,7 +220,7 @@ if [ "$JAVA_FOUND" -eq 0 ]; then
 fi
 
 if [ "$JAVA_FOUND" -eq 0 ]; then
-    echo "  WARN  Java 설치에 실패했습니다. 수동 설치: brew install openjdk"
+    echo "  WARN  Java installation failed. Install manually: brew install openjdk"
     echo "[4] WARN: java not found" >> "$LOG_FILE"
 fi
 
