@@ -111,25 +111,30 @@ FOR %%B IN (
     )
 )
 
-REM 3) Java not found — auto-install via winget (user scope, no admin needed)
-echo   Java(JDK) not found. Installing automatically via winget...
-echo   (one-time, ~2 min, internet required)
-winget install --id Microsoft.OpenJDK.21 --scope user --silent ^
-  --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
-IF ERRORLEVEL 1 (
-    REM fallback: machine scope (may require admin UAC prompt)
-    winget install --id Microsoft.OpenJDK.21 --silent ^
+REM 3) Java not found — try multiple winget packages
+echo   Java not found. Trying to install via winget...
+FOR %%P IN (
+    "Microsoft.OpenJDK.21"
+    "EclipseAdoptium.Temurin.21.JRE"
+    "EclipseAdoptium.Temurin.21.JDK"
+) DO (
+    winget install --id %%P --scope user --silent ^
       --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
+    IF NOT ERRORLEVEL 1 GOTO :winget_done
+    winget install --id %%P --silent ^
+      --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
+    IF NOT ERRORLEVEL 1 GOTO :winget_done
 )
+:winget_done
 
-REM Re-scan paths after winget (PATH not updated yet in current session)
+REM Re-scan after winget
 FOR %%B IN (
     "%ProgramFiles%\Microsoft"
     "%ProgramFiles%\Eclipse Adoptium"
     "%LOCALAPPDATA%\Microsoft"
     "%LOCALAPPDATA%\Programs\Eclipse Adoptium"
 ) DO (
-    FOR /D %%D IN ("%%~B\jdk*") DO (
+    FOR /D %%D IN ("%%~B\jdk*" "%%~B\jre*") DO (
         IF EXIST "%%D\bin\keytool.exe" (
             SET "JAVA_HOME=%%D"
             GOTO :java_set_path
@@ -137,10 +142,27 @@ FOR %%B IN (
     )
 )
 
-echo   WARN  Java(JDK) auto-install failed.
-echo         Install manually then re-run: https://adoptium.net
-echo         Or run: winget install Microsoft.OpenJDK.21
+REM 4) winget failed — download portable JRE directly (no install, ~50MB)
+echo   winget failed. Downloading portable JRE (one-time, ~50MB)...
+SET "_JRE_DIR=%A%\jre"
+SET "_JRE_ZIP=%TEMP%\ak_jre.zip"
+SET "_JRE_URL=https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse"
+powershell -NoProfile -Command ^
+  "try { Write-Host '  Downloading JRE...'; Invoke-WebRequest -Uri '%_JRE_URL%' -OutFile '%_JRE_ZIP%' -UseBasicParsing; Write-Host '  Extracting...'; Expand-Archive -Path '%_JRE_ZIP%' -DestinationPath '%_JRE_DIR%' -Force; Remove-Item '%_JRE_ZIP%' -ErrorAction SilentlyContinue; exit 0 } catch { Write-Host ('  ERROR: ' + $_.Exception.Message); exit 1 }"
+IF NOT ERRORLEVEL 1 (
+    FOR /D %%D IN ("%_JRE_DIR%\jdk*") DO (
+        IF EXIST "%%D\bin\keytool.exe" (
+            SET "JAVA_HOME=%%D"
+            GOTO :java_set_path
+        )
+    )
+)
+
+echo   WARN  Java could not be installed automatically.
+echo         Please install manually: https://adoptium.net
+echo         Then re-run run.bat.
 echo.
+pause
 GOTO :java_done
 
 :java_set_path
@@ -225,6 +247,9 @@ echo   (Close this window or run STOP.bat to stop)
 echo.
 SET "AK_NO_BROWSER=1"
 "%PY%" "%A%\web\app.py"
+echo.
+echo   Web server stopped. Press any key to close...
+pause >nul
 """
 
 
