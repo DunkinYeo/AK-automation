@@ -741,3 +741,6 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     build(out)
     print("\nDone.")
+
+if __name__ == "__main__":
+    main()
