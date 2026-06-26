@@ -18,6 +18,7 @@ import platform
 import stat
 import tarfile
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -278,9 +279,9 @@ def _add_dir(zf: zipfile.ZipFile, src: Path, arc_prefix: str):
     for f in src.rglob("*"):
         if f.is_file() and not any(s in str(f) for s in SKIP):
             arc_path = arc_prefix + "/" + f.relative_to(src).as_posix()
-            info = zipfile.ZipInfo(arc_path)
             file_stat = f.stat()
-            # Preserve executable bits
+            mtime = time.localtime(file_stat.st_mtime)
+            info = zipfile.ZipInfo(arc_path, date_time=mtime[:6])
             unix_perm = stat.S_IMODE(file_stat.st_mode)
             info.external_attr = (unix_perm << 16) | 0x8000_0000
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -288,7 +289,7 @@ def _add_dir(zf: zipfile.ZipFile, src: Path, arc_prefix: str):
 
 
 def _add_script(zf: zipfile.ZipFile, arc_name: str, content: str):
-    info = zipfile.ZipInfo(arc_name)
+    info = zipfile.ZipInfo(arc_name, date_time=time.localtime()[:6])
     info.external_attr = (0o755 << 16) | 0x8000_0000
     info.compress_type = zipfile.ZIP_DEFLATED
     zf.writestr(info, content)
