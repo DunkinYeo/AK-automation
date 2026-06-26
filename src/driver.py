@@ -238,7 +238,9 @@ class AndroidDriver:
 
         per_locator = min(timeout, 2)
         last_exc = None
+        tried: list[str] = []
         for locator in self._locators_for(value):
+            tried.append(f"{locator[0]}={locator[1]}")
             try:
                 return WebDriverWait(self.drv, per_locator).until(
                     EC.presence_of_element_located(locator)
@@ -247,18 +249,52 @@ class AndroidDriver:
                 last_exc = e
 
         # Final wait with textContains as fallback
+        final_locator = (
+            AppiumBy.ANDROID_UIAUTOMATOR,
+            f'new UiSelector().textContains("{value}")',
+        )
+        tried.append(f"textContains(full-timeout)={value}")
         try:
-            locator = (
-                AppiumBy.ANDROID_UIAUTOMATOR,
-                f'new UiSelector().textContains("{value}")',
-            )
             return WebDriverWait(self.drv, timeout).until(
-                EC.presence_of_element_located(locator)
+                EC.presence_of_element_located(final_locator)
             )
         except Exception as e:
             last_exc = e
 
+        # All locators failed — log diagnostics before raising
+        self._log_find_failure(value, tried)
         raise last_exc
+
+    def _log_find_failure(self, value: str, tried: list[str]) -> None:
+        """Log detailed diagnostics when find() exhausts all locators."""
+        log.warning("[find] FAILED to locate '%s'", value)
+        log.warning("[find] Tried %d locators: %s", len(tried), " | ".join(tried))
+        try:
+            info = self.get_device_info()
+            log.warning("[find] Device: %s %s (Android %s) udid=%s",
+                        info.get("manufacturer", "?"), info.get("model", "?"),
+                        info.get("android_version", "?"), info.get("udid", "?"))
+        except Exception:
+            pass
+        try:
+            log.warning("[find] Activity: %s / %s",
+                        self.drv.current_package, self.drv.current_activity)
+        except Exception:
+            pass
+        try:
+            tag = "find_fail_" + "".join(c if c.isalnum() else "_" for c in value)[:40]
+            self.artifacts.screenshot(self.drv, tag)
+            log.warning("[find] Screenshot saved: %s", tag)
+        except Exception:
+            pass
+        try:
+            page_src = self.drv.page_source
+            tag = "find_fail_" + "".join(c if c.isalnum() else "_" for c in value)[:40]
+            path = self.artifacts.save_text(tag + "_pagesource.xml", page_src)
+            if path:
+                log.warning("[find] Page source saved: %s", path)
+        except Exception:
+            pass
 
     # Legacy alias used by workflows
     def find_text(self, text: str, timeout: int = 10, contains: bool = False):

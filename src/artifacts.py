@@ -21,6 +21,15 @@ class ArtifactManager:
             pass
         return path
 
+    def save_text(self, name: str, content: str) -> str:
+        path = os.path.join(self.log_dir, f"{self._ts()}_{name}")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            return path
+        except Exception:
+            return None
+
     def collect_android_logcat(self, name: str = "logcat", seconds: int = 2):
         # best-effort short capture
         path = os.path.join(self.log_dir, f"{self._ts()}_{name}.txt")

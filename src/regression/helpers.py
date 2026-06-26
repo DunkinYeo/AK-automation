@@ -428,10 +428,25 @@ def open_menu(drv, wait: float = 2.0):
         drv.screenshot("open_menu_failed_final")
     except Exception:
         pass
+    device_info = ""
+    try:
+        info = drv.get_device_info()
+        device_info = (
+            f"\n  Device: {info.get('manufacturer', '?')} {info.get('model', '?')}"
+            f" Android {info.get('android_version', '?')}"
+        )
+    except Exception:
+        pass
+    activity_info = ""
+    try:
+        activity_info = f"\n  Activity: {drv.drv.current_package}/{drv.drv.current_activity}"
+    except Exception:
+        pass
     raise Exception(
         "open_menu: failed to open menu after 3 attempts. "
         "Check screenshot open_menu_failed_final — menu button may have moved or "
-        "'Setting' text may have changed in the current app version."
+        f"'Setting' text may have changed in the current app version."
+        f"{device_info}{activity_info}"
     )
 
 
