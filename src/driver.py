@@ -6,6 +6,7 @@ log = logging.getLogger(__name__)
 
 from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
+from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -211,8 +212,8 @@ class AndroidDriver:
         return [
             (By.ID, value),                              # resource-id
             (AppiumBy.ACCESSIBILITY_ID, value),          # content-desc / accessibility-id
-            (By.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{value}")'),
-            (By.ANDROID_UIAUTOMATOR, f'new UiSelector().textContains("{value}")'),
+            (AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{value}")'),
+            (AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().textContains("{value}")'),
         ]
 
     def find(
@@ -228,7 +229,7 @@ class AndroidDriver:
         """
         if contains:
             locator = (
-                By.ANDROID_UIAUTOMATOR,
+                AppiumBy.ANDROID_UIAUTOMATOR,
                 f'new UiSelector().textContains("{value}")',
             )
             return WebDriverWait(self.drv, timeout).until(
@@ -248,7 +249,7 @@ class AndroidDriver:
         # Final wait with textContains as fallback
         try:
             locator = (
-                By.ANDROID_UIAUTOMATOR,
+                AppiumBy.ANDROID_UIAUTOMATOR,
                 f'new UiSelector().textContains("{value}")',
             )
             return WebDriverWait(self.drv, timeout).until(
