@@ -206,10 +206,11 @@ class AndroidDriver:
         """
         Build a priority-ordered list of (By, selector) pairs for a given value.
         Callers can also pass a pre-built (By, selector) tuple directly.
+        Note: ACCESSIBILITY_ID requires AppiumBy (not selenium By) since Appium 2.x.
         """
         return [
-            (By.ID, value),                           # resource-id
-            (By.ACCESSIBILITY_ID, value),             # content-desc / accessibility-id
+            (By.ID, value),                              # resource-id
+            (AppiumBy.ACCESSIBILITY_ID, value),          # content-desc / accessibility-id
             (By.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{value}")'),
             (By.ANDROID_UIAUTOMATOR, f'new UiSelector().textContains("{value}")'),
         ]

@@ -104,6 +104,16 @@ def main():
                 go_to_main(drv)
             else:
                 reset_to_step1(drv, hard=(setup == "hard"))
+
+            # Capture current screen state before each suite for diagnostics
+            try:
+                drv.screenshot(f"suite_start_{suite_name}")
+                from src.regression.helpers import detect_current_screen
+                sid, slabel = detect_current_screen(drv, timeout=2)
+                logging.info("[suite:%s] Screen at start: %s", suite_name, slabel)
+            except Exception as _e:
+                logging.debug("[suite:%s] Pre-suite diagnostic failed: %s", suite_name, _e)
+
             runner.run_all(tests)
 
         total = len(runner.results)

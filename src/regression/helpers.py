@@ -11,6 +11,48 @@ log = logging.getLogger(__name__)
 STUDY_POPUP_X_BTN = None   # kept for legacy import compatibility — no longer used
 DIARY_X_BTN = None         # kept for legacy import compatibility — use close_sheet() instead
 
+# ── Screen signatures — ordered from deepest (main) to shallowest (step 1) ──
+# Each entry: (screen_id, [indicator_texts], human_readable_label)
+_SCREEN_SIGNATURES = [
+    ("log_symptoms",   ["Log Symptoms"],                              "Main Screen (Study Running)"),
+    ("start_study",    ["Start Study"],                               "Start Study Screen"),
+    ("review_setting", ["Review Study Setting"],                      "Step 3 (Review Study Setting)"),
+    ("check_signal",   ["Check Incoming Signal"],                     "Step 2 (Check Incoming Signal)"),
+    ("connect_patch",  ["Connect Your S-Patch"],                      "Step 1 (Patch Serial Number)"),
+    ("cannot_find",    ["Cannot find your S-Patch"],                  "Error: Cannot Find S-Patch (950)"),
+    ("reset_patch",    ["Reset your S-Patch"],                        "Error: Reset S-Patch (963)"),
+    ("no_study",       ["No Study Information", "No study information"], "Error: No Study Information"),
+    ("bt_disabled",    ["Bluetooth not enabled"],                     "Error: Bluetooth Disabled"),
+    ("upload",         ["Upload"],                                    "Upload Screen"),
+]
+
+
+def detect_current_screen(drv, timeout: int = 1) -> tuple:
+    """
+    Detect which AK app screen is currently shown.
+    Returns (screen_id, human_readable_label).
+    screen_id is 'unknown' if nothing matches.
+    """
+    for screen_id, texts, label in _SCREEN_SIGNATURES:
+        for text in texts:
+            if drv.is_visible_text(text, timeout=timeout):
+                return screen_id, label
+    return "unknown", "Unknown Screen"
+
+
+def _capture_diagnostics(drv, tag: str):
+    """Capture screenshot + current activity for diagnostics. Best-effort."""
+    try:
+        drv.screenshot(tag)
+    except Exception as e:
+        log.debug("[diag] screenshot failed: %s", e)
+    try:
+        activity = drv.drv.current_activity
+        package  = drv.drv.current_package
+        log.info("[diag] %s — activity=%s pkg=%s", tag, activity, package)
+    except Exception as e:
+        log.debug("[diag] activity query failed: %s", e)
+
 
 def close_sheet(drv):
     """Close a bottom sheet (Log Symptoms, etc.) using Back key — device-independent."""
@@ -85,11 +127,10 @@ def go_to_step2(drv, wait_ble: int = 45):
 def go_to_main(drv, wait_ble: int = 120):
     """App initial screen → Connect → (auto-handle Step 2/3/Start Study) → main measurement screen.
 
-    Study registered + started: only the Connect button is shown on app restart (no serial input).
-    Study not registered: enter serial + Connect.
-    BLE error popups (950/963) are handled automatically.
+    State-driven: detects current screen on every loop iteration and acts accordingly.
+    Takes diagnostic screenshots on repeated BLE failures and on timeout.
     """
-    # Bring the AK app to foreground first (may be behind another app or in background)
+    # Bring the AK app to foreground first
     try:
         pkg = drv.cfg.get("app_package")
         if pkg:
@@ -98,9 +139,7 @@ def go_to_main(drv, wait_ble: int = 120):
     except Exception:
         pass
 
-    # Already on main screen — only "Log Symptoms" is a reliable indicator.
-    # "My Study Progress" also appears on the disconnected Start Study screen,
-    # so it cannot be used here.
+    # Already on main screen
     if drv.is_visible_text("Log Symptoms", timeout=3):
         log.info("[go_to_main] Already on main screen")
         return
@@ -119,10 +158,11 @@ def go_to_main(drv, wait_ble: int = 120):
             except Exception:
                 pass
 
-    # Enter serial if input field is present (not registered state)
+    serial = drv.cfg.get("test_serial_number", "")
+
+    # Initial serial entry if input field is present
     try:
         el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
-        serial = drv.cfg.get("test_serial_number", "")
         el.clear()
         el.send_keys(serial)
         time.sleep(0.5)
@@ -130,7 +170,6 @@ def go_to_main(drv, wait_ble: int = 120):
     except Exception:
         log.info("[go_to_main] No EditText — connecting directly with registered device")
 
-    # Connect button may not exist if app auto-navigated past it
     if drv.is_visible_text("Connect", timeout=5, contains=False):
         try:
             drv.tap_text("Connect", timeout=5, contains=False)
@@ -138,53 +177,79 @@ def go_to_main(drv, wait_ble: int = 120):
             pass
     else:
         log.info("[go_to_main] No Connect button visible — proceeding to wait loop")
-    log.info("[go_to_main] Waiting up to %ds for main screen", wait_ble)
+
+    log.info("[go_to_main] Waiting up to %ds for main screen (serial: %s)", wait_ble, serial)
+
+    _start_ts       = time.monotonic()
+    _last_screen_id = None
+    _connect_attempts  = 0
+    _ble_error_count   = 0
+    # How many times we've seen "Connect Your S-Patch" after the initial connect
+    _DIAG_AFTER_N_RETRIES = 2   # take screenshot on 2nd retry
+    _SLOW_RETRY_AFTER_N   = 4   # slow down retries after this many failures
 
     deadline = time.monotonic() + wait_ble
+
     while time.monotonic() < deadline:
-        # Main measurement screen — only "Log Symptoms" is reliable
-        if drv.is_visible_text("Log Symptoms", timeout=1):
-            log.info("[go_to_main] Main measurement screen reached")
+        elapsed = int(time.monotonic() - _start_ts)
+        screen_id, screen_label = detect_current_screen(drv, timeout=1)
+
+        # Log every screen change
+        if screen_id != _last_screen_id:
+            log.info("[go_to_main] Detected screen: %s (%ds elapsed)", screen_label, elapsed)
+            _last_screen_id = screen_id
+
+        # ── SUCCESS ──────────────────────────────────────────────────────────
+        if screen_id == "log_symptoms":
+            log.info("[go_to_main] Main measurement screen reached (%ds elapsed)", elapsed)
             return
 
-        # Start Study screen (AK specific — after Step 3)
-        if drv.is_visible_text("Start Study", timeout=1):
-            log.info("[go_to_main] Start Study screen detected → tapping")
+        # ── START STUDY ───────────────────────────────────────────────────────
+        elif screen_id == "start_study":
             try:
                 drv.tap_text("Start Study", timeout=5, contains=False)
                 time.sleep(2)
             except Exception:
                 pass
-            continue
 
-        # Step 3 — Review Study Setting
-        if drv.is_visible_text("Review Study Setting", timeout=1):
-            log.info("[go_to_main] Step 3 detected → Continue")
+        # ── STEP 3: Review Study Setting ──────────────────────────────────────
+        elif screen_id == "review_setting":
             time.sleep(1)
             try:
                 drv.tap_text("Continue", timeout=5, contains=True)
                 time.sleep(1)
             except Exception as e:
                 log.warning("[go_to_main] Step 3 Continue tap failed: %s", e)
-            continue
 
-        # Step 2 — Check Incoming Signal
-        if drv.is_visible_text("Check Incoming Signal", timeout=1):
-            log.info("[go_to_main] Step 2 detected → Continue")
-            time.sleep(2)  # allow button to become interactive
+        # ── STEP 2: Check Incoming Signal ─────────────────────────────────────
+        elif screen_id == "check_signal":
+            time.sleep(2)  # allow Continue button to become interactive
             try:
                 drv.tap_text("Continue", timeout=5, contains=True)
                 time.sleep(1)
             except Exception as e:
                 log.warning("[go_to_main] Step 2 Continue tap failed: %s", e)
-            continue
 
-        # Returned to Step 1 — re-enter serial and retry Connect
-        if drv.is_visible_text("Connect Your S-Patch", timeout=1):
-            log.info("[go_to_main] Returned to Step 1 — re-entering serial and retrying Connect")
+        # ── STEP 1: Patch Serial Number (Connect Your S-Patch) ────────────────
+        elif screen_id == "connect_patch":
+            _connect_attempts += 1
+            log.info("[go_to_main] Step 1 — Connect attempt #%d (%ds elapsed)",
+                     _connect_attempts, elapsed)
+
+            # Capture diagnostics on repeated failures
+            if _connect_attempts == _DIAG_AFTER_N_RETRIES:
+                log.warning("[go_to_main] BLE not connecting after %d attempts — capturing diagnostics",
+                            _connect_attempts)
+                _capture_diagnostics(drv, f"go_to_main_ble_retry_{_connect_attempts}")
+
+            if _connect_attempts > _SLOW_RETRY_AFTER_N:
+                log.warning("[go_to_main] Repeated BLE failure (%d attempts) — "
+                            "patch may be out of range or not powered on", _connect_attempts)
+                _capture_diagnostics(drv, f"go_to_main_ble_stuck_{_connect_attempts}")
+                time.sleep(5)  # give patch more time before next attempt
+
             try:
                 el = drv.drv.find_element(By.CLASS_NAME, "android.widget.EditText")
-                serial = drv.cfg.get("test_serial_number", "")
                 el.clear()
                 el.send_keys(serial)
                 time.sleep(0.5)
@@ -192,70 +257,175 @@ def go_to_main(drv, wait_ble: int = 120):
                 pass
             try:
                 drv.tap_text("Connect", timeout=5, contains=False)
+                time.sleep(2)
             except Exception:
                 pass
-            time.sleep(2)
-            continue
 
-        # AK error popup — Cannot find your S-Patch (950)
-        if drv.is_visible_text("Cannot find your S-Patch", timeout=1):
-            log.warning("[go_to_main] BLE error popup (950) detected → Ok")
+        # ── BLE ERROR: Cannot find your S-Patch (950) ────────────────────────
+        elif screen_id == "cannot_find":
+            _ble_error_count += 1
+            log.warning("[go_to_main] BLE error 950 (cannot find patch) — count: %d", _ble_error_count)
+            if _ble_error_count == 2:
+                _capture_diagnostics(drv, "go_to_main_ble_error_950")
             try:
                 drv.tap_text(["OK", "Ok"], timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(2)
-            continue
 
-        # AK error popup — Reset your S-Patch (963)
-        if drv.is_visible_text("Reset your S-Patch", timeout=1):
-            log.warning("[go_to_main] BLE error popup (963) detected → Ok")
+        # ── BLE ERROR: Reset your S-Patch (963) ──────────────────────────────
+        elif screen_id == "reset_patch":
+            _ble_error_count += 1
+            log.warning("[go_to_main] BLE error 963 (reset patch) — count: %d", _ble_error_count)
+            if _ble_error_count == 2:
+                _capture_diagnostics(drv, "go_to_main_ble_error_963")
             try:
                 drv.tap_text(["OK", "Ok"], timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(2)
-            continue
 
-        # No Study Information popup
-        if (drv.is_visible_text("No Study Information", timeout=1)
-                or drv.is_visible_text("No study information", timeout=1)):
+        # ── No Study Information popup ────────────────────────────────────────
+        elif screen_id == "no_study":
             log.warning("[go_to_main] No Study Information popup → dismissing")
             try:
                 drv.tap_text(["Confirm", "Ok", "OK"], timeout=3, contains=False)
             except Exception:
                 pass
             time.sleep(1)
-            continue
 
-        time.sleep(1)
+        # ── Bluetooth disabled popup ──────────────────────────────────────────
+        elif screen_id == "bt_disabled":
+            log.warning("[go_to_main] Bluetooth not enabled popup → dismissing")
+            try:
+                drv.tap_text(["Ok", "OK"], timeout=3, contains=False)
+            except Exception:
+                pass
+            time.sleep(1)
 
-    raise Exception(f"Main screen not reached after {wait_ble}s — 'Log Symptoms' not visible")
+        # ── Unknown screen ────────────────────────────────────────────────────
+        else:
+            time.sleep(1)
+
+    # ── TIMEOUT — capture full diagnostics ───────────────────────────────────
+    elapsed_total = int(time.monotonic() - _start_ts)
+    final_screen_id, final_screen_label = detect_current_screen(drv, timeout=2)
+
+    log.error("[go_to_main] TIMEOUT after %ds — current screen: %s", elapsed_total, final_screen_label)
+    _capture_diagnostics(drv, "go_to_main_timeout")
+
+    try:
+        activity = drv.drv.current_activity
+        package  = drv.drv.current_package
+    except Exception:
+        activity = "unknown"
+        package  = "unknown"
+
+    raise Exception(
+        f"Main screen not reached after {wait_ble}s\n"
+        f"  Current screen:   {final_screen_label}\n"
+        f"  Connect attempts: {_connect_attempts}\n"
+        f"  BLE errors:       {_ble_error_count}\n"
+        f"  Activity:         {activity}\n"
+        f"  Package:          {package}\n"
+        f"  Expected:         Log Symptoms (Main Screen)\n"
+        f"  Action:           Check patch power, BLE range, and study status"
+    )
+
+
+def _is_menu_open(drv, timeout: int = 2) -> bool:
+    """Return True if any known menu-indicator text is visible."""
+    indicators = ["Setting", "Settings", "Version Information", "Guide", "Patch Placement"]
+    for text in indicators:
+        if drv.is_visible_text(text, timeout=timeout):
+            return True
+    return False
 
 
 def open_menu(drv, wait: float = 2.0):
-    for attempt in range(3):
-        try:
-            el = drv.drv.find_element(
-                AppiumBy.ANDROID_UIAUTOMATOR,
-                'new UiSelector().className("android.widget.ImageButton").instance(0)'
-            )
-            el.click()
-        except Exception:
-            # Fallback: tap gear icon position as % of screen size (device-independent)
+    """
+    Open the hamburger/gear menu on the Step 1 screen.
+
+    Tries multiple strategies in priority order:
+      1. content-desc 'Open navigation drawer' or 'Menu'
+      2. ImageButton instance 0 (first button)
+      3. ImageButton instance 1 (second button)
+      4. Coordinate fallbacks at common positions
+    """
+    # Capture screen state before first attempt for diagnostics
+    try:
+        drv.screenshot("open_menu_before")
+    except Exception:
+        pass
+
+    # All tap strategies to try per attempt
+    def _try_tap() -> bool:
+        # Strategy 1: content-description (most reliable across devices)
+        for desc in ["Open navigation drawer", "Menu", "Open menu", "Navigation"]:
             try:
-                size = drv.drv.get_window_size()
-                x = int(size["width"]  * 0.915)
-                y = int(size["height"] * 0.096)
-                drv.drv.tap([(x, y)])
+                el = drv.drv.find_element(
+                    AppiumBy.ACCESSIBILITY_ID, desc
+                )
+                el.click()
+                return True
             except Exception:
                 pass
+
+        # Strategy 2: ImageButton instances (0, 1, 2)
+        for instance in range(3):
+            try:
+                el = drv.drv.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                    f'new UiSelector().className("android.widget.ImageButton").instance({instance})'
+                )
+                el.click()
+                log.info("[open_menu] ImageButton instance %d clicked", instance)
+                return True
+            except Exception:
+                pass
+
+        # Strategy 3: coordinate fallbacks — right side (gear icon) and left side (hamburger)
+        try:
+            size = drv.drv.get_window_size()
+            w, h = size["width"], size["height"]
+            for pct_x, pct_y, label in [
+                (0.915, 0.096, "top-right"),
+                (0.085, 0.096, "top-left"),
+                (0.915, 0.060, "top-right-high"),
+                (0.085, 0.060, "top-left-high"),
+            ]:
+                x, y = int(w * pct_x), int(h * pct_y)
+                drv.drv.tap([(x, y)])
+                log.info("[open_menu] Coordinate tap %s (%d,%d)", label, x, y)
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    for attempt in range(3):
+        _try_tap()
         time.sleep(wait)
-        if drv.is_visible_text("Setting", timeout=2):
+        if _is_menu_open(drv, timeout=2):
+            log.info("[open_menu] Menu opened on attempt %d", attempt + 1)
             return
-        log.warning("[open_menu] Menu did not open, retrying %d/3", attempt + 1)
+        log.warning("[open_menu] Menu did not open (attempt %d/3)", attempt + 1)
+        try:
+            drv.screenshot(f"open_menu_fail_{attempt + 1}")
+        except Exception:
+            pass
         time.sleep(0.5)
-    raise Exception("open_menu: failed to open menu after 3 attempts")
+
+    # Final diagnostic before raising
+    try:
+        drv.screenshot("open_menu_failed_final")
+    except Exception:
+        pass
+    raise Exception(
+        "open_menu: failed to open menu after 3 attempts. "
+        "Check screenshot open_menu_failed_final — menu button may have moved or "
+        "'Setting' text may have changed in the current app version."
+    )
 
 
 def close_menu(drv):

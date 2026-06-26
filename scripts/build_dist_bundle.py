@@ -46,8 +46,12 @@ SET "NODE=%A%\node"
 SET "ADB=%A%\runtime\platform-tools"
 SET "APPIUM_INSTALL=%A%\appium"
 SET "APPIUM_HOME=%A%\appium_home"
-SET "_APPIUM_CMD=%APPIUM_INSTALL%\node_modules\.bin\appium.cmd"
+SET "_APPIUM_CMD_BIN=%APPIUM_INSTALL%\appium.cmd"
+SET "_APPIUM_CMD_NM=%APPIUM_INSTALL%\node_modules\.bin\appium.cmd"
+SET "_APPIUM_CMD="
 SET "LOG=%TEMP%\ak_run.log"
+SET "APPIUM_LOG=%TEMP%\ak_appium.log"
+SET "WEB_LOG=%TEMP%\ak_web.log"
 
 SET "ANDROID_HOME=%A%\runtime"
 SET "ANDROID_SDK_ROOT=%A%\runtime"
@@ -56,13 +60,18 @@ SET "PYTHONPATH=%A%"
 
 IF NOT EXIST "%APPIUM_HOME%" mkdir "%APPIUM_HOME%"
 
+echo AccurKardia run started %DATE% %TIME% > "%LOG%"
+echo [INIT] Variables set >> "%LOG%"
+
 echo.
 echo   +==============================================+
 echo   ^|   AccurKardia -- Starting (Standalone)     ^|
 echo   +==============================================+
 echo.
+echo   Log: %LOG%
+echo.
 
-REM ── Check if already running (port 5003) ──────────────────────────────────────
+REM ── Check if already running (port 5003) ────────────────────────────────────────
 netstat -ano 2>nul | findstr ":5003 " | findstr "LISTENING" >nul
 IF NOT ERRORLEVEL 1 (
     echo   AccurKardia is already running.
@@ -70,32 +79,43 @@ IF NOT ERRORLEVEL 1 (
     pause & EXIT /B 0
 )
 
-REM ── Enable long paths (Windows 10 1607+, silently skipped without admin) ───────
+REM ── System prep (all silently suppressed) ────────────────────────────────────────
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1 -ErrorAction SilentlyContinue" >nul 2>&1
-
-REM ── Unblock-File: remove internet download quarantine (no admin required) ─────
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Get-ChildItem '%A%' -Recurse | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
-
-REM ── Windows Defender exclusion (silently skipped if no admin rights) ──────────
 powershell -NoProfile -WindowStyle Hidden -Command ^
   "Add-MpPreference -ExclusionPath '%A%' -ErrorAction SilentlyContinue" >nul 2>&1
 
-REM ── Java (JDK) detection ───────────────────────────────────────────────────────
-IF NOT "%JAVA_HOME%"=="" GOTO :java_set_path
+REM ════════════════════════════════════════════════════════════════════
+REM [1/5] Java
+REM ════════════════════════════════════════════════════════════════════
+echo   [1/5] Checking Java...
+echo [1/5] START >> "%LOG%"
 
-REM 1) Search PATH — only accept real JDK with keytool (excludes Windows Store stub)
+REM Skip scan if JAVA_HOME already valid
+SET "_JAVA_OK=0"
+IF NOT "%JAVA_HOME%"=="" IF EXIST "%JAVA_HOME%\bin\java.exe" SET "_JAVA_OK=1"
+IF "!_JAVA_OK!"=="1" GOTO :java_verify
+
+REM Scan PATH
+SET "_JAVA_FOUND=0"
 FOR /F "tokens=*" %%J IN ('where java 2^>nul') DO (
-    FOR %%P IN ("%%~dpJ..") DO (
-        IF EXIST "%%~fP\bin\keytool.exe" (
-            SET "JAVA_HOME=%%~fP"
-            GOTO :java_set_path
+    IF "!_JAVA_FOUND!"=="0" (
+        FOR %%P IN ("%%~dpJ..") DO (
+            IF "!_JAVA_FOUND!"=="0" (
+                IF EXIST "%%~fP\bin\java.exe" (
+                    SET "JAVA_HOME=%%~fP"
+                    SET "_JAVA_FOUND=1"
+                )
+            )
         )
     )
 )
+IF "!_JAVA_FOUND!"=="1" GOTO :java_verify
 
-REM 2) Scan common install paths directly (no PATH refresh needed)
+REM Scan common install locations
+SET "_JAVA_FOUND=0"
 FOR %%B IN (
     "%ProgramFiles%\Eclipse Adoptium"
     "%ProgramFiles%\Java"
@@ -103,127 +123,411 @@ FOR %%B IN (
     "%ProgramFiles%\OpenJDK"
     "%ProgramFiles(x86)%\Java"
 ) DO (
-    FOR /D %%D IN ("%%~B\jdk*") DO (
-        IF EXIST "%%D\bin\keytool.exe" (
-            SET "JAVA_HOME=%%D"
-            GOTO :java_set_path
+    IF "!_JAVA_FOUND!"=="0" (
+        FOR /D %%D IN ("%%~B\jdk*" "%%~B\jre*") DO (
+            IF "!_JAVA_FOUND!"=="0" (
+                IF EXIST "%%D\bin\java.exe" (
+                    SET "JAVA_HOME=%%D"
+                    SET "_JAVA_FOUND=1"
+                )
+            )
         )
     )
 )
+IF "!_JAVA_FOUND!"=="1" GOTO :java_verify
 
-REM 3) Java not found — try multiple winget packages
-echo   Java not found. Trying to install via winget...
+REM Try winget (output to log to avoid localized console text)
+echo   Java not found. Trying winget (output to log)...
+echo [1/5] winget start >> "%LOG%"
+SET "_WINGET_OK=0"
 FOR %%P IN (
     "Microsoft.OpenJDK.21"
     "EclipseAdoptium.Temurin.21.JRE"
     "EclipseAdoptium.Temurin.21.JDK"
 ) DO (
-    winget install --id %%P --scope user --silent ^
-      --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
-    IF NOT ERRORLEVEL 1 GOTO :winget_done
-    winget install --id %%P --silent ^
-      --accept-package-agreements --accept-source-agreements 2>>"%LOG%"
-    IF NOT ERRORLEVEL 1 GOTO :winget_done
+    IF "!_WINGET_OK!"=="0" (
+        winget install --id %%P --scope user --silent ^
+          --accept-package-agreements --accept-source-agreements >> "%LOG%" 2>&1
+        IF NOT ERRORLEVEL 1 SET "_WINGET_OK=1"
+        IF "!_WINGET_OK!"=="0" (
+            winget install --id %%P --silent ^
+              --accept-package-agreements --accept-source-agreements >> "%LOG%" 2>&1
+            IF NOT ERRORLEVEL 1 SET "_WINGET_OK=1"
+        )
+    )
 )
-:winget_done
-
-REM Re-scan after winget
+SET "_JAVA_FOUND=0"
 FOR %%B IN (
     "%ProgramFiles%\Microsoft"
     "%ProgramFiles%\Eclipse Adoptium"
     "%LOCALAPPDATA%\Microsoft"
     "%LOCALAPPDATA%\Programs\Eclipse Adoptium"
 ) DO (
-    FOR /D %%D IN ("%%~B\jdk*" "%%~B\jre*") DO (
-        IF EXIST "%%D\bin\keytool.exe" (
-            SET "JAVA_HOME=%%D"
-            GOTO :java_set_path
+    IF "!_JAVA_FOUND!"=="0" (
+        FOR /D %%D IN ("%%~B\jdk*" "%%~B\jre*") DO (
+            IF "!_JAVA_FOUND!"=="0" (
+                IF EXIST "%%D\bin\java.exe" (
+                    SET "JAVA_HOME=%%D"
+                    SET "_JAVA_FOUND=1"
+                )
+            )
         )
     )
 )
+IF "!_JAVA_FOUND!"=="1" GOTO :java_verify
 
-REM 4) winget failed — download portable JRE directly (no install, ~50MB)
-echo   winget failed. Downloading portable JRE (one-time, ~50MB)...
+REM Portable JRE fallback
 SET "_JRE_DIR=%A%\jre"
 SET "_JRE_ZIP=%TEMP%\ak_jre.zip"
 SET "_JRE_URL=https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse"
+
+echo   winget unavailable. Downloading portable JRE. Please wait...
+echo [1/5] JRE download start >> "%LOG%"
 powershell -NoProfile -Command ^
-  "try { Write-Host '  Downloading JRE...'; Invoke-WebRequest -Uri '%_JRE_URL%' -OutFile '%_JRE_ZIP%' -UseBasicParsing; Write-Host '  Extracting...'; Expand-Archive -Path '%_JRE_ZIP%' -DestinationPath '%_JRE_DIR%' -Force; Remove-Item '%_JRE_ZIP%' -ErrorAction SilentlyContinue; exit 0 } catch { Write-Host ('  ERROR: ' + $_.Exception.Message); exit 1 }"
-IF NOT ERRORLEVEL 1 (
-    FOR /D %%D IN ("%_JRE_DIR%\jdk*") DO (
-        IF EXIST "%%D\bin\keytool.exe" (
+  "try { Invoke-WebRequest -Uri '%_JRE_URL%' -OutFile '%_JRE_ZIP%' -UseBasicParsing -TimeoutSec 180; exit 0 } catch { Write-Output ('JRE download error: ' + $_.Exception.Message); exit 1 }" >> "%LOG%" 2>&1
+SET "_PS_EXIT=!ERRORLEVEL!"
+IF "!_PS_EXIT!"=="" SET "_PS_EXIT=unknown"
+echo   JRE download completed (exit: !_PS_EXIT!^).
+echo [1/5] JRE download exit: !_PS_EXIT! >> "%LOG%"
+IF NOT "!_PS_EXIT!"=="0" (
+    echo.
+    echo   ERROR  Portable JRE download failed (exit code: !_PS_EXIT!^).
+    echo          Log: %LOG%
+    echo [1/5] FAIL: JRE download >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+IF NOT EXIST "%_JRE_ZIP%" (
+    echo.
+    echo   ERROR  Portable JRE download failed (file not created^).
+    echo          Log: %LOG%
+    echo [1/5] FAIL: JRE zip missing >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+
+echo   Extracting portable JRE...
+echo [1/5] JRE extract start >> "%LOG%"
+powershell -NoProfile -Command ^
+  "try { Expand-Archive -Path '%_JRE_ZIP%' -DestinationPath '%_JRE_DIR%' -Force; Remove-Item '%_JRE_ZIP%' -ErrorAction SilentlyContinue; exit 0 } catch { Write-Output ('JRE extract error: ' + $_.Exception.Message); exit 1 }" >> "%LOG%" 2>&1
+SET "_PS_EXIT=!ERRORLEVEL!"
+IF "!_PS_EXIT!"=="" SET "_PS_EXIT=unknown"
+echo   JRE extraction completed (exit: !_PS_EXIT!^).
+echo [1/5] JRE extract exit: !_PS_EXIT! >> "%LOG%"
+IF NOT "!_PS_EXIT!"=="0" (
+    echo.
+    echo   ERROR  Portable JRE extraction failed (exit code: !_PS_EXIT!^).
+    echo          Log: %LOG%
+    echo [1/5] FAIL: JRE extract >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+echo   Portable JRE installed OK.
+
+SET "_JAVA_FOUND=0"
+FOR /D %%D IN ("%_JRE_DIR%\jdk*") DO (
+    IF "!_JAVA_FOUND!"=="0" (
+        IF EXIST "%%D\bin\java.exe" (
             SET "JAVA_HOME=%%D"
-            GOTO :java_set_path
+            SET "_JAVA_FOUND=1"
         )
     )
 )
+FOR /D %%D IN ("%_JRE_DIR%\jre*") DO (
+    IF "!_JAVA_FOUND!"=="0" (
+        IF EXIST "%%D\bin\java.exe" (
+            SET "JAVA_HOME=%%D"
+            SET "_JAVA_FOUND=1"
+        )
+    )
+)
+IF "!_JAVA_FOUND!"=="1" GOTO :java_verify
 
-echo   WARN  Java could not be installed automatically.
-echo         Please install manually: https://adoptium.net
-echo         Then re-run run.bat.
 echo.
+echo   ERROR  Java could not be installed automatically.
+echo          Please install manually: https://adoptium.net
+echo          Then re-run run.bat.
+echo.
+echo [1/5] FAIL: java.exe not found >> "%LOG%"
 pause
-GOTO :java_done
+EXIT /B 1
 
-:java_set_path
+:java_verify
 SET "PATH=%JAVA_HOME%\bin;%PATH%"
-echo   Java: %JAVA_HOME%
-
-:java_done
-
-REM ── Install Appium if needed (first run only) ──────────────────────────────
-IF NOT EXIST "%_APPIUM_CMD%" (
+IF NOT EXIST "%JAVA_HOME%\bin\java.exe" (
     echo.
-    echo   Installing Appium (first run only, ~2 min^)...
-    call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress 2>>"%LOG%"
-    IF ERRORLEVEL 1 (
-        echo.
-        echo   FAIL  Appium installation failed.
-        echo         Check your internet connection and re-run.
-        echo   Log: %LOG%
-        pause & EXIT /B 1
-    )
-    echo   OK    Appium installed.
+    echo   ERROR  java.exe not found at: %JAVA_HOME%\bin\java.exe
+    echo          Log: %LOG%
+    echo [1/5] FAIL: java.exe missing at JAVA_HOME >> "%LOG%"
+    pause
+    EXIT /B 1
 )
+echo   Java OK: %JAVA_HOME%
+echo [1/5] OK: %JAVA_HOME% >> "%LOG%"
+echo [1/5] -> Entering [2/5] Appium >> "%LOG%"
 
-REM ── Install UiAutomator2 driver if needed ──────────────────────────────────
-"%_APPIUM_CMD%" driver list --installed 2>nul | findstr /I "uiautomator2" >nul
-IF ERRORLEVEL 1 (
-    echo.
-    echo   Installing UiAutomator2 driver (one-time, ~1 min^)...
-    "%_APPIUM_CMD%" driver install uiautomator2 >> "%TEMP%\ak_driver.log" 2>&1
-    IF ERRORLEVEL 1 (
-        echo.
-        echo   FAIL  UiAutomator2 driver installation failed.
-        echo   Log: %TEMP%\ak_driver.log
-        pause & EXIT /B 1
-    )
-    echo   OK    UiAutomator2 driver installed.
-)
-
-REM ── Verify adb is accessible (detect AV quarantine) ───────────────────────────
+REM ════════════════════════════════════════════════════════════════════
+REM [2/5] Appium
+REM ════════════════════════════════════════════════════════════════════
 echo.
-"%ADB%\adb.exe" version >nul 2>&1
-IF ERRORLEVEL 1 (
-    echo   WARN  ADB cannot be executed.
-    echo         Your antivirus may have quarantined adb.exe.
+echo   [2/5] Checking Appium...
+echo [2/5] START >> "%LOG%"
+
+IF NOT EXIST "%NODE%\node.exe" (
     echo.
-    echo   Fix:
-    echo   1. Add the following folder to your antivirus exclusion list:
-    echo      %A%
-    echo   2. Then re-run run.bat.
+    echo   ERROR  Bundled Node.js not found: %NODE%\node.exe
+    echo          The standalone package may be corrupted.
+    echo          Log: %LOG%
+    echo [2/5] FAIL: node.exe missing >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+IF NOT EXIST "%NODE%\npm.cmd" (
     echo.
-    pause & EXIT /B 1
+    echo   ERROR  Bundled npm not found: %NODE%\npm.cmd
+    echo          The standalone package may be corrupted.
+    echo          Log: %LOG%
+    echo [2/5] FAIL: npm.cmd missing >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+echo [2/5] node.exe: %NODE%\node.exe >> "%LOG%"
+echo [2/5] npm.cmd:  %NODE%\npm.cmd >> "%LOG%"
+
+REM Resolve: bin > node_modules\.bin > recursive search
+SET "_APPIUM_CMD="
+IF EXIST "%_APPIUM_CMD_BIN%" SET "_APPIUM_CMD=%_APPIUM_CMD_BIN%"
+IF "%_APPIUM_CMD%"=="" IF EXIST "%_APPIUM_CMD_NM%" SET "_APPIUM_CMD=%_APPIUM_CMD_NM%"
+IF "%_APPIUM_CMD%"=="" (
+    FOR /F "delims=" %%F IN ('dir /b /s "%APPIUM_INSTALL%\appium.cmd" 2^>nul') DO (
+        IF "!_APPIUM_CMD!"=="" SET "_APPIUM_CMD=%%F"
+    )
 )
 
-REM ── Start Appium via temp bat (nested-quote + spaces-in-path safe) ─────────
-echo @echo off > "%TEMP%\ak_appium.bat"
-echo "%_APPIUM_CMD%" --relaxed-security ^>^> "%LOG%" 2^>^&1 >> "%TEMP%\ak_appium.bat"
-echo   Starting Appium...
-start "AK - Appium" /B cmd /c "%TEMP%\ak_appium.bat"
+IF NOT "%_APPIUM_CMD%"=="" (
+    echo   Appium already installed.
+    echo [2/5] Appium present: %_APPIUM_CMD% >> "%LOG%"
+) ELSE (
+    echo   Installing Appium. This may take a few minutes...
+    echo [2/5] npm install start >> "%LOG%"
+    call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress >> "%LOG%" 2>&1
+    SET "_NPM_EXIT=!ERRORLEVEL!"
+    IF "!_NPM_EXIT!"=="" SET "_NPM_EXIT=unknown"
+    echo   npm install completed (exit code: !_NPM_EXIT!^).
+    echo [2/5] npm exit: !_NPM_EXIT! >> "%LOG%"
 
-REM Wait for Appium to be ready (up to 30s)
-SET _APPIUM_READY=0
+    SET "_APPIUM_CMD="
+    IF EXIST "%_APPIUM_CMD_BIN%" SET "_APPIUM_CMD=%_APPIUM_CMD_BIN%"
+    IF "!_APPIUM_CMD!"=="" IF EXIST "%_APPIUM_CMD_NM%" SET "_APPIUM_CMD=%_APPIUM_CMD_NM%"
+    IF "!_APPIUM_CMD!"=="" (
+        FOR /F "delims=" %%F IN ('dir /b /s "%APPIUM_INSTALL%\appium.cmd" 2^>nul') DO (
+            IF "!_APPIUM_CMD!"=="" SET "_APPIUM_CMD=%%F"
+        )
+    )
+
+    IF NOT "!_APPIUM_CMD!"=="" (
+        echo   Appium installed OK.
+        echo [2/5] Appium installed: !_APPIUM_CMD! >> "%LOG%"
+    ) ELSE (
+        echo.
+        echo   ERROR  Appium installation failed.
+        echo          npm exit code: !_NPM_EXIT!
+        echo          appium.cmd not found in: %APPIUM_INSTALL%
+        echo          Log: %LOG%
+        echo [2/5] FAIL: appium.cmd missing. npm exit: !_NPM_EXIT! >> "%LOG%"
+        pause
+        EXIT /B 1
+    )
+)
+echo   Appium command: !_APPIUM_CMD!
+echo [2/5] OK: !_APPIUM_CMD! >> "%LOG%"
+echo [2/5] -> Entering [3/5] UiAutomator2 >> "%LOG%"
+
+REM ════════════════════════════════════════════════════════════════════
+REM [3/5] UiAutomator2
+REM ════════════════════════════════════════════════════════════════════
+echo.
+echo   [3/5] Checking UiAutomator2 driver...
+echo [3/5] START >> "%LOG%"
+echo [3/5] _APPIUM_CMD: !_APPIUM_CMD! >> "%LOG%"
+
+REM Pre-check: Appium command must exist
+IF NOT EXIST "!_APPIUM_CMD!" (
+    echo.
+    echo   ERROR  Appium command not found: !_APPIUM_CMD!
+    echo          Log: %LOG%
+    echo [3/5] FAIL: _APPIUM_CMD not found >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+
+REM Define BOTH temp files at top level (outside any block) so %var% expansion works
+SET "_DRV_TMP=%TEMP%\ak_drv_list.txt"
+SET "_DRV_TMP2=%TEMP%\ak_drv_verify.txt"
+echo [3/5] _DRV_TMP:  %_DRV_TMP% >> "%LOG%"
+echo [3/5] _DRV_TMP2: %_DRV_TMP2% >> "%LOG%"
+
+echo   Running: appium driver list --installed
+echo [3/5] CMD: call "!_APPIUM_CMD!" driver list --installed >> "%LOG%"
+call "!_APPIUM_CMD!" driver list --installed > "%_DRV_TMP%" 2>&1
+SET "_LST_EXIT=!ERRORLEVEL!"
+IF "!_LST_EXIT!"=="" SET "_LST_EXIT=unknown"
+echo   Driver list completed (exit code: !_LST_EXIT!^).
+echo [3/5] driver list exit: !_LST_EXIT! >> "%LOG%"
+
+IF NOT EXIST "%_DRV_TMP%" (
+    echo.
+    echo   ERROR  Driver list output file not created: %_DRV_TMP%
+    echo          Log: %LOG%
+    echo [3/5] FAIL: driver list output file missing >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+type "%_DRV_TMP%" >> "%LOG%" 2>nul
+
+IF NOT "!_LST_EXIT!"=="0" (
+    echo.
+    echo   ERROR  appium driver list failed (exit code: !_LST_EXIT!^).
+    echo          Appium command: !_APPIUM_CMD!
+    echo          Log: %LOG%
+    echo [3/5] FAIL: driver list exit !_LST_EXIT! >> "%LOG%"
+    del "%_DRV_TMP%" >nul 2>&1
+    pause
+    EXIT /B 1
+)
+
+echo   Searching for uiautomator2 in driver list output...
+findstr /I "uiautomator2" "%_DRV_TMP%" >nul 2>&1
+SET "_FIND_EXIT=!ERRORLEVEL!"
+IF "!_FIND_EXIT!"=="" SET "_FIND_EXIT=unknown"
+del "%_DRV_TMP%" >nul 2>&1
+echo [3/5] findstr exit: !_FIND_EXIT! >> "%LOG%"
+
+IF "!_FIND_EXIT!"=="0" (
+    echo   UiAutomator2 driver already installed.
+    echo [3/5] UiAutomator2 present >> "%LOG%"
+) ELSE (
+    echo   UiAutomator2 not found. Installing...
+    echo   Installing UiAutomator2 driver. This may take a few minutes...
+    echo [3/5] CMD: call "!_APPIUM_CMD!" driver install uiautomator2 >> "%LOG%"
+    call "!_APPIUM_CMD!" driver install uiautomator2 >> "%LOG%" 2>&1
+    SET "_DRV_INST_EXIT=!ERRORLEVEL!"
+    IF "!_DRV_INST_EXIT!"=="" SET "_DRV_INST_EXIT=unknown"
+    echo   UiAutomator2 install completed (exit code: !_DRV_INST_EXIT!^).
+    echo [3/5] driver install exit: !_DRV_INST_EXIT! >> "%LOG%"
+
+    echo   Verifying UiAutomator2 driver...
+    echo [3/5] _APPIUM_CMD at verify: !_APPIUM_CMD! >> "%LOG%"
+    echo [3/5] _DRV_TMP2 at verify: !_DRV_TMP2! >> "%LOG%"
+    echo [3/5] CMD: call "!_APPIUM_CMD!" driver list --installed >> "%LOG%"
+    call "!_APPIUM_CMD!" driver list --installed > "!_DRV_TMP2!" 2>&1
+    SET "_VRFY_EXIT=!ERRORLEVEL!"
+    IF "!_VRFY_EXIT!"=="" SET "_VRFY_EXIT=unknown"
+    echo   Verification completed (exit code: !_VRFY_EXIT!^).
+    echo [3/5] verify list exit: !_VRFY_EXIT! >> "%LOG%"
+
+    IF EXIST "!_DRV_TMP2!" (
+        type "!_DRV_TMP2!" >> "%LOG%" 2>nul
+        findstr /I "uiautomator2" "!_DRV_TMP2!" >nul 2>&1
+        SET "_FIND2_EXIT=!ERRORLEVEL!"
+        IF "!_FIND2_EXIT!"=="" SET "_FIND2_EXIT=unknown"
+        del "!_DRV_TMP2!" >nul 2>&1
+        echo [3/5] verify findstr exit: !_FIND2_EXIT! >> "%LOG%"
+    ) ELSE (
+        echo   WARN  Verify output file not created: !_DRV_TMP2!
+        echo [3/5] WARN: verify output file missing >> "%LOG%"
+        SET "_FIND2_EXIT=1"
+    )
+
+    IF NOT "!_FIND2_EXIT!"=="0" (
+        echo.
+        echo   ERROR  UiAutomator2 driver not found after installation.
+        echo          Appium command:    !_APPIUM_CMD!
+        echo          Install exit code: !_DRV_INST_EXIT!
+        echo          Verify exit code:  !_VRFY_EXIT!
+        echo          Log: %LOG%
+        echo [3/5] FAIL: UiAutomator2 missing after install. inst=!_DRV_INST_EXIT! vrfy=!_VRFY_EXIT! >> "%LOG%"
+        pause
+        EXIT /B 1
+    )
+    echo   UiAutomator2 driver installed OK.
+    echo [3/5] UiAutomator2 installed OK >> "%LOG%"
+)
+echo [3/5] -> Entering [4/5] ADB >> "%LOG%"
+
+REM ════════════════════════════════════════════════════════════════════
+REM [4/5] ADB
+REM ════════════════════════════════════════════════════════════════════
+echo.
+echo   [4/5] Checking ADB...
+echo [4/5] START >> "%LOG%"
+
+IF NOT EXIST "%ADB%\adb.exe" (
+    echo.
+    echo   ERROR  adb.exe not found: %ADB%\adb.exe
+    echo          Antivirus may have removed it or the package is corrupted.
+    echo.
+    echo   Fix: Add this folder to your antivirus exclusion list and re-run:
+    echo      %A%
+    echo.
+    echo          Log: %LOG%
+    echo [4/5] FAIL: adb.exe not found >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+
+echo   Running: adb version
+echo [4/5] adb version start >> "%LOG%"
+"%ADB%\adb.exe" version >> "%LOG%" 2>&1
+SET "_ADB_EXIT=!ERRORLEVEL!"
+IF "!_ADB_EXIT!"=="" SET "_ADB_EXIT=unknown"
+echo   ADB completed (exit code: !_ADB_EXIT!^).
+echo [4/5] adb exit: !_ADB_EXIT! >> "%LOG%"
+IF NOT "!_ADB_EXIT!"=="0" (
+    echo.
+    echo   ERROR  adb.exe cannot be executed (exit code: !_ADB_EXIT!^).
+    echo          Your antivirus may have quarantined it.
+    echo.
+    echo   Fix: Add this folder to your antivirus exclusion list and re-run:
+    echo      %A%
+    echo.
+    echo          Log: %LOG%
+    echo [4/5] FAIL: adb exit !_ADB_EXIT! >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+echo   ADB OK.
+echo [4/5] OK >> "%LOG%"
+echo [4/5] -> Entering [5/5] Appium + web server >> "%LOG%"
+
+REM ════════════════════════════════════════════════════════════════════
+REM [5/5] Start Appium + web server
+REM ════════════════════════════════════════════════════════════════════
+echo.
+echo   [5/5] Starting services...
+echo [5/5] START >> "%LOG%"
+
+IF NOT EXIST "%PY%" (
+    echo.
+    echo   ERROR  Bundled Python not found: %PY%
+    echo          The standalone package may be corrupted.
+    echo          Log: %LOG%
+    echo [5/5] FAIL: python.exe missing >> "%LOG%"
+    pause
+    EXIT /B 1
+)
+echo [5/5] Python OK: %PY% >> "%LOG%"
+
+echo   Starting Appium server...
+echo [5/5] Appium launch start >> "%LOG%"
+echo [5/5] Appium log: %APPIUM_LOG% >> "%LOG%"
+echo @echo off > "%TEMP%\ak_appium.bat"
+echo call "!_APPIUM_CMD!" --relaxed-security ^>^> "%APPIUM_LOG%" 2^>^&1 >> "%TEMP%\ak_appium.bat"
+start "AK - Appium" /B cmd /c "%TEMP%\ak_appium.bat"
+echo [5/5] Appium process launched >> "%LOG%"
+
+echo   Waiting for Appium on port 4723 (up to 30s^)...
+SET "_APPIUM_READY=0"
 FOR /L %%i IN (1,1,15) DO (
     IF !_APPIUM_READY!==0 (
         powershell -NoProfile -Command ^
@@ -233,22 +537,40 @@ FOR /L %%i IN (1,1,15) DO (
     )
 )
 IF !_APPIUM_READY!==0 (
-    echo   WARN  Appium did not respond. Log: %LOG%
+    echo   WARN  Appium did not respond on port 4723.
+    echo         Appium log: %APPIUM_LOG%
+    echo [5/5] WARN: Appium not ready on 4723 >> "%LOG%"
+) ELSE (
+    echo   Appium ready on port 4723.
+    echo [5/5] Appium ready >> "%LOG%"
 )
 
-REM ── Open browser when server is ready ──────────────────────────────────────
 start "" /B powershell -NoProfile -Command ^
   "$u='http://localhost:5003';for($i=0;$i-lt 30;$i++){try{if((Invoke-WebRequest $u -TimeoutSec 1 -UseBasicParsing).StatusCode -eq 200){start $u;break}}catch{};Start-Sleep 1}"
 
-REM ── Start web server ────────────────────────────────────────────────────────
 echo.
 echo   Starting web server at http://localhost:5003
 echo   (Close this window or run STOP.bat to stop)
 echo.
+echo [5/5] web server start (log: %WEB_LOG%) >> "%LOG%"
 SET "AK_NO_BROWSER=1"
-"%PY%" "%A%\web\app.py"
+"%PY%" "%A%\web\app.py" >> "%WEB_LOG%" 2>&1
+SET "_WS_EXIT=!ERRORLEVEL!"
+IF "!_WS_EXIT!"=="" SET "_WS_EXIT=unknown"
+echo [5/5] web server exit: !_WS_EXIT! >> "%LOG%"
 echo.
-echo   Web server stopped. Press any key to close...
+IF "!_WS_EXIT!"=="0" (
+    echo   Web server stopped normally.
+    echo [5/5] web server stopped normally >> "%LOG%"
+) ELSE (
+    echo   ERROR  Web server exited unexpectedly.
+    echo          Exit Code: !_WS_EXIT!
+    echo          Web log:  %WEB_LOG%
+    echo          Main log: %LOG%
+    echo [5/5] FAIL: web server exit !_WS_EXIT! >> "%LOG%"
+)
+echo.
+echo   Press any key to close...
 pause >nul
 """
 
@@ -312,7 +634,6 @@ def _setup_node(tmp: Path) -> Path:
     node_dir = tmp / "node"
 
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        top = z.namelist()[0].split("/")[0]
         for member in z.namelist():
             rel = "/".join(member.split("/")[1:])
             if not rel:
@@ -353,7 +674,27 @@ def _add_config(zf: zipfile.ZipFile, arc_prefix: str):
             zf.write(f, f"{arc_prefix}/{f.name}")
 
 
+def _validate_run_bat():
+    errors = []
+    if "Add-Content" in RUN_BAT:
+        errors.append("Add-Content found in RUN_BAT (causes log file lock conflict)")
+    if "_APPIUM_CMD_BIN" not in RUN_BAT:
+        errors.append("_APPIUM_CMD_BIN candidate path not found in RUN_BAT")
+    if "_APPIUM_CMD_NM" not in RUN_BAT:
+        errors.append("_APPIUM_CMD_NM candidate path not found in RUN_BAT")
+    if "java_verify" not in RUN_BAT:
+        errors.append(":java_verify label not found in RUN_BAT")
+    if "-> Entering" not in RUN_BAT:
+        errors.append("Step transition log markers not found in RUN_BAT")
+    if errors:
+        for e in errors:
+            print(f"  BUILD ASSERTION FAILED: {e}")
+        raise SystemExit("Aborting build: RUN_BAT validation failed.")
+
+
 def build(out_dir: Path):
+    _validate_run_bat()
+
     name = f"AccurKardia-Windows-Standalone-v{VERSION}-{TODAY}.zip"
     path = out_dir / name
 
@@ -400,7 +741,3 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     build(out)
     print("\nDone.")
-
-
-if __name__ == "__main__":
-    main()
