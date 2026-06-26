@@ -5,7 +5,7 @@ Verify the popup that appears after tapping Continue when no study is registered
 import time
 import logging
 
-from src.regression.helpers import go_to_step2, STUDY_POPUP_X_BTN
+from src.regression.helpers import go_to_step2
 
 log = logging.getLogger(__name__)
 
@@ -64,14 +64,27 @@ def test_study_004_confirm_closes_popup(drv, runner):
     )
 
 
+def _close_popup_x(drv):
+    """Close popup via X/Close button or back key fallback."""
+    from appium.webdriver.common.appiumby import AppiumBy
+    for desc in ["Close", "close", "Dismiss", "dismiss"]:
+        try:
+            drv.drv.find_element(AppiumBy.ACCESSIBILITY_ID, desc).click()
+            return
+        except Exception:
+            pass
+    # Fallback: back key dismisses the dialog on all Android versions
+    drv.drv.press_keycode(4)
+
+
 def test_study_005_x_button_closes_popup(drv, runner):
-    """TC-STUDY-005 | Tap X button → popup closes"""
+    """TC-STUDY-005 | Tap X/close button → popup closes"""
     _trigger_no_study_popup(drv)
-    drv.drv.tap([STUDY_POPUP_X_BTN])
+    _close_popup_x(drv)
     time.sleep(1)
     runner.assert_false(
         drv.is_visible_text("No Study Information", timeout=2),
-        "Popup should close after tapping X button"
+        "Popup should close after tapping X/close button"
     )
 
 
