@@ -60,6 +60,7 @@ from src.workflows.bt_disconnect import run_bt_disconnect
 from src.workflows.airplane_mode import run_airplane_mode
 from src.workflows.popup_handler import handle_any_popup
 from selenium.webdriver.common.by import By
+from appium.webdriver.common.appiumby import AppiumBy
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,7 +83,7 @@ def _has_text(drv, text: str) -> bool:
     """UiAutomator textContains immediate check — no wait, no exception."""
     try:
         return len(drv.drv.find_elements(
-            By.ANDROID_UIAUTOMATOR,
+            AppiumBy.ANDROID_UIAUTOMATOR,
             f'new UiSelector().textContains("{text}")',
         )) > 0
     except Exception:

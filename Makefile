@@ -2,7 +2,7 @@ PYTHON := $(shell [ -f .venv/bin/python ] && echo .venv/bin/python || echo pytho
 CONFIG ?= config/accurkardia.yaml
 OUT    ?= ~/Desktop
 
-.PHONY: install run web dry-run regression \
+.PHONY: install run stop web dry-run regression \
         reg-serial reg-menu reg-signal reg-study reg-main reg-diary reg-menu-study \
         dist dist-mac dist-windows help
 
@@ -47,6 +47,9 @@ install:
 
 run:
 	PYTHONPATH=. $(PYTHON) src/main.py --config $(CONFIG)
+
+stop:
+	@pkill -f "src/main.py" 2>/dev/null && echo "Stopped." || echo "Not running."
 
 web:
 	PYTHONPATH=. $(PYTHON) web/app.py
