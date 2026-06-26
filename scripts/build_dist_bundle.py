@@ -498,6 +498,13 @@ IF NOT "!_ADB_EXIT!"=="0" (
 )
 echo   ADB OK.
 echo [4/5] OK >> "%LOG%"
+
+echo   Starting ADB server...
+"%ADB%\adb.exe" start-server >> "%LOG%" 2>&1
+echo   Detecting connected devices...
+"%ADB%\adb.exe" devices >> "%LOG%" 2>&1
+echo [4/5] adb devices done >> "%LOG%"
+
 echo [4/5] -> Entering [5/5] Appium + web server >> "%LOG%"
 
 REM ════════════════════════════════════════════════════════════════════

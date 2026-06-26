@@ -903,11 +903,20 @@ async function detectWifi() {
   finally { btn.textContent = 'Auto Detect'; btn.disabled = false; }
 }
 
+let _allDevices = [];
+
 function populateDevices(devices) {
+  _allDevices = devices;
+  _filterDevices();
+}
+
+function _filterDevices() {
+  const isWifi = document.getElementById('adb-wifi').checked;
+  const filtered = _allDevices.filter(d => isWifi ? d.includes(':') : !d.includes(':'));
   const sel = document.getElementById('device-select');
   sel.innerHTML = '';
-  if (!devices.length) sel.innerHTML = '<option value="">No device connected</option>';
-  else devices.forEach(d => { const o = document.createElement('option'); o.value = o.textContent = d; sel.appendChild(o); });
+  if (!filtered.length) sel.innerHTML = `<option value="">No ${isWifi ? 'WiFi' : 'USB'} device connected</option>`;
+  else filtered.forEach(d => { const o = document.createElement('option'); o.value = o.textContent = d; sel.appendChild(o); });
 }
 
 document.getElementById('duration-group').addEventListener('click', e => {
@@ -921,6 +930,7 @@ document.querySelectorAll('input[name="conn-mode"]').forEach(r => {
   r.addEventListener('change', () => {
     document.getElementById('wifi-addr-row').style.display =
       document.getElementById('adb-wifi').checked ? 'block' : 'none';
+    _filterDevices();
   });
 });
 

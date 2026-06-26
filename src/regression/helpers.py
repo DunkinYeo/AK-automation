@@ -371,18 +371,25 @@ def open_menu(drv, wait: float = 2.0):
             except Exception:
                 pass
 
-        # Strategy 2: ImageButton instances (0, 1, 2)
-        for instance in range(3):
-            try:
-                el = drv.drv.find_element(
-                    AppiumBy.ANDROID_UIAUTOMATOR,
-                    f'new UiSelector().className("android.widget.ImageButton").instance({instance})'
-                )
-                el.click()
-                log.info("[open_menu] ImageButton instance %d clicked", instance)
-                return True
-            except Exception:
-                pass
+        # Strategy 2: ImageButton in top 25% of screen (avoids bottom nav bar buttons)
+        try:
+            h = drv.drv.get_window_size()["height"]
+            top_threshold = int(h * 0.25)
+            els = drv.drv.find_elements(
+                AppiumBy.ANDROID_UIAUTOMATOR,
+                'new UiSelector().className("android.widget.ImageButton")'
+            )
+            for el in els:
+                try:
+                    loc = el.location
+                    if loc["y"] < top_threshold:
+                        el.click()
+                        log.info("[open_menu] ImageButton at (%d,%d) clicked", loc["x"], loc["y"])
+                        return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Strategy 3: coordinate fallbacks — right side (gear icon) and left side (hamburger)
         try:
