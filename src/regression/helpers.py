@@ -335,7 +335,10 @@ def go_to_main(drv, wait_ble: int = 120):
 
 def _is_menu_open(drv, timeout: int = 2) -> bool:
     """Return True if any known menu-indicator text is visible."""
-    indicators = ["Setting", "Settings", "Version Information", "Guide", "Patch Placement"]
+    indicators = [
+        "Setting", "Settings", "Version Information", "Guide", "Patch Placement",
+        "Terms and Information", "Live Streaming", "Privacy", "About",
+    ]
     for text in indicators:
         if drv.is_visible_text(text, timeout=timeout):
             return True
@@ -361,45 +364,49 @@ def open_menu(drv, wait: float = 2.0):
     # All tap strategies to try per attempt
     def _try_tap() -> bool:
         # Strategy 1: content-description (most reliable across devices)
-        for desc in ["Open navigation drawer", "Menu", "Open menu", "Navigation"]:
+        for desc in ["Open navigation drawer", "Menu", "Open menu", "Navigation",
+                     "Settings", "More options", "More"]:
             try:
-                el = drv.drv.find_element(
-                    AppiumBy.ACCESSIBILITY_ID, desc
-                )
+                el = drv.drv.find_element(AppiumBy.ACCESSIBILITY_ID, desc)
                 el.click()
+                log.info("[open_menu] content-desc '%s' clicked", desc)
                 return True
             except Exception:
                 pass
 
-        # Strategy 2: ImageButton in top 25% of screen (avoids bottom nav bar buttons)
+        # Strategy 2: ImageButton or View in top 15% of screen, right half (gear icon area)
         try:
-            h = drv.drv.get_window_size()["height"]
-            top_threshold = int(h * 0.25)
-            els = drv.drv.find_elements(
-                AppiumBy.ANDROID_UIAUTOMATOR,
-                'new UiSelector().className("android.widget.ImageButton")'
-            )
-            for el in els:
-                try:
-                    loc = el.location
-                    if loc["y"] < top_threshold:
-                        el.click()
-                        log.info("[open_menu] ImageButton at (%d,%d) clicked", loc["x"], loc["y"])
-                        return True
-                except Exception:
-                    pass
+            size = drv.drv.get_window_size()
+            w, h = size["width"], size["height"]
+            top_threshold = int(h * 0.15)
+            right_threshold = int(w * 0.5)
+            for cls in ["android.widget.ImageButton", "android.widget.ImageView",
+                        "android.view.View", "android.view.ViewGroup"]:
+                els = drv.drv.find_elements(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                    f'new UiSelector().className("{cls}").clickable(true)'
+                )
+                for el in els:
+                    try:
+                        loc = el.location
+                        if loc["y"] < top_threshold and loc["x"] > right_threshold:
+                            el.click()
+                            log.info("[open_menu] %s at (%d,%d) clicked", cls, loc["x"], loc["y"])
+                            return True
+                    except Exception:
+                        pass
         except Exception:
             pass
 
-        # Strategy 3: coordinate fallbacks — right side (gear icon) and left side (hamburger)
+        # Strategy 3: coordinate fallbacks — percentage-based (device-independent)
         try:
             size = drv.drv.get_window_size()
             w, h = size["width"], size["height"]
             for pct_x, pct_y, label in [
-                (0.915, 0.096, "top-right"),
-                (0.085, 0.096, "top-left"),
-                (0.915, 0.060, "top-right-high"),
-                (0.085, 0.060, "top-left-high"),
+                (0.92, 0.07, "top-right"),
+                (0.92, 0.05, "top-right-high"),
+                (0.85, 0.07, "top-right-mid"),
+                (0.08, 0.07, "top-left"),
             ]:
                 x, y = int(w * pct_x), int(h * pct_y)
                 drv.drv.tap([(x, y)])
@@ -413,6 +420,10 @@ def open_menu(drv, wait: float = 2.0):
     for attempt in range(3):
         _try_tap()
         time.sleep(wait)
+        try:
+            drv.screenshot(f"open_menu_after_tap_{attempt + 1}")
+        except Exception:
+            pass
         if _is_menu_open(drv, timeout=2):
             log.info("[open_menu] Menu opened on attempt %d", attempt + 1)
             return

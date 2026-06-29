@@ -556,7 +556,8 @@ class AndroidDriver:
             self._emit_conn_event(event_name, detected, desc)
 
         # Inferred: BT disconnected — on main screen but ECG section gone
-        on_main_screen = self.is_visible_text("Add Diary", timeout=1)
+        _main_indicator = self.sel.get("symptom_add_text", "Log Symptoms")
+        on_main_screen = self.is_visible_text(_main_indicator, timeout=1)
         ecg_visible    = self.is_visible_text("Live ECG Signal", timeout=1)
         bt_disconnected = on_main_screen and not ecg_visible
         was_bt_off = self._conn_state.get("bluetooth_off", False)
@@ -757,43 +758,32 @@ class AndroidDriver:
             return False
 
     def _try_add_diary_wifi_off(self):
-        """Attempt Add Diary submission while WiFi is off — records whether it works."""
+        """Attempt symptom submission while WiFi is off — records whether it works."""
         import random as _random
         import time as _time
-        from src.workflows.symptom_inject import SYMPTOMS, ACTIVITIES
+        from src.workflows.symptom_inject import SYMPTOMS
+        _main_btn = self.sel.get("symptom_add_text", "Log Symptoms")
+        _submit_btn = self.sel.get("log_symptoms_submit_text", "Save")
         try:
-            log.info("[connectivity] WiFi off — attempting Add Diary submit")
+            log.info("[connectivity] WiFi off — attempting symptom submit")
             self.bring_to_foreground()
-            if not self.is_visible_text("Add Diary", timeout=3):
-                self.reporter.log_event("wifi_off_diary_result", {"result": "Add Diary button not visible"})
+            if not self.is_visible_text(_main_btn, timeout=3):
+                self.reporter.log_event("wifi_off_diary_result", {"result": f"{_main_btn!r} button not visible"})
                 return
-            symptom  = _random.choice(SYMPTOMS)
-            activity = _random.choice(ACTIVITIES)
-            log.info("[connectivity] WiFi off diary: %s / %s", symptom, activity)
-            self.tap_text("Add Diary", timeout=3)
+            symptom = _random.choice(SYMPTOMS)
+            log.info("[connectivity] WiFi off symptom: %s", symptom)
+            self.tap_text(_main_btn, timeout=3)
             _time.sleep(2.0)
             self.screenshot("connectivity_wifi_off_diary_opened")
 
             self.tap_text(symptom, timeout=8)
-            _time.sleep(0.5)
-
-            if not self.is_visible_text(activity, timeout=3):
-                try:
-                    size = self.drv.get_window_size()
-                    w, h = size["width"], size["height"]
-                    self.drv.swipe(w // 2, int(h * 0.7), w // 2, int(h * 0.3), 400)
-                    _time.sleep(0.5)
-                except Exception:
-                    pass
-            self.tap_text(activity, timeout=8)
             _time.sleep(0.3)
-            self.tap_text("Add Diary", timeout=5)
+            self.tap_text(_submit_btn, timeout=5)
             _time.sleep(1.5)
             self.screenshot("connectivity_wifi_off_diary_submitted")
-            back_on_main = self.is_visible_text("Add Diary", timeout=3)
+            back_on_main = self.is_visible_text(_main_btn, timeout=3)
             self.reporter.log_event("wifi_off_diary_result", {
                 "symptom": symptom,
-                "activity": activity,
                 "result": "submitted and returned to main" if back_on_main else "submitted — screen changed",
             })
         except Exception as e:
@@ -825,48 +815,32 @@ class AndroidDriver:
             self.reporter.log_event("bt_reconnect_ecg_result", {"result": f"error: {e}"})
 
     def _try_add_diary_bt_off(self):
-        """Select symptom + activity in Add Diary while BT is disconnected, then submit — records whether it works."""
+        """Attempt symptom submission while BT is disconnected, then submit — records whether it works."""
         import random as _random
         import time as _time
-        from src.workflows.symptom_inject import SYMPTOMS, ACTIVITIES
+        from src.workflows.symptom_inject import SYMPTOMS
+        _main_btn = self.sel.get("symptom_add_text", "Log Symptoms")
+        _submit_btn = self.sel.get("log_symptoms_submit_text", "Save")
         try:
-            log.info("[connectivity] BT off — attempting Add Diary submit")
+            log.info("[connectivity] BT off — attempting symptom submit")
             self.bring_to_foreground()
-            if not self.is_visible_text("Add Diary", timeout=3):
-                self.reporter.log_event("bt_off_diary_result", {"result": "Add Diary button not visible"})
+            if not self.is_visible_text(_main_btn, timeout=3):
+                self.reporter.log_event("bt_off_diary_result", {"result": f"{_main_btn!r} button not visible"})
                 return
-            symptom  = _random.choice(SYMPTOMS)
-            activity = _random.choice(ACTIVITIES)
-            log.info("[connectivity] BT off diary: %s / %s", symptom, activity)
-            self.tap_text("Add Diary", timeout=3)
-            _time.sleep(2.0)  # wait for diary form to fully load
+            symptom = _random.choice(SYMPTOMS)
+            log.info("[connectivity] BT off symptom: %s", symptom)
+            self.tap_text(_main_btn, timeout=3)
+            _time.sleep(2.0)
             self.screenshot("connectivity_bt_off_diary_opened")
 
-            # Select symptom
             self.tap_text(symptom, timeout=8)
-            _time.sleep(0.5)
-
-            # Select activity — scroll down and retry if not visible on screen
-            if not self.is_visible_text(activity, timeout=3):
-                log.info("[connectivity] activity not visible, scrolling down")
-                try:
-                    size = self.drv.get_window_size()
-                    w, h = size["width"], size["height"]
-                    self.drv.swipe(w // 2, int(h * 0.7), w // 2, int(h * 0.3), 400)
-                    _time.sleep(0.5)
-                except Exception:
-                    pass
-            self.tap_text(activity, timeout=8)
             _time.sleep(0.3)
-
-            # Submit
-            self.tap_text("Add Diary", timeout=5)
+            self.tap_text(_submit_btn, timeout=5)
             _time.sleep(1.5)
             self.screenshot("connectivity_bt_off_diary_submitted")
-            back_on_main = self.is_visible_text("Add Diary", timeout=3)
+            back_on_main = self.is_visible_text(_main_btn, timeout=3)
             self.reporter.log_event("bt_off_diary_result", {
                 "symptom": symptom,
-                "activity": activity,
                 "result": "submitted and returned to main" if back_on_main else "submitted — screen changed",
             })
         except Exception as e:

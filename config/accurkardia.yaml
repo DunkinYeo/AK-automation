@@ -29,8 +29,8 @@ android:
   appium_server_url: "http://127.0.0.1:4723"
   device_name: "Pixel 7"
   udid: "55ETQWBXYE1RA1"
-  test_serial_number: "610260"
-  search_serial: "610260"
+  test_serial_number: "670469"
+  search_serial: "670469"
   app_package: "com.wellysis.accurkardia.accurkardia.mobile"
   app_activity: "com.wellysis.accurkardia.accurkardia.mobile.MainActivity"
   no_reset: true
@@ -66,6 +66,7 @@ selectors:
     log_symptoms_button_text: "Log Symptoms"
     device_status_tab_text: "Device Status"
     realtime_ecg_tab_text: "Real-time ECG"
+    symptom_add_text: "Log Symptoms"   # UI health indicator — button visible on main screen
 
     # Log Symptoms sheet (AK — no Activity section)
     symptom_section_text: "Symptom"
