@@ -1,5 +1,15 @@
 # Changelog — S-Patch AccurKardia Automation
 
+## [v1.0.5] — 2026-06-30
+
+### Fixed
+- **Symptom injection 미실행 버그**: `symptom_add_text` 설정값이 `"Add Diary"`로 되어 있어 UI health check가 항상 실패 → scheduler가 injection/BT disconnect/airplane mode 테스트를 전혀 시작하지 못하는 문제 수정 (`config/accurkardia.yaml`)
+- **`check_connectivity` 오탐**: `on_main_screen` 판단을 `"Add Diary"` 하드코딩에서 config 기반 `symptom_add_text`로 변경 (`src/driver.py`)
+- **`_try_add_diary_wifi_off` / `_try_add_diary_bt_off`**: 하드코딩된 `"Add Diary"` 제거, activity 섹션 제거 (AK 앱에 없음), submit 버튼을 config `log_symptoms_submit_text` ("Save") 로 변경 (`src/driver.py`)
+- **`open_menu` 기기 호환성**: content-desc 탐색 대상 확장 ("Settings", "More options" 등), top-right 영역에서 `clickable=true` View/ImageView/ImageButton 탐색으로 좌표 의존도 감소 (`src/regression/helpers.py`)
+- **`_is_menu_open` 인디케이터**: "Terms and Information", "Live Streaming", "Privacy", "About" 추가 (`src/regression/helpers.py`)
+- **`open_menu` 진단**: 탭 직후 스크린샷(`open_menu_after_tap_N`) 추가 — 실패 원인 즉시 파악 가능
+
 ## [v1.0.0] — 2026-05-28
 
 ### Added
