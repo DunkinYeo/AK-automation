@@ -830,10 +830,9 @@ def _build_report_html(events: list[dict]) -> str:
             ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
         elif ev == "airplane_mode_failed":
             ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
-        elif ev == "bt_not_restored_after_airplane":
-            bt_warnings.append({"ts": ts, "msg": "BT not restored after airplane mode OFF — tester must manually re-enable Bluetooth"})
-        elif ev == "bt_not_restored_after_disconnect":
-            bt_warnings.append({"ts": ts, "msg": "BT not restored after disconnect cycle — tester must manually re-enable Bluetooth"})
+        elif ev == "bt_not_restored":
+            phase = data.get("phase", "workflow")
+            bt_warnings.append({"ts": ts, "msg": f"BT not restored after {phase} — tester must manually re-enable Bluetooth"})
 
     elapsed_str = "-"
     if start_ts_str:

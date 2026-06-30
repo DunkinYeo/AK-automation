@@ -578,8 +578,10 @@ function fmtEvent(ev) {
   } else if (ev.event === 'bt_disconnect_start') {
     text = `BT disconnect — off for ${ev.data?.minutes ?? '?'} min`;
     setInjectNowEnabled(false);
-  } else if (ev.event === 'bt_disconnect_done' || ev.event === 'bt_disconnect_failed') {
-    text = ev.event === 'bt_disconnect_done' ? `BT reconnected after ${ev.data?.minutes ?? '?'} min` : `BT disconnect failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
+  } else if (ev.event === 'bt_disconnect_done' || ev.event === 'bt_disconnect_failed' || ev.event === 'bt_disconnect_not_supported') {
+    text = ev.event === 'bt_disconnect_done' ? `BT reconnected after ${ev.data?.minutes ?? '?'} min`
+         : ev.event === 'bt_disconnect_not_supported' ? `BT toggle skipped — ADB not supported on this device/OS`
+         : `BT disconnect failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
     setInjectNowEnabled(true);
   } else if (ev.event === 'airplane_mode_start') {
     text = `Airplane mode ON — ${ev.data?.minutes ?? '?'} min`;
@@ -677,9 +679,10 @@ const CONN_EVENT_MAP = {
   connection_lost_resolved:   { id: 'connection',     state: 'pass',    text: '✓ OK'       },
   bluetooth_off:              { id: 'bluetooth',      state: 'alert',   text: '✗ Off'      },
   bluetooth_off_resolved:     { id: 'bluetooth',      state: 'pass',    text: '✓ On'       },
-  bt_disconnect_start:        { id: 'bluetooth',      state: 'running', text: '~ Testing'  },
-  bt_disconnect_done:         { id: 'bluetooth',      state: 'pass',    text: '✓ On'       },
-  bt_disconnect_failed:       { id: 'bluetooth',      state: 'fail',    text: '✗ Failed'   },
+  bt_disconnect_start:        { id: 'bluetooth',      state: 'running', text: '~ Testing'   },
+  bt_disconnect_done:         { id: 'bluetooth',      state: 'pass',    text: '✓ On'        },
+  bt_disconnect_failed:       { id: 'bluetooth',      state: 'fail',    text: '✗ Failed'    },
+  bt_disconnect_not_supported:{ id: 'bluetooth',      state: 'skip',    text: '⚠ Skipped'  },
   bt_off_diary_result:        { id: 'bt_diary',       state: null,      text: null         },
   bluetooth_reconnected:      { id: 'bt_reconnect',   state: 'pass',    text: null         },
   bt_reconnect_ecg_result:    { id: 'ecg_check',      state: null,      text: null         },

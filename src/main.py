@@ -292,18 +292,27 @@ def main():
 
         runner = TestRunner(driver, artifacts)
 
-        def _check_bt_not_restored(new_events):
-            for e in new_events:
-                ev = e.get("event", "")
-                if ev in ("bt_not_restored_after_airplane", "bt_not_restored_after_disconnect"):
-                    msg = ("⚠️ *[ACTION REQUIRED]* BT was not restored automatically after "
-                           f"{'airplane mode' if 'airplane' in ev else 'BT disconnect'} cycle.\n"
+        def _check_bt_not_restored(phase: str):
+            """Check BT state via ADB after a workflow; alert if BT is still off."""
+            import subprocess as _sp
+            udid = cfg.get("android", {}).get("udid", "")
+            adb = ["adb"] + (["-s", udid] if udid else [])
+            try:
+                r = _sp.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                            capture_output=True, text=True, timeout=10)
+                bt_off = any("enabled: false" in ln.lower()
+                             for ln in r.stdout.splitlines() if "enabled:" in ln)
+                if bt_off:
+                    msg = (f"⚠️ *[ACTION REQUIRED]* BT was not restored after {phase}.\n"
                            "  • Tester must manually re-enable Bluetooth on the device.\n"
-                           "  • This is a known limitation on this device/OS (ADB BT enable not effective).")
-                    log.warning("[bt_restore] %s", msg)
+                           "  • ADB BT enable is not effective on this device/OS.")
+                    log.warning("[bt_restore] BT still OFF after %s", phase)
+                    reporter.log_event("bt_not_restored", {"phase": phase})
                     if _slack_on:
                         from src.slack import slack_notify
                         slack_notify(_webhook, msg)
+            except Exception as _e:
+                log.warning("[bt_restore] check failed: %s", _e)
 
         def _run_suite(name, tests):
             log_event(f"regression: {name}")
@@ -398,27 +407,25 @@ def main():
                 while not _stop_loop.is_set():
                     if bt_interval_h > 0:
                         _bt_active.set()
-                        pre = len(reporter.events)
                         try:
                             run_bt_disconnect(driver, bt_minutes)
                         except Exception as _e:
                             log.warning("[bt_disconnect] error: %s", _e)
                         finally:
                             _bt_active.clear()
-                        _check_bt_not_restored(reporter.events[pre:])
+                        _check_bt_not_restored("BT disconnect cycle")
                         _stop_loop.wait(60)
                         if _stop_loop.is_set():
                             break
                     if ap_interval_h > 0:
                         _airplane_active.set()
-                        pre = len(reporter.events)
                         try:
                             run_airplane_mode(driver, ap_minutes)
                         except Exception as _e:
                             log.warning("[airplane_mode] error: %s", _e)
                         finally:
                             _airplane_active.clear()
-                        _check_bt_not_restored(reporter.events[pre:])
+                        _check_bt_not_restored("airplane mode")
                         _stop_loop.wait(60)
                         if _stop_loop.is_set():
                             break

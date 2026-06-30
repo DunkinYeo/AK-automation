@@ -599,16 +599,23 @@ class AndroidDriver:
             })
             del self._wifi_off_ts
 
-        # Patch battery status — scan main screen for status text, emit on change
-        battery_status = None
-        for label in ["Good", "Low", "Critical", "Replace", "Full"]:
-            if self.is_visible_text(label, contains=False, timeout=1):
-                battery_status = label
-                break
-        if battery_status and battery_status != self._conn_state.get("battery_status"):
-            self._conn_state["battery_status"] = battery_status
-            self.reporter.log_event("battery_status", {"status": battery_status})
-            log.info("[connectivity] Patch battery status: %s", battery_status)
+        # Patch battery status — only readable when BT is connected.
+        # When BT is off the app shows "How to Replace the Battery" guidance card,
+        # which causes false "Replace" reads. Clear status on disconnect.
+        if bt_disconnected:
+            if self._conn_state.get("battery_status"):
+                self._conn_state["battery_status"] = None
+                self.reporter.log_event("battery_status", {"status": None})
+        else:
+            battery_status = None
+            for label in ["Good", "Low", "Critical", "Replace", "Full"]:
+                if self.is_visible_text(label, contains=False, timeout=1):
+                    battery_status = label
+                    break
+            if battery_status and battery_status != self._conn_state.get("battery_status"):
+                self._conn_state["battery_status"] = battery_status
+                self.reporter.log_event("battery_status", {"status": battery_status})
+                log.info("[connectivity] Patch battery status: %s", battery_status)
 
     # ── Unexpected popup handling ────────────────────────────────────────────
 
