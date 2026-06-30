@@ -9,6 +9,10 @@
 - **`open_menu` 기기 호환성**: content-desc 탐색 대상 확장 ("Settings", "More options" 등), top-right 영역에서 `clickable=true` View/ImageView/ImageButton 탐색으로 좌표 의존도 감소 (`src/regression/helpers.py`)
 - **`_is_menu_open` 인디케이터**: "Terms and Information", "Live Streaming", "Privacy", "About" 추가 (`src/regression/helpers.py`)
 - **`open_menu` 진단**: 탭 직후 스크린샷(`open_menu_after_tap_N`) 추가 — 실패 원인 즉시 파악 가능
+- **`go_to_main` 느린 디바이스 timeout 오탐**: BLE 연결이 120s를 약간 초과하는 느린 디바이스(예: SM-A325N)에서 실제로는 main screen에 도달했음에도 "Main screen not reached after 120s" 예외가 발생하던 문제 수정
+  - 타임아웃 직후 screen을 재확인해 이미 main screen이면 성공으로 처리
+  - loading overlay가 "Log Symptoms"를 가리는 동안에도 "My Study Progress" / "Device Status" 텍스트로 main screen 감지
+  - `go_to_main` 진입 시 초기 체크도 3개 텍스트 모두 확인 (`src/regression/helpers.py`)
 
 ## [v1.0.0] — 2026-05-28
 

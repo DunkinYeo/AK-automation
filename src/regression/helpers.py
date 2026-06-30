@@ -14,8 +14,8 @@ DIARY_X_BTN = None         # kept for legacy import compatibility — use close_
 # ── Screen signatures — ordered from deepest (main) to shallowest (step 1) ──
 # Each entry: (screen_id, [indicator_texts], human_readable_label)
 _SCREEN_SIGNATURES = [
-    ("log_symptoms",   ["Log Symptoms"],                              "Main Screen (Study Running)"),
-    ("start_study",    ["Start Study"],                               "Start Study Screen"),
+    ("start_study",    ["Start Study"],                                        "Start Study Screen"),
+    ("log_symptoms",   ["Log Symptoms", "My Study Progress", "Device Status"], "Main Screen (Study Running)"),
     ("review_setting", ["Review Study Setting"],                      "Step 3 (Review Study Setting)"),
     ("check_signal",   ["Check Incoming Signal"],                     "Step 2 (Check Incoming Signal)"),
     ("connect_patch",  ["Connect Your S-Patch"],                      "Step 1 (Patch Serial Number)"),
@@ -139,10 +139,14 @@ def go_to_main(drv, wait_ble: int = 120):
     except Exception:
         pass
 
-    # Already on main screen
-    if drv.is_visible_text("Log Symptoms", timeout=3):
-        log.info("[go_to_main] Already on main screen")
-        return
+    # Already on main screen — but only if "Start Study" is NOT visible.
+    # The pre-study screen (before tapping Start Study) also shows "My Study Progress" and
+    # "Device Status" alongside the "Start Study" button — must not mistake it for the main screen.
+    if not drv.is_visible_text("Start Study", timeout=1, contains=False):
+        for _indicator in ["Log Symptoms", "My Study Progress", "Device Status"]:
+            if drv.is_visible_text(_indicator, timeout=3):
+                log.info("[go_to_main] Already on main screen (%s visible)", _indicator)
+                return
 
     # Dismiss any lingering popups before navigating
     for popup_text, btn in [("Cannot find your S-Patch", ["Ok", "OK"]),
@@ -303,13 +307,31 @@ def go_to_main(drv, wait_ble: int = 120):
                 pass
             time.sleep(1)
 
-        # ── Unknown screen ────────────────────────────────────────────────────
+        # ── Unknown screen — try to dismiss dialogs / permission popups ─────
         else:
-            time.sleep(1)
+            # Try common dialog buttons first (permissions, ToS, onboarding)
+            _dismissed = False
+            for btn in ["Allow", "ALLOW", "OK", "Ok", "확인", "동의", "Agree", "Skip", "SKIP"]:
+                try:
+                    if drv.is_visible_text(btn, timeout=1, contains=False):
+                        drv.tap_text(btn, timeout=2, contains=False)
+                        log.info("[go_to_main] Unknown screen — dismissed via '%s'", btn)
+                        _dismissed = True
+                        time.sleep(1)
+                        break
+                except Exception:
+                    pass
+            if not _dismissed:
+                time.sleep(1)
 
     # ── TIMEOUT — capture full diagnostics ───────────────────────────────────
     elapsed_total = int(time.monotonic() - _start_ts)
     final_screen_id, final_screen_label = detect_current_screen(drv, timeout=2)
+
+    # Screen reached main just at deadline — treat as success
+    if final_screen_id == "log_symptoms":
+        log.info("[go_to_main] Main screen reached at deadline (%ds elapsed) — accepting", elapsed_total)
+        return
 
     log.error("[go_to_main] TIMEOUT after %ds — current screen: %s", elapsed_total, final_screen_label)
     _capture_diagnostics(drv, "go_to_main_timeout")
@@ -355,6 +377,15 @@ def open_menu(drv, wait: float = 2.0):
       3. ImageButton instance 1 (second button)
       4. Coordinate fallbacks at common positions
     """
+    # Bring app to foreground (handles case where app was sent home by extra Back press)
+    try:
+        pkg = drv.cfg.get("app_package")
+        if pkg:
+            drv.drv.activate_app(pkg)
+            time.sleep(1.0)
+    except Exception:
+        pass
+
     # Capture screen state before first attempt for diagnostics
     try:
         drv.screenshot("open_menu_before")

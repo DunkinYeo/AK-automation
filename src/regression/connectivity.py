@@ -45,12 +45,51 @@ def _adb(drv, *args):
     subprocess.run(cmd, capture_output=True, timeout=10)
 
 
-def _bt_off(drv):
-    _adb(drv, "shell", "cmd", "bluetooth_manager", "disable")
+def _adb_out(drv, *args) -> str:
+    udid = drv.cfg.get("udid", "")
+    cmd = ["adb"] + (["-s", udid] if udid else []) + list(args)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _bt_is_off(drv) -> bool:
+    """Verify BT is actually off via dumpsys."""
+    out = _adb_out(drv, "shell", "dumpsys", "bluetooth_manager")
+    for line in out.splitlines():
+        if "enabled:" in line:
+            return "false" in line.lower()
+    return False
+
+
+def _bt_off(drv) -> bool:
+    """Try to disable BT. Returns True if BT actually went off."""
+    for args in (
+        ("shell", "svc", "bluetooth", "disable"),
+        ("shell", "cmd", "bluetooth_manager", "disable"),
+    ):
+        try:
+            _adb(drv, *args)
+        except Exception:
+            pass
+    time.sleep(2)
+    off = _bt_is_off(drv)
+    if not off:
+        log.warning("_bt_off: BT still ON after disable commands (device/OS may not support ADB BT toggle)")
+    return off
 
 
 def _bt_on(drv):
-    _adb(drv, "shell", "cmd", "bluetooth_manager", "enable")
+    for args in (
+        ("shell", "svc", "bluetooth", "enable"),
+        ("shell", "cmd", "bluetooth_manager", "enable"),
+    ):
+        try:
+            _adb(drv, *args)
+        except Exception:
+            pass
 
 
 def _wifi_off(drv):
@@ -101,6 +140,9 @@ def _bt_on_safe(drv):
         pass
 
 
+_BT_SKIP_REASON = "ADB BT toggle not supported on this device/OS — skipped"
+
+
 # ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
@@ -118,7 +160,8 @@ def test_conn_001_bt_off_disconnected(drv, runner):
     if _not_started(drv):
         return
     _go_device_status(drv)
-    _bt_off(drv)
+    if not _bt_off(drv):
+        runner.skip(_BT_SKIP_REASON)
     ok, elapsed = _poll_until(drv, _BT_DISCONNECTED, appear=True, timeout=_BT_POLL_TIMEOUT)
     _bt_on_safe(drv)
     if ok:
@@ -131,7 +174,8 @@ def test_conn_002_bt_off_timing(drv, runner):
     if _not_started(drv):
         return
     _go_device_status(drv)
-    _bt_off(drv)
+    if not _bt_off(drv):
+        runner.skip(_BT_SKIP_REASON)
     ok, elapsed = _poll_until(drv, _BT_DISCONNECTED, appear=True, timeout=_BT_POLL_TIMEOUT)
     _bt_on_safe(drv)
     if ok:
@@ -145,7 +189,8 @@ def test_conn_003_bt_off_attach_card(drv, runner):
     if _not_started(drv):
         return
     _go_device_status(drv)
-    _bt_off(drv)
+    if not _bt_off(drv):
+        runner.skip(_BT_SKIP_REASON)
     # Card text in app: "How to\nAttacth\nthe S-Patch" (embedded newlines + app typo)
     # Use prefix "How to" for reliable detection
     ok, elapsed = _poll_until(drv, _HOW_TO_ATTACH, appear=True, timeout=_BT_POLL_TIMEOUT)
@@ -160,7 +205,8 @@ def test_conn_004_bt_on_recovery(drv, runner):
     if _not_started(drv):
         return
     _go_device_status(drv)
-    _bt_off(drv)
+    if not _bt_off(drv):
+        runner.skip(_BT_SKIP_REASON)
     _poll_until(drv, _BT_DISCONNECTED, appear=True, timeout=_BT_POLL_TIMEOUT)
     _bt_on(drv)
     ok, elapsed = _poll_until(drv, _BT_DISCONNECTED, appear=False, timeout=_BT_RECOVERY_TIMEOUT)
@@ -230,7 +276,8 @@ def test_conn_007_connect_btn_tap_recovery(drv, runner):
         return
     pkg = drv.cfg.get("app_package")
 
-    _bt_off(drv)
+    if not _bt_off(drv):
+        runner.skip(_BT_SKIP_REASON)
     time.sleep(1)
 
     # Send app to background then foreground — triggers 102 popup

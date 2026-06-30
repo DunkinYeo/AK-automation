@@ -83,11 +83,16 @@ def slack_urgent_alert(webhook_url: str, message: str, mention: str = ""):
     _post(webhook_url, {"text": f"{_mention(mention)}:rotating_light: *[URGENT] AccurKardia*\n{message}"})
 
 
-def slack_regression_suite(webhook_url: str, suite: str, passed: int, total: int, failures: list, mention: str = ""):
+def slack_regression_suite(webhook_url: str, suite: str, passed: int, total: int, failures: list,
+                           skipped_tests: list = None, mention: str = ""):
     icon = ":white_check_mark:" if passed == total else ":x:"
-    lines = [f"{icon} *[Regression] {suite}* — {passed}/{total} passed"]
+    skip_count = len(skipped_tests) if skipped_tests else 0
+    skip_suffix = f" ({skip_count} skipped)" if skip_count else ""
+    lines = [f"{icon} *[Regression] {suite}* — {passed}/{total} passed{skip_suffix}"]
     for f in failures[:5]:
-        lines.append(f"  • {f}")
+        lines.append(f"  • ✗ {f}")
+    for s in (skipped_tests or [])[:3]:
+        lines.append(f"  • ⚠ {s[:80]}")
     _post(webhook_url, {"text": "\n".join(lines)})
 
 

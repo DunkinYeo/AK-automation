@@ -297,15 +297,19 @@ def main():
             pre = len(runner.results)
             runner.run_all(tests)
             batch    = runner.results[pre:]
-            passed   = sum(1 for r in batch if r.passed)
-            failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in batch if not r.passed]
+            skipped  = [r for r in batch if r.skipped]
+            active   = [r for r in batch if not r.skipped]
+            passed   = sum(1 for r in active if r.passed)
+            failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in active if not r.passed]
+            skip_notes = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in skipped]
             reporter.log_event("regression_suite_result", {
-                "suite": name, "passed": passed, "total": len(batch), "failures": failures,
+                "suite": name, "passed": passed, "total": len(active), "failures": failures,
+                "skipped_tests": skip_notes,
             })
             if _slack_on:
                 try:
                     from src.slack import slack_regression_suite
-                    slack_regression_suite(_webhook, name, passed, len(batch), failures)
+                    slack_regression_suite(_webhook, name, passed, len(active), failures, skip_notes)
                 except Exception:
                     pass
 

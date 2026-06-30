@@ -331,7 +331,15 @@ def _run_with_health_check(job_callable, driver, at_hour, payload, reporter, coo
             driver.assert_ui_health()
         except Exception as e:
             reporter.log_event("ui_health_check_failed", {"error": str(e)})
-            _attempt_recovery(driver, reporter, cooldown_seconds)
+            try:
+                _attempt_recovery(driver, reporter, cooldown_seconds)
+            except RuntimeError as recovery_exc:
+                result.success = False
+                result.reason = str(recovery_exc)
+                result.end_ts = datetime.datetime.now().isoformat(timespec="seconds")
+                reporter.log_event("job_failed", {"error": str(recovery_exc), "at_hour": at_hour})
+                reporter.log_event("job_result", dataclasses.asdict(result))
+                return result
 
     try:
         job_callable(at_hour=at_hour, payload=payload)
@@ -421,3 +429,4 @@ def _attempt_recovery(driver, reporter, cooldown_seconds=30):
             # Fall through to next step
 
     reporter.log_event("session_recovery_failed", {"tried_steps": 3})
+    raise RuntimeError("Session recovery failed after 3 steps — job aborted")

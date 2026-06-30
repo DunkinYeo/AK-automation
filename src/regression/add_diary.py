@@ -26,7 +26,7 @@ SYMPTOMS = [
 
 
 def _not_started(drv) -> bool:
-    return drv.is_visible_text(_START_STUDY, timeout=2)
+    return drv.is_visible_text(_START_STUDY, timeout=2, contains=False)
 
 
 def _dismiss_patch_popup(drv):

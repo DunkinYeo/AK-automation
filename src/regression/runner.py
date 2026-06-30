@@ -6,6 +6,10 @@ from typing import Callable
 log = logging.getLogger(__name__)
 
 
+class SkipTest(Exception):
+    """Raised to skip a test (not a failure — reason stored as message)."""
+
+
 @dataclasses.dataclass
 class TestResult:
     name: str
@@ -13,6 +17,7 @@ class TestResult:
     message: str
     duration_s: float
     screenshot: str | None = None
+    skipped: bool = False
 
 
 class TestRunner:
@@ -31,6 +36,9 @@ class TestRunner:
 
     def fail(self, message: str):
         raise Exception(message)
+
+    def skip(self, reason: str):
+        raise SkipTest(reason)
 
     @staticmethod
     def _clean_message(e: Exception) -> str:
@@ -67,6 +75,13 @@ class TestRunner:
             duration = time.monotonic() - start
             result = TestResult(name=name, passed=True, message="PASS", duration_s=duration)
             log.info("  PASS (%.1fs)", duration)
+        except SkipTest as e:
+            duration = time.monotonic() - start
+            result = TestResult(
+                name=name, passed=True, message=f"SKIP: {e}",
+                duration_s=duration, skipped=True
+            )
+            log.info("  SKIP: %s (%.1fs)", e, duration)
         except Exception as e:
             duration = time.monotonic() - start
             try:
@@ -88,15 +103,17 @@ class TestRunner:
 
     def summary(self) -> dict:
         total = len(self.results)
-        passed = sum(1 for r in self.results if r.passed)
+        skipped = sum(1 for r in self.results if r.skipped)
+        passed = sum(1 for r in self.results if r.passed and not r.skipped)
+        failed = sum(1 for r in self.results if not r.passed)
         log.info("=" * 50)
-        log.info("Regression: %d/%d passed", passed, total)
+        log.info("Regression: %d/%d passed (%d skipped)", passed, total - skipped, skipped)
         for r in self.results:
-            icon = "PASS" if r.passed else "FAIL"
+            icon = "SKIP" if r.skipped else ("PASS" if r.passed else "FAIL")
             log.info("  [%s] %s", icon, r.name)
-            if not r.passed:
+            if not r.passed or r.skipped:
                 log.info("       -> %s", r.message)
                 if r.screenshot:
                     log.info("       screenshot: %s", r.screenshot)
         log.info("=" * 50)
-        return {"total": total, "passed": passed, "failed": total - passed, "results": self.results}
+        return {"total": total, "passed": passed, "failed": failed, "skipped": skipped, "results": self.results}

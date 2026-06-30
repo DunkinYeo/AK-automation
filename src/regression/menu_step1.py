@@ -5,7 +5,7 @@ Menu cases that can be verified before serial input (without device connection)
 import time
 import logging
 
-from src.regression.helpers import open_menu, close_menu
+from src.regression.helpers import open_menu, close_menu, reset_to_step1
 
 log = logging.getLogger(__name__)
 
@@ -88,10 +88,8 @@ def test_menu_007_version_information_tap(drv, runner):
     time.sleep(1.0)
     # Check whether the version string or app name is shown on the version info screen
     visible = drv.is_visible_text("Version", timeout=3)
-    drv.drv.press_keycode(4)  # Version Info → menu
-    time.sleep(0.5)
-    drv.drv.press_keycode(4)  # menu → Step 1
-    time.sleep(0.5)
+    # Navigate back to Step 1 regardless of how many Back presses this device needs
+    reset_to_step1(drv, hard=False)
     runner.assert_true(visible, "Version Information screen not opened")
 
 

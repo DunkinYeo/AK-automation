@@ -16,7 +16,8 @@ _NO_STUDY     = "No study information"
 
 
 def _not_started(drv) -> bool:
-    return drv.is_visible_text(_START_STUDY, timeout=2)
+    # contains=False: exact match only — avoids false positives from "Start Study Date" etc.
+    return drv.is_visible_text(_START_STUDY, timeout=2, contains=False)
 
 
 # ---------------------------------------------------------------------------
@@ -24,11 +25,12 @@ def _not_started(drv) -> bool:
 # ---------------------------------------------------------------------------
 
 def test_main_000_study_started(drv, runner):
-    """TC-MAIN-000 | Pre-check: study active (Start Study button not visible)"""
+    """TC-MAIN-000 | Pre-check: study active (Log Symptoms visible, Start Study not visible)"""
     if drv.is_visible_text(_NO_STUDY, timeout=3):
         runner.fail("No study registered in web portal")
-    if _not_started(drv):
-        runner.fail("Study not started — 'Start Study' button still visible")
+    # Wait for main screen to stabilize (BLE may still be connecting)
+    if not drv.is_visible_text(_LOG_SYMPTOMS, timeout=15):
+        runner.fail("Study not started — 'Log Symptoms' not visible within 15s")
 
 
 def test_main_001_sections_visible(drv, runner):

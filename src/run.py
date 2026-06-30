@@ -165,13 +165,14 @@ def _proceed_to_start_study(drv) -> bool:
 
 def _start_study(drv) -> bool:
     """Tap the Start Study button → wait for the main measurement screen."""
-    if not drv.is_visible_text(_START_TEXT, timeout=5):
+    if not drv.is_visible_text(_START_TEXT, timeout=5, contains=False):
         return False
-    drv.tap_text(_START_TEXT, timeout=5)
-    deadline = time.monotonic() + 20
+    drv.tap_text(_START_TEXT, timeout=5, contains=False)
+    deadline = time.monotonic() + 60  # slow devices (Android 11 / WiFi ADB) may take >20s
     while time.monotonic() < deadline:
         if drv.is_visible_text(_MAIN_TEXT, timeout=2):
-            return True
+            time.sleep(3)  # let transition fully complete before declaring success
+            return drv.is_visible_text(_MAIN_TEXT, timeout=3)
         time.sleep(1)
     return False
 
@@ -259,10 +260,16 @@ def main():
         # Detect if study is already active (app restarts directly to main screen).
         # Check multiple texts: "Log Symptoms" may be hidden while BT is reconnecting
         # ("Please wait..." overlay), but "My Study Progress" and "Device Status" are visible.
+        # IMPORTANT: The pre-study screen (before Start Study is tapped) also shows
+        # "My Study Progress" and "Device Status" — exclude that case by checking Start Study is absent.
+        _start_study_visible = drv.is_visible_text(_START_TEXT, timeout=1, contains=False)
         already_measuring = (
-            drv.is_visible_text(_MAIN_TEXT, timeout=3)
-            or drv.is_visible_text("My Study Progress", timeout=3)
-            or drv.is_visible_text("Device Status", timeout=3)
+            not _start_study_visible
+            and (
+                drv.is_visible_text(_MAIN_TEXT, timeout=3)
+                or drv.is_visible_text("My Study Progress", timeout=3)
+                or drv.is_visible_text("Device Status", timeout=3)
+            )
         )
 
         if already_measuring:

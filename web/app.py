@@ -821,6 +821,8 @@ def _build_report_html(events: list[dict]) -> str:
             injections.append({"ts": ts, "symptom": data.get("symptom", "-"), "elapsed": None, "ok": False, "error": data.get("error", "")})
         elif ev == "bt_disconnect_done":
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
+        elif ev == "bt_disconnect_not_supported":
+            bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": None, "error": "ADB BT toggle not supported on this device/OS"})
         elif ev == "bt_disconnect_failed":
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
         elif ev == "airplane_mode_done":
@@ -861,12 +863,17 @@ def _build_report_html(events: list[dict]) -> str:
     inj_ok    = sum(1 for i in injections if i.get("ok"))
     inj_total = len(injections)
     inj_rate  = f"{inj_ok}/{inj_total}" if inj_total else "-"
-    bt_ok     = sum(1 for t in bt_tests if t["ok"])
-    bt_rate   = f"{bt_ok}/{len(bt_tests)}" if bt_tests else "-"
+    bt_ok     = sum(1 for t in bt_tests if t["ok"] is True)
+    bt_skip   = sum(1 for t in bt_tests if t["ok"] is None)
+    bt_rate   = f"{bt_ok}/{len(bt_tests) - bt_skip}" if bt_tests else "-"
+    if bt_skip and bt_tests:
+        bt_rate += f" ({bt_skip} skipped — ADB BT not supported)"
     ap_ok     = sum(1 for t in ap_tests if t["ok"])
     ap_rate   = f"{ap_ok}/{len(ap_tests)}" if ap_tests else "-"
-    bt_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
-                 "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
+    bt_rows  = [[_t(t["ts"]), f"{t['minutes']} min" if t.get("minutes") else "-",
+                 "<span style='color:#059669'>✓</span>" if t["ok"] is True
+                 else ("<span style='color:#d97706'>⚠ skipped — ADB BT not supported on this device/OS</span>" if t["ok"] is None
+                 else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>")]
                 for t in bt_tests]
     ap_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
                  "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
@@ -889,11 +896,16 @@ def _build_report_html(events: list[dict]) -> str:
     suite_html = ""
     for name, d in suites.items():
         fails = d.get("failures", [])
+        skips = d.get("skipped_tests", [])
         fail_html = ""
         if fails and not d.get("skipped") and d.get("passed") != d.get("total"):
             items = "".join(f"<li>{f[:80]}</li>" for f in fails[:5])
             fail_html = f"<ul class='fail-list'>{items}</ul>"
-        suite_html += f"<div class='suite-row'><span class='suite-name'>{name}</span>{_suite_badge(d)}{fail_html}</div>"
+        skip_html = ""
+        if skips:
+            items = "".join(f"<li style='color:#d97706'>{s[:100]}</li>" for s in skips[:5])
+            skip_html = f"<ul class='fail-list'>{items}</ul>"
+        suite_html += f"<div class='suite-row'><span class='suite-name'>{name}</span>{_suite_badge(d)}{fail_html}{skip_html}</div>"
 
     inj_html = ""
     for i in injections:
