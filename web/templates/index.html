@@ -849,7 +849,7 @@ async function init() {
   const r = await fetch('/api/init').then(r => r.json());
   updateAppiumUI(r.appium);
   populateDevices(r.devices);
-  if (r.cached_wifi) applyWifiAutoMode(r.cached_wifi);
+  if (r.cached_wifi) document.getElementById('wifi-addr').value = r.cached_wifi;
   initSuiteGrid();
   initConnGrid();
 
