@@ -292,6 +292,19 @@ def main():
 
         runner = TestRunner(driver, artifacts)
 
+        def _check_bt_not_restored(new_events):
+            for e in new_events:
+                ev = e.get("event", "")
+                if ev in ("bt_not_restored_after_airplane", "bt_not_restored_after_disconnect"):
+                    msg = ("⚠️ *[ACTION REQUIRED]* BT was not restored automatically after "
+                           f"{'airplane mode' if 'airplane' in ev else 'BT disconnect'} cycle.\n"
+                           "  • Tester must manually re-enable Bluetooth on the device.\n"
+                           "  • This is a known limitation on this device/OS (ADB BT enable not effective).")
+                    log.warning("[bt_restore] %s", msg)
+                    if _slack_on:
+                        from src.slack import slack_notify
+                        slack_notify(_webhook, msg)
+
         def _run_suite(name, tests):
             log_event(f"regression: {name}")
             pre = len(runner.results)
@@ -385,23 +398,27 @@ def main():
                 while not _stop_loop.is_set():
                     if bt_interval_h > 0:
                         _bt_active.set()
+                        pre = len(reporter.events)
                         try:
                             run_bt_disconnect(driver, bt_minutes)
                         except Exception as _e:
                             log.warning("[bt_disconnect] error: %s", _e)
                         finally:
                             _bt_active.clear()
+                        _check_bt_not_restored(reporter.events[pre:])
                         _stop_loop.wait(60)
                         if _stop_loop.is_set():
                             break
                     if ap_interval_h > 0:
                         _airplane_active.set()
+                        pre = len(reporter.events)
                         try:
                             run_airplane_mode(driver, ap_minutes)
                         except Exception as _e:
                             log.warning("[airplane_mode] error: %s", _e)
                         finally:
                             _airplane_active.clear()
+                        _check_bt_not_restored(reporter.events[pre:])
                         _stop_loop.wait(60)
                         if _stop_loop.is_set():
                             break

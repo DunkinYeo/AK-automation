@@ -94,8 +94,33 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     driver.reporter.log_event("airplane_mode_done", {"minutes": airplane_minutes})
     log.info("[airplane_mode] Airplane mode disabled after %.1f min", airplane_minutes)
 
+    # Some devices (e.g. Samsung Android 11) restore WiFi after airplane off but
+    # leave BT off. Re-enable BT if it didn't come back automatically.
+    time.sleep(3)
+    try:
+        r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                           capture_output=True, text=True, timeout=10)
+        bt_off = any("enabled: false" in line.lower() for line in r.stdout.splitlines()
+                     if "enabled:" in line)
+        if bt_off:
+            log.info("[airplane_mode] BT still off after airplane restore — re-enabling")
+            subprocess.run(adb + ["shell", "svc", "bluetooth", "enable"],
+                           capture_output=True, timeout=10)
+            time.sleep(3)
+            r2 = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                                capture_output=True, text=True, timeout=10)
+            bt_still_off = any("enabled: false" in line.lower() for line in r2.stdout.splitlines()
+                               if "enabled:" in line)
+            if bt_still_off:
+                log.warning("[airplane_mode] BT could not be re-enabled via ADB after airplane mode")
+                driver.reporter.log_event("bt_not_restored_after_airplane", {
+                    "reason": "ADB svc bluetooth enable not effective on this device/OS"
+                })
+    except Exception as _e:
+        log.warning("[airplane_mode] BT restore check failed: %s", _e)
+
     # Run connectivity check after WiFi restores to emit wifi_off_resolved / wifi_restored.
-    time.sleep(5)
+    time.sleep(2)
     try:
         driver.check_connectivity()
     except Exception as _e:

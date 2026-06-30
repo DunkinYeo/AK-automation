@@ -34,16 +34,22 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     driver.reporter.log_event("bt_disconnect_start", {"minutes": disconnect_minutes})
     log.info("[bt_disconnect] Disabling BT for %.1f min", disconnect_minutes)
 
-    def _bt_is_actually_off() -> bool:
-        """Verify BT actually turned off via dumpsys (svc/cmd may return 0 but not work)."""
-        try:
-            r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
-                               capture_output=True, text=True, timeout=10)
-            for line in r.stdout.splitlines():
-                if "enabled:" in line:
-                    return "false" in line.lower()
-        except Exception:
-            pass
+    def _bt_is_actually_off(retries: int = 5, interval: float = 2.0) -> bool:
+        """Poll dumpsys up to retries*interval seconds to confirm BT turned off.
+        Some devices (e.g. Samsung Android 11) apply the disable command with a delay.
+        """
+        for _ in range(retries):
+            time.sleep(interval)
+            try:
+                r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                                   capture_output=True, text=True, timeout=10)
+                for line in r.stdout.splitlines():
+                    if "enabled:" in line:
+                        if "false" in line.lower():
+                            return True
+                        break
+            except Exception:
+                pass
         return False
 
     def _bt_disable() -> None:
@@ -77,16 +83,19 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
             driver.reporter.log_event("bt_disconnect_failed", {"phase": "disable", "error": str(e2)})
             return
 
-    # Verify BT actually turned off — some devices (e.g. Samsung Android 11) accept
-    # the ADB command but BT stays ON (returncode 0, no stderr, but state unchanged).
-    time.sleep(2)
-    if not _bt_is_actually_off():
+    # Verify BT actually turned off — poll up to 10s since some devices apply the
+    # disable command with a delay (e.g. Samsung Android 11: returncode 0 but BT
+    # stays ON for a few seconds before dropping).
+    bt_went_off = _bt_is_actually_off()
+    if not bt_went_off:
         log.warning("[bt_disconnect] BT still ON after disable commands — ADB BT toggle not supported on this device/OS; skipping disconnect cycle")
         driver.reporter.log_event("bt_disconnect_not_supported", {
             "reason": "ADB BT toggle not effective on this device/OS (dumpsys confirms BT still ON)",
             "minutes": disconnect_minutes,
         })
         return
+    else:
+        log.info("[bt_disconnect] BT confirmed OFF via dumpsys — proceeding with disconnect cycle")
 
     # Give app time to detect BT loss, then run connectivity check to emit
     # bluetooth_off and trigger diary submission.
@@ -127,6 +136,21 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
         except Exception as e2:
             driver.reporter.log_event("bt_disconnect_failed", {"phase": "enable", "error": str(e2)})
             return
+
+    # Verify BT actually came back — some devices ignore the enable command via ADB.
+    time.sleep(3)
+    try:
+        r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                           capture_output=True, text=True, timeout=10)
+        bt_still_off = any("enabled: false" in line.lower() for line in r.stdout.splitlines()
+                           if "enabled:" in line)
+        if bt_still_off:
+            log.warning("[bt_disconnect] BT did not re-enable after disconnect cycle (ADB enable not effective)")
+            driver.reporter.log_event("bt_not_restored_after_disconnect", {
+                "reason": "ADB svc bluetooth enable not effective on this device/OS"
+            })
+    except Exception:
+        pass
 
     driver.reporter.log_event("bt_disconnect_done", {"minutes": disconnect_minutes})
     log.info("[bt_disconnect] BT re-enabled after %.1f min", disconnect_minutes)

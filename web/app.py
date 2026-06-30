@@ -802,6 +802,7 @@ def _build_report_html(events: list[dict]) -> str:
     injections: list = []
     bt_tests: list = []
     ap_tests: list = []
+    bt_warnings: list = []
 
     for e in events:
         ev   = e.get("event", "")
@@ -829,6 +830,10 @@ def _build_report_html(events: list[dict]) -> str:
             ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
         elif ev == "airplane_mode_failed":
             ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
+        elif ev == "bt_not_restored_after_airplane":
+            bt_warnings.append({"ts": ts, "msg": "BT not restored after airplane mode OFF — tester must manually re-enable Bluetooth"})
+        elif ev == "bt_not_restored_after_disconnect":
+            bt_warnings.append({"ts": ts, "msg": "BT not restored after disconnect cycle — tester must manually re-enable Bluetooth"})
 
     elapsed_str = "-"
     if start_ts_str:
@@ -917,9 +922,13 @@ def _build_report_html(events: list[dict]) -> str:
 
     bt_html = ""
     for t in bt_tests:
-        icon = "✓" if t["ok"] else "✗"
-        cls  = "ok" if t["ok"] else "err"
-        bt_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t['minutes']} min</span><span class='{cls}'>{icon}</span></div>"
+        if t["ok"] is True:
+            icon = "✓"; cls = "ok"
+        elif t["ok"] is None:
+            icon = "⚠ skipped"; cls = "skip"
+        else:
+            icon = "✗"; cls = "err"
+        bt_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t.get('minutes') or '-'} min</span><span class='{cls}'>{icon}</span></div>"
 
     ap_html = ""
     for t in ap_tests:
@@ -1022,6 +1031,7 @@ def _build_report_html(events: list[dict]) -> str:
       <span class="card-count">{bt_rate} succeeded</span>
     </div>
     {bt_html if bt_html else "<div class='empty'>No BT tests yet.</div>"}
+    {"".join(f"<div class='list-row' style='background:#fef3c7;border-left:3px solid #d97706;padding:6px 10px;margin-top:4px'><span class='ts'>{_t(w['ts'])}</span><span style='color:#b45309;font-weight:600'>⚠ ACTION REQUIRED: {w['msg']}</span></div>" for w in bt_warnings)}
   </div>
 
   <div class="card">
