@@ -240,8 +240,12 @@ class LongRunScheduler:
             )
 
             def _first_job():
-                _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
-                _schedule_next()
+                try:
+                    _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
+                except Exception:
+                    pass
+                finally:
+                    _schedule_next()
 
             sched.add_job(_first_job, "date", run_date=first_run, misfire_grace_time=grace)
         else:
@@ -323,8 +327,12 @@ def _run_with_health_check(job_callable, driver, at_hour, payload, reporter, coo
             _attempt_recovery(driver, reporter, cooldown_seconds)
 
         # 2. Bring app to foreground
-        driver.bring_to_foreground()
-        driver.wait_idle(1.0)
+        try:
+            driver.bring_to_foreground()
+            driver.wait_idle(1.0)
+        except Exception as e:
+            reporter.log_event("foreground_failed", {"error": str(e)})
+            _attempt_recovery(driver, reporter, cooldown_seconds)
 
         # 3. UI health check
         try:
