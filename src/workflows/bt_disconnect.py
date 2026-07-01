@@ -35,19 +35,17 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     log.info("[bt_disconnect] Disabling BT for %.1f min", disconnect_minutes)
 
     def _bt_is_actually_off(retries: int = 5, interval: float = 2.0) -> bool:
-        """Poll dumpsys up to retries*interval seconds to confirm BT turned off.
-        Some devices (e.g. Samsung Android 11) apply the disable command with a delay.
+        """Poll up to retries*interval seconds to confirm BT turned off.
+        Uses 'settings get global bluetooth_on' (0=off, 1=on) which is
+        consistent across Android versions and OEM skins.
         """
         for _ in range(retries):
             time.sleep(interval)
             try:
-                r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                r = subprocess.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
                                    capture_output=True, text=True, timeout=10)
-                for line in r.stdout.splitlines():
-                    if "enabled:" in line:
-                        if "false" in line.lower():
-                            return True
-                        break
+                if r.stdout.strip() == "0":
+                    return True
             except Exception:
                 pass
         return False
@@ -86,7 +84,7 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     # Verify BT actually turned off — poll up to 10s since some devices apply the
     # disable command with a delay (e.g. Samsung Android 11: returncode 0 but BT
     # stays ON for a few seconds before dropping).
-    bt_went_off = _bt_is_actually_off()
+    bt_went_off = _bt_is_actually_off(retries=10, interval=2.0)
     if not bt_went_off:
         log.warning("[bt_disconnect] BT still ON after disable commands — ADB BT toggle not supported on this device/OS; skipping disconnect cycle")
         driver.reporter.log_event("bt_disconnect_not_supported", {

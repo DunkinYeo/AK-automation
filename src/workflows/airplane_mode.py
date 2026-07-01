@@ -98,19 +98,17 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     # leave BT off. Re-enable BT if it didn't come back automatically.
     time.sleep(3)
     try:
-        r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+        r = subprocess.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
                            capture_output=True, text=True, timeout=10)
-        bt_off = any("enabled: false" in line.lower() for line in r.stdout.splitlines()
-                     if "enabled:" in line)
+        bt_off = r.stdout.strip() == "0"
         if bt_off:
             log.info("[airplane_mode] BT still off after airplane restore — re-enabling")
             subprocess.run(adb + ["shell", "svc", "bluetooth", "enable"],
                            capture_output=True, timeout=10)
             time.sleep(3)
-            r2 = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+            r2 = subprocess.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
                                 capture_output=True, text=True, timeout=10)
-            bt_still_off = any("enabled: false" in line.lower() for line in r2.stdout.splitlines()
-                               if "enabled:" in line)
+            bt_still_off = r2.stdout.strip() == "0"
             if bt_still_off:
                 log.warning("[airplane_mode] BT could not be re-enabled via ADB after airplane mode")
                 driver.reporter.log_event("bt_not_restored_after_airplane", {
