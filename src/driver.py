@@ -601,15 +601,23 @@ class AndroidDriver:
 
         # Patch battery status — only readable when BT is connected.
         # When BT is off the app shows "How to Replace the Battery" guidance card,
-        # which causes false "Replace" reads. Clear status on disconnect.
-        if bt_disconnected:
+        # which causes false "Replace" reads. Use ADB as ground truth to guard
+        # against cases where UI detection misses a natural BT disconnection.
+        bt_actually_off = bt_disconnected or self._adb_bt_off()
+        if bt_actually_off:
             if self._conn_state.get("battery_status"):
                 self._conn_state["battery_status"] = None
                 self.reporter.log_event("battery_status", {"status": None})
         else:
             battery_status = None
-            for label in ["Good", "Low", "Critical", "Replace", "Full"]:
+            # "How to Replace the Battery" card is always on screen (card 4).
+            # If "Replace" is the matched label, verify it's not from card 4
+            # by confirming "How to" is NOT visible alongside it.
+            how_to_visible = self.is_visible_text("How to", contains=True, timeout=1)
+            for label in ["Good", "Low", "Critical", "Full", "Replace"]:
                 if self.is_visible_text(label, contains=False, timeout=1):
+                    if label == "Replace" and how_to_visible:
+                        break  # "Replace" is from card 4, not battery status
                     battery_status = label
                     break
             if battery_status and battery_status != self._conn_state.get("battery_status"):
@@ -762,6 +770,20 @@ class AndroidDriver:
             return result.stdout.strip() == "0"
         except Exception as e:
             log.debug("[connectivity] wifi_off adb check failed: %s", e)
+            return False
+
+    def _adb_bt_off(self) -> bool:
+        """Check BT on/off state via ADB. Returns False on error (false negatives allowed)."""
+        try:
+            udid = self.cfg.get("udid", "")
+            cmd = ["adb"]
+            if udid:
+                cmd += ["-s", udid]
+            cmd += ["shell", "settings", "get", "global", "bluetooth_on"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return result.stdout.strip() == "0"
+        except Exception as e:
+            log.debug("[connectivity] bt_off adb check failed: %s", e)
             return False
 
     def _try_add_diary_wifi_off(self):
