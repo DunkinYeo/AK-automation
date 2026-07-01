@@ -138,10 +138,9 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     # Verify BT actually came back — some devices ignore the enable command via ADB.
     time.sleep(3)
     try:
-        r = subprocess.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+        r = subprocess.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
                            capture_output=True, text=True, timeout=10)
-        bt_still_off = any("enabled: false" in line.lower() for line in r.stdout.splitlines()
-                           if "enabled:" in line)
+        bt_still_off = r.stdout.strip() == "0"
         if bt_still_off:
             log.warning("[bt_disconnect] BT did not re-enable after disconnect cycle (ADB enable not effective)")
             driver.reporter.log_event("bt_not_restored_after_disconnect", {

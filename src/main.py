@@ -298,10 +298,9 @@ def main():
             udid = cfg.get("android", {}).get("udid", "")
             adb = ["adb"] + (["-s", udid] if udid else [])
             try:
-                r = _sp.run(adb + ["shell", "dumpsys", "bluetooth_manager"],
+                r = _sp.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
                             capture_output=True, text=True, timeout=10)
-                bt_off = any("enabled: false" in ln.lower()
-                             for ln in r.stdout.splitlines() if "enabled:" in ln)
+                bt_off = r.stdout.strip() == "0"
                 if bt_off:
                     msg = (f"⚠️ *[ACTION REQUIRED]* BT was not restored after {phase}.\n"
                            "  • Tester must manually re-enable Bluetooth on the device.\n"
