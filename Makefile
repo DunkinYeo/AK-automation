@@ -4,7 +4,8 @@ OUT    ?= ~/Desktop
 
 .PHONY: install run stop web dry-run regression \
         reg-serial reg-menu reg-signal reg-study reg-main reg-diary reg-menu-study \
-        dist dist-mac dist-windows help
+        dist dist-mac dist-windows help \
+        run-ios stop-ios dry-run-ios
 
 help:
 	@echo ""
@@ -81,6 +82,19 @@ reg-diary:
 reg-menu-study:
 	PYTHONPATH=. $(PYTHON) src/run_regression.py --config $(CONFIG) --suite menu-study
 
+# ── iOS targets (new — Android targets above are unchanged) ─────────────────
+IOS_CONFIG ?= config/accurkardia_ios.yaml
+
+run-ios:
+	PYTHONPATH=. $(PYTHON) src/main_ios.py --config $(IOS_CONFIG)
+
+stop-ios:
+	@pkill -f "src/main_ios.py" 2>/dev/null && echo "Stopped." || echo "Not running."
+
+dry-run-ios:
+	PYTHONPATH=. $(PYTHON) src/main_ios.py --config $(IOS_CONFIG) --dry-run
+
+# ── Distribution ──────────────────────────────────────────────────────────────
 dist:
 	$(PYTHON) scripts/build_dist.py --out $(OUT) --platform both
 

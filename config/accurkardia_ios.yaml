@@ -1,0 +1,48 @@
+platform: ios
+
+run:
+  name: "ak_ios_longrun"
+  duration_hours: 72
+  symptom_interval_hours: 1
+  start_immediately: true
+  jitter_seconds: 0
+  quiet_hours:
+    start: 2
+    end: 6
+
+recovery:
+  cooldown_seconds_between_steps: 30
+
+symptom_catalog:
+  symptoms:
+    - "Chest pain / discomfort"
+    - "Shortness of breath"
+    - "Dizziness"
+    - "Fainting"
+    - "Palpitations / Heart pounding"
+    - "Nausea"
+
+ios:
+  appium_server_url: "http://127.0.0.1:4723"
+  platform_version: "18.6"
+  device_name: "Wellysis iPhone 13 mini"
+  udid: "00008110-001118942104801E"
+  bundle_id: "com.wellysis.accurkardia.accurkardia"
+  no_reset: true
+  new_command_timeout: 3600
+  xcode_org_id: "9538X2C925"
+  xcode_signing_id: "Apple Development"
+  wda_local_port: 8100
+
+selectors:
+  ios:
+    symptom_add_text: "Add Diary"
+    main_screen_text: "My Study Progress"
+    log_symptoms_button_text: "Log Symptoms"
+    connect_button_text: "Connect"
+    start_study_button_text: "Start Study"
+
+slack:
+  enabled: true
+  webhook_url: ""   # set via SLACK_WEBHOOK_URL in .env or enter directly
+  mention: ""
