@@ -28,11 +28,14 @@ ios:
   device_name: "Wellysis iPhone 13 mini"
   udid: "00008110-001118942104801E"
   bundle_id: "com.wellysis.accurkardia.accurkardia"
+  test_serial_number: "510131"
   no_reset: true
   new_command_timeout: 3600
   xcode_org_id: "9538X2C925"
   xcode_signing_id: "Apple Development"
   wda_local_port: 8100
+  wda_launch_timeout: 120000
+  show_xcode_log: true
 
 selectors:
   ios:

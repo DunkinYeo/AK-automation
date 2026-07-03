@@ -78,6 +78,15 @@ class IOSDriver:
         # Keep screen on during test
         opts.set_capability("keepKeyChains", True)
 
+        if self.cfg.get("show_xcode_log"):
+            opts.set_capability("showXcodeLog", True)
+
+        # Force WDA restart to recover from previous session crash
+        opts.set_capability("useNewWDA", True)
+
+        wda_launch_timeout = self.cfg.get("wda_launch_timeout", 60000)
+        opts.set_capability("wdaLaunchTimeout", wda_launch_timeout)
+
         return opts
 
     def _connect(self) -> webdriver.Remote:
@@ -127,9 +136,9 @@ class IOSDriver:
     def _locators_for(self, value: str) -> list[tuple]:
         return [
             (AppiumBy.ACCESSIBILITY_ID, value),
-            (AppiumBy.IOS_PREDICATE_STRING, f'label == "{value}"'),
-            (AppiumBy.IOS_PREDICATE_STRING, f'value == "{value}"'),
-            (AppiumBy.IOS_PREDICATE_STRING, f'name == "{value}"'),
+            (AppiumBy.IOS_PREDICATE, f'label == "{value}"'),
+            (AppiumBy.IOS_PREDICATE, f'value == "{value}"'),
+            (AppiumBy.IOS_PREDICATE, f'name == "{value}"'),
         ]
 
     def find(self, value: str, timeout: int = 10, contains: bool = False):
@@ -138,7 +147,7 @@ class IOSDriver:
         Same interface as AndroidDriver.find().
         """
         if contains:
-            locator = (AppiumBy.IOS_PREDICATE_STRING, f'label CONTAINS "{value}"')
+            locator = (AppiumBy.IOS_PREDICATE, f'label CONTAINS "{value}"')
             return WebDriverWait(self.drv, timeout).until(
                 EC.presence_of_element_located(locator)
             )
@@ -157,7 +166,7 @@ class IOSDriver:
                 last_exc = e
 
         # Final: full-timeout contains fallback
-        final_locator = (AppiumBy.IOS_PREDICATE_STRING, f'label CONTAINS "{value}"')
+        final_locator = (AppiumBy.IOS_PREDICATE, f'label CONTAINS "{value}"')
         tried.append(f"label_contains(full)={value}")
         try:
             return WebDriverWait(self.drv, timeout).until(
