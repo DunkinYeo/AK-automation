@@ -174,7 +174,13 @@ def read_events(out_dir: str | None) -> list[dict]:
     for line in p.read_text(encoding="utf-8").splitlines():
         if line.strip():
             try:
-                events.append(json.loads(line))
+                ev = json.loads(line)
+                # iOS runs emit "<name>_ios" events — normalize so the
+                # dashboard (suite cards, log, progress) renders both platforms
+                name = ev.get("event", "")
+                if name.endswith("_ios"):
+                    ev["event"] = name[:-4]
+                events.append(ev)
             except Exception:
                 pass
     return events
@@ -230,8 +236,10 @@ def _sync_localhost_session():
                 if ev == "device_info":
                     model   = data.get("model", "")
                     android = data.get("android_version", "")
+                    ios     = data.get("ios_version", "")
                     udid    = data.get("udid", "")
-                    ver     = f" · Android {android}" if android else ""
+                    ver     = (f" · iOS {ios}" if ios
+                               else f" · Android {android}" if android else "")
                     device  = f"{model}{ver} ({udid})" if model else udid
                 elif ev == "run_start":
                     duration_hours = duration_hours or data.get("duration_hours")
@@ -747,8 +755,11 @@ def api_hub_events():
         if event == "device_info":
             model   = payload.get("model") or ""
             android = payload.get("android_version") or ""
+            ios     = payload.get("ios_version") or ""
             udid    = payload.get("udid") or ""
-            parts   = [p for p in [model, f"Android {android}" if android else "", f"({udid})" if udid else ""] if p]
+            os_label = (f"iOS {ios}" if ios
+                        else f"Android {android}" if android else "")
+            parts   = [p for p in [model, os_label, f"({udid})" if udid else ""] if p]
             session["device"] = " · ".join(parts[:2]) + (f" {parts[2]}" if len(parts) > 2 else "")
 
     return jsonify({"ok": True})

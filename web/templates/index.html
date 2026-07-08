@@ -581,7 +581,9 @@ function fmtEvent(ev) {
   else if (ev.event === 'inject_done') text = `Injection done — ${ev.data?.symptom || ''} (${ev.data?.elapsed_sec ?? '?'}s)`;
   else if (ev.event === 'device_info') {
     const d = ev.data || {};
-    text = `Device: ${d.model || ''} Android ${d.android_version || ''} (${d.udid || ''})`;
+    const osLabel = d.ios_version ? `iOS ${d.ios_version}`
+                  : d.android_version ? `Android ${d.android_version}` : '';
+    text = `Device: ${d.model || ''} ${osLabel} (${d.udid || ''})`;
   } else if (ev.event === 'schedule_add') {
     const t = ev.data?.run_at ? new Date(ev.data.run_at).toLocaleTimeString() : '-';
     text = `Next injection scheduled → ${t}`;
