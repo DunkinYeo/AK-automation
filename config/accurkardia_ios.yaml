@@ -6,6 +6,10 @@ run:
   symptom_interval_hours: 1
   start_immediately: true
   jitter_seconds: 0
+  bt_disconnect_interval_hours: 1   # BT disconnect test interval (0 = disabled) — via Control Center
+  bt_disconnect_minutes: 10         # how long BT stays disconnected each cycle
+  airplane_mode_interval_hours: 1   # airplane mode test interval (0 = disabled) — via Control Center
+  airplane_mode_minutes: 5          # how long airplane mode stays on each cycle
   quiet_hours:
     start: 2
     end: 6
@@ -39,7 +43,9 @@ ios:
 
 selectors:
   ios:
-    symptom_add_text: "Add Diary"
+    # iOS main screen has no "Add Diary" — "Log Symptoms" is the main-screen
+    # indicator used by assert_ui_health / wait_for_symptom_success
+    symptom_add_text: "Log Symptoms"
     main_screen_text: "My Study Progress"
     log_symptoms_button_text: "Log Symptoms"
     connect_button_text: "Connect"

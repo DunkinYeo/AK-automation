@@ -61,6 +61,7 @@ def _ratio_tap(drv, x_ratio: float, y_ratio: float, label: str = ""):
     Tap at a screen-size-ratio position.
     x_ratio / y_ratio are fractions of screen width/height (0.0 – 1.0).
     Works across all iPhone screen sizes since no absolute pixel values are used.
+    Uses mobile: tap (XCUITest native) which is more reliable than the deprecated tap() API.
     """
     size = drv.drv.get_window_size()
     x = int(size["width"]  * x_ratio)
@@ -68,6 +69,12 @@ def _ratio_tap(drv, x_ratio: float, y_ratio: float, label: str = ""):
     log.info("[tap-ios] Coordinate tap%s at (%d, %d) [%.1f%% x, %.1f%% y] on %dx%d screen",
              f" ({label})" if label else "",
              x, y, x_ratio * 100, y_ratio * 100, size["width"], size["height"])
+    # mobile: tap uses XCUITest native gesture (more reliable in xcuitest 11+)
+    try:
+        drv.drv.execute_script("mobile: tap", {"x": float(x), "y": float(y)})
+        return
+    except Exception as e:
+        log.debug("[tap-ios] mobile:tap failed (%s) — falling back to tap()", e)
     drv.drv.tap([(x, y)])
 
 
@@ -150,26 +157,77 @@ def _try_visible_text(drv, text: str, timeout: int = 2) -> bool:
     return False
 
 
+def _extract_spatch_serial(label: str) -> str:
+    """
+    Extract the S-Patch serial from the container label.
+    Label format: "...Review Study Setting, S-Patch 510131, Registered Study..."
+    Returns "" if serial is absent/empty.
+    """
+    import re
+    m = re.search(r's-patch (\d+)', label)
+    return m.group(1) if m else ""
+
+
+def _active_step_from_pixels(drv):
+    """
+    Determine which stepper circle (1/2/3 at top of screen) is active.
+    Active step = solid blue fill RGB≈(51,122,169); inactive = white w/ border.
+    Runtime-calibrated: scans y 11–22% for the stepper row (robust to layout
+    shifts across app versions); x≈27.2%/50%/72.4%. r<100 excludes the
+    light-blue circle border (~145).
+    Returns 1, 2, 3, or None if indeterminate (e.g. not on the stepper pager).
+    """
+    try:
+        import io
+        from PIL import Image
+        png = drv.drv.get_screenshot_as_png()
+        img = Image.open(io.BytesIO(png)).convert("RGB")
+        w, h = img.size
+
+        def _blue(px):
+            r, g, b = px[:3]
+            return b > r + 30 and b > 120 and r < 100
+
+        for ry1000 in range(110, 225, 5):
+            y = int(h * ry1000 / 1000)
+            hits = [step for step, rx in ((1, 0.272), (2, 0.500), (3, 0.724))
+                    if _blue(img.getpixel((int(w * rx), y)))]
+            if len(hits) == 1:
+                return hits[0]
+    except Exception as e:
+        log.debug("[detect-ios] stepper pixel check failed: %s", e)
+    return None
+
+
 def _detect_screen_from_container(drv) -> tuple:
     """
     For React Native apps with flattened accessibility tree:
     parse the single container's label to detect the current screen.
 
     Step detection strategy:
-    - The stepper always shows 1/2/3 text + ALL step content in its label
-    - UNIQUE identifiers per screen:
-        Main  : "add diary" (only shown when study is active)
-        Start : "start study" at the END of the label (button text)
-        Step 3: "review study setting" + "registered study" (no "start study" button yet)
-        Step 2: "check incoming signal" but NOT "review study setting"
-        Step 1: "connect your s-patch" + ends with "connect" (the button)
+    - The stepper pager renders ALL steps in one accessible label always.
+    - Step 1 is detected by the serial TextField (rarely exposed) or by the
+      stepper-circle pixel check (active circle is solid blue).
+    - Steps 2/3 are distinguished by S-Patch serial presence + stepper pixels.
     """
+    # Step 1: uniquely identified by the serial input TextField being accessible.
+    # NOTE: on this app the TextField is usually NOT exposed (flat tree), so
+    # the pixel-based stepper check below is the reliable path.
+    try:
+        text_fields = drv.drv.find_elements(
+            AppiumBy.IOS_PREDICATE, 'type == "XCUIElementTypeTextField"'
+        )
+        if text_fields:
+            return "connect_patch", "Step 1 (Patch Serial Number)"
+    except Exception:
+        pass
+
+    # Parse accessible container label for all other screens
     try:
         containers = drv.drv.find_elements(AppiumBy.IOS_PREDICATE, "accessible == true")
         for el in containers:
             try:
                 el_area = el.size["width"] * el.size["height"]
-                # Only look at large elements (the main content container)
                 if el_area < 10000:
                     continue
             except Exception:
@@ -178,7 +236,7 @@ def _detect_screen_from_container(drv) -> tuple:
             if not label:
                 continue
 
-            # Error screens (unique text, check first)
+            # Error screens
             if "cannot find your s-patch" in label:
                 return "cannot_find", "Error: Cannot Find S-Patch (950)"
             if "reset your s-patch" in label:
@@ -188,25 +246,31 @@ def _detect_screen_from_container(drv) -> tuple:
             if "bluetooth not enabled" in label:
                 return "bt_disabled", "Error: Bluetooth Disabled"
 
-            # Main measurement screen: "add diary" only appears after study starts
+            # Main measurement screen
             if "add diary" in label or ("log symptoms" in label and "start study" not in label):
                 return "log_symptoms", "Main Screen (Study Running)"
 
-            # Start Study screen: "start study" appears as a button AFTER step 3
+            # Start Study screen
             if "start study" in label and "registered study" in label:
                 return "start_study", "Start Study Screen"
 
-            # Step 3: Review Study Setting visible, study registered, no Start Study yet
+            # Steps 1/2/3 all show "review study setting" + "registered study"
+            # in the flattened pager label. Serial populated → BLE connected
+            # (Step 3). Serial empty is AMBIGUOUS between Step 1 (waiting for
+            # input) and Step 2 (BLE scanning) — resolve via stepper pixels.
             if "review study setting" in label and "registered study" in label:
-                return "review_setting", "Step 3 (Review Study Setting)"
+                serial = _extract_spatch_serial(label)
+                if serial:
+                    return "review_setting", f"Step 3 (Review Study Setting) serial={serial}"
+                step = _active_step_from_pixels(drv)
+                if step == 1:
+                    return "connect_patch", "Step 1 (stepper pixel check)"
+                if step == 3:
+                    return "review_setting", "Step 3 (stepper pixel check)"
+                return "check_signal", "Step 2 (BLE connecting — serial empty)"
 
-            # Step 2: Check Incoming Signal is visible
-            if "check incoming signal" in label and "review study setting" not in label:
+            if "check incoming signal" in label:
                 return "check_signal", "Step 2 (Check Incoming Signal)"
-
-            # Step 1: Connect Your S-Patch
-            if "connect your s-patch" in label:
-                return "connect_patch", "Step 1 (Patch Serial Number)"
 
     except Exception:
         pass
@@ -264,6 +328,16 @@ def _save_failure_diagnostics(drv, tag: str):
         pass
 
 
+def ios_go_back(drv):
+    """
+    Navigate back on iOS. Sub-screens show a back arrow at top-left which is
+    NOT an element in the flat RN tree — tap it by coordinate (verified
+    ~9.8% x, ~10.5% y on 375x812). Replaces Android press_keycode(4).
+    """
+    _ratio_tap(drv, 0.098, 0.105, "back arrow (top-left)")
+    time.sleep(1.0)
+
+
 def close_sheet(drv):
     """
     Close a bottom sheet on iOS.
@@ -284,33 +358,169 @@ def close_sheet(drv):
         pass
 
 
+def _clear_saved_app_state(udid: str, bundle_id: str) -> bool:
+    """
+    Delete iOS Saved Application State so the app launches fresh at Step 1
+    instead of restoring the previous UI (BLE scanning on Step 2).
+    Uses pymobiledevice3 HouseArrest AFC (no root needed).
+    Returns True if cleared, False if failed.
+    """
+    import asyncio
+
+    async def _do_clear():
+        try:
+            from pymobiledevice3.lockdown import create_using_usbmux
+            from pymobiledevice3.services.house_arrest import HouseArrestService
+        except ImportError:
+            log.warning("[setup-ios] pymobiledevice3 not installed — cannot clear app state")
+            return False
+
+        try:
+            lockdown = await create_using_usbmux(serial=udid)
+            service = await HouseArrestService.create(lockdown, bundle_id)
+        except Exception as e:
+            log.warning("[setup-ios] HouseArrest connect failed: %s", e)
+            return False
+
+        state_base = (
+            "/Library/Saved Application State"
+            f"/{bundle_id}.savedState"
+            "/KnownSceneSessions"
+        )
+        deleted = 0
+        try:
+            items = await service.listdir(state_base)
+            for item in items:
+                path = f"{state_base}/{item}"
+                try:
+                    await service.rm(path)
+                    deleted += 1
+                except Exception:
+                    pass
+            try:
+                await service.rm(state_base)
+                deleted += 1
+            except Exception:
+                pass
+        except Exception:
+            pass
+        finally:
+            try:
+                await service.close()
+            except Exception:
+                pass
+
+        if deleted:
+            log.info("[setup-ios] Cleared %d saved-state file(s) — app will start fresh", deleted)
+        else:
+            log.info("[setup-ios] No saved state found (already clean)")
+        return True
+
+    try:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(_do_clear())
+        loop.close()
+        return result
+    except Exception as e:
+        log.warning("[setup-ios] _clear_saved_app_state failed: %s", e)
+        return False
+
+
 def reset_to_step1(drv, hard: bool = True):
+    """
+    Clear iOS Saved Application State, restart the app, confirm Step 1.
+
+    Root cause of Step 2 resume: iOS restores the app's UI via
+    KnownSceneSessions/data.data.  Deleting that file forces a fresh launch.
+
+    Returns:
+      True  — Step 1 confirmed (serial TextField found)
+      False — Step 1 not reached; go_to_main() will handle navigation
+    """
     bundle_id = drv.cfg.get("bundle_id", "")
+    udid      = drv.cfg.get("udid", "")
+
     if hard:
-        log.info("[setup-ios] App restart → Step 1")
+        # 1. Terminate first so the state file is no longer locked by the process
         try:
             drv.drv.terminate_app(bundle_id)
         except Exception:
             pass
         time.sleep(1)
+
+        # 2. Delete the saved UI state
+        log.info("[setup-ios] Clearing Saved Application State for %s", bundle_id)
+        _clear_saved_app_state(udid, bundle_id)
+
+        # 3. Relaunch the app
         try:
             drv.drv.activate_app(bundle_id)
         except Exception:
             pass
-        time.sleep(2)
-    else:
-        log.info("[setup-ios] Back swipe → Step 1")
-        for _ in range(5):
-            if _try_visible_text(drv, "Connect Your S-Patch", timeout=2):
-                break
-            try:
-                size = drv.drv.get_window_size()
-                # Left-edge swipe right = iOS back gesture
-                drv.drv.swipe(int(size["width"] * 0.02), int(size["height"] * 0.5),
-                               int(size["width"] * 0.5),  int(size["height"] * 0.5), 300)
-            except Exception:
-                pass
-            time.sleep(0.8)
+        time.sleep(4)
+
+    def _check_step1() -> bool:
+        """Return True if we're on Step 1 (TextField found OR keyboard is open after tap)."""
+        if _find_serial_input(drv):
+            return True
+        # Try tapping the serial input area to activate the field
+        _ratio_tap(drv, _SERIAL_INPUT_X, _SERIAL_INPUT_Y, "activate serial input")
+        time.sleep(1.5)
+        if _find_serial_input(drv):
+            return True
+        # Keyboard open = field is focused = Step 1 is active
+        if _is_keyboard_shown(drv):
+            log.info("[setup-ios] Step 1 confirmed — keyboard open after tap")
+            return True
+        return False
+
+    # Check immediately — app should start from Step 1 now
+    if _check_step1():
+        log.info("[setup-ios] Step 1 confirmed immediately")
+        return True
+
+    screen_id, _ = detect_current_screen(drv)
+    if screen_id == "log_symptoms":
+        log.info("[setup-ios] Already on main screen — skipping Step 1 reset")
+        return False
+
+    # App started on Step 2 BLE scan (no registered serial → ~90s natural timeout).
+    # IMPORTANT: Do NOT tap during this wait — tapping on the BLE scan screen can
+    # restart its internal timer, preventing the natural timeout from firing.
+    # Just poll passively until the app returns to Step 1 on its own.
+    log.info("[setup-ios] App on Step 2 BLE scan — waiting up to 150s for Step 1 (no taps)")
+    deadline = time.monotonic() + 150
+    _last_log = 0
+    while time.monotonic() < deadline:
+        # TextField: appears once BLE scan times out and app returns to Step 1
+        if _find_serial_input(drv):
+            elapsed = int(150 - (deadline - time.monotonic()))
+            log.info("[setup-ios] Step 1 TextField appeared after %ds", elapsed)
+            return True
+        # Keyboard: visible if the field is already focused from a prior tap
+        if _is_keyboard_shown(drv):
+            elapsed = int(150 - (deadline - time.monotonic()))
+            log.info("[setup-ios] Step 1 confirmed via keyboard (%ds elapsed)", elapsed)
+            return True
+        screen_id, _ = detect_current_screen(drv)
+        if screen_id == "log_symptoms":
+            log.info("[setup-ios] Main screen reached — skipping Step 1 reset")
+            return False
+        # If we're on connect_patch without TextField, try tapping to activate keyboard
+        if screen_id == "connect_patch":
+            if _check_step1():
+                elapsed = int(150 - (deadline - time.monotonic()))
+                log.info("[setup-ios] Step 1 reached (keyboard/TextField) after %ds", elapsed)
+                return True
+        now = time.monotonic()
+        if now - _last_log >= 15:
+            elapsed = int(150 - (deadline - now))
+            log.info("[setup-ios] Waiting for Step 1 (%ds elapsed) — app on %s", elapsed, screen_id)
+            _last_log = now
+        time.sleep(5)
+
+    log.warning("[setup-ios] Step 1 not reached after 150s — go_to_main will handle")
+    return False
 
 
 def _tap_serial_input(drv) -> bool:
@@ -342,70 +552,52 @@ def _tap_serial_input(drv) -> bool:
     return False
 
 
+def _tap_keyboard_key(drv, label: str) -> bool:
+    """Tap a numeric-keyboard key by exact label ('0'-'9', 'Delete' — capital D)."""
+    try:
+        els = drv.drv.find_elements(
+            AppiumBy.IOS_PREDICATE,
+            f'type == "XCUIElementTypeKey" AND label == "{label}"',
+        )
+        if els:
+            els[0].click()
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _enter_serial(drv, serial: str) -> bool:
     """
-    Enter serial number into the input field.
-    Tries multiple strategies to type text on iOS:
-      1. Find element → send_keys (if element accessible)
-      2. Tap coordinate → re-find focused element → send_keys
-      3. Tap coordinate → mobile: typeIntoTextField (Appium XCUITest command)
-      4. Tap coordinate → keyboard action keys
+    Enter serial number by tapping individual keyboard keys — the ONLY method
+    that triggers React Native onChangeText on this app. send_keys / mobile: type
+    update the UITextField display but NOT the RN JavaScript state, so the value
+    is lost on re-render and Connect stays disabled.
     """
-    # 1. Find element directly and type
-    el = _find_serial_input(drv)
-    if el:
-        try:
-            el.clear()
-            el.send_keys(serial)
-            log.info("[serial-ios] Serial entered via element.send_keys: %s", serial)
-            _dismiss_keyboard(drv)
-            return True
-        except Exception as e:
-            log.debug("[serial-ios] element.send_keys failed: %s", e)
+    if not _is_keyboard_shown(drv):
+        _tap_serial_input(drv)
+        time.sleep(1.0)
+    if not _is_keyboard_shown(drv):
+        log.warning("[serial-ios] Keyboard did not appear — cannot enter serial")
+        return False
 
-    # 2. Tap coordinate to focus, then try to find element again
-    _tap_serial_input(drv)
-    time.sleep(0.8)  # wait for keyboard to appear
-    el = _find_serial_input(drv)
-    if el:
-        try:
-            el.clear()
-            el.send_keys(serial)
-            log.info("[serial-ios] Serial entered via focus+find+send_keys: %s", serial)
-            return True
-        except Exception:
-            pass
+    # Clear any leftover content (Delete key label is capital-D "Delete")
+    for _ in range(8):
+        if not _tap_keyboard_key(drv, "Delete"):
+            break
+        time.sleep(0.05)
 
-    # 3. Appium XCUITest: mobile: type (types into currently focused element)
-    try:
-        drv.drv.execute_script("mobile: type", {"text": serial})
-        log.info("[serial-ios] Serial entered via mobile:type: %s", serial)
-        _dismiss_keyboard(drv)
-        return True
-    except Exception as e:
-        log.debug("[serial-ios] mobile:type failed: %s", e)
+    ok = True
+    for ch in serial:
+        if not _tap_keyboard_key(drv, ch):
+            log.warning("[serial-ios] Key '%s' not found on keyboard", ch)
+            ok = False
+        time.sleep(0.1)
 
-    # 4. Appium XCUITest: mobile: typeIntoTextField
-    try:
-        drv.drv.execute_script("mobile: typeIntoTextField", {"text": serial})
-        log.info("[serial-ios] Serial entered via mobile:typeIntoTextField: %s", serial)
-        _dismiss_keyboard(drv)
-        return True
-    except Exception as e:
-        log.debug("[serial-ios] mobile:typeIntoTextField failed: %s", e)
-
-    # 5. Send keys to driver (types into focused element via W3C actions)
-    try:
-        from selenium.webdriver.common.action_chains import ActionChains
-        ActionChains(drv.drv).send_keys(serial).perform()
-        log.info("[serial-ios] Serial entered via ActionChains.send_keys: %s", serial)
-        _dismiss_keyboard(drv)
-        return True
-    except Exception as e:
-        log.debug("[serial-ios] ActionChains.send_keys failed: %s", e)
-
-    log.warning("[serial-ios] All text entry methods failed for serial: %s", serial)
-    return False
+    _dismiss_keyboard(drv)
+    if ok:
+        log.info("[serial-ios] Serial entered via keyboard key taps: %s", serial)
+    return ok
 
 
 def _dismiss_keyboard(drv):
@@ -431,6 +623,28 @@ def _dismiss_keyboard(drv):
     # 3. Tap Done button coordinate (~93% x, ~57% y on number keyboard)
     _ratio_tap(drv, 0.933, 0.575, "Done button (keyboard dismiss)")
     time.sleep(0.5)
+
+
+def _is_keyboard_shown(drv) -> bool:
+    """Return True if the iOS keyboard is currently visible."""
+    try:
+        if drv.drv.is_keyboard_shown():
+            return True
+    except Exception:
+        pass
+    try:
+        kb_els = drv.drv.find_elements(AppiumBy.IOS_PREDICATE, 'type == "XCUIElementTypeKeyboard"')
+        if kb_els:
+            return True
+    except Exception:
+        pass
+    # Last resort: XCUIElementTypeKeyboard will appear in page source when keyboard is up
+    try:
+        if "XCUIElementTypeKeyboard" in drv.drv.page_source:
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _find_serial_input(drv):
@@ -510,7 +724,18 @@ def go_to_step2(drv, wait_ble: int = 45):
 
 
 def _is_menu_open(drv, timeout: int = 2) -> bool:
-    indicators = ["Setting", "Settings", "Version Information", "Guide", "Patch Placement"]
+    # Menu-screen-unique texts. NOTE: do NOT use "Setting"/"Guide" — Step 1's
+    # flattened label contains "Review Study Setting" and would false-positive.
+    indicators = ["Live Streaming Duration", "Version Information",
+                  "Patch Placement", "Terms and Information"]
+    # Flat RN tree: menu texts live inside one big container label — exact-label
+    # locators never match, so check the page source directly (single WDA call).
+    try:
+        src = drv.drv.page_source
+        if any(t in src for t in indicators):
+            return True
+    except Exception:
+        pass
     for text in indicators:
         if _try_visible_text(drv, text, timeout=timeout):
             return True
@@ -576,8 +801,9 @@ def open_menu(drv, wait: float = 2.0):
         except Exception:
             pass
 
-        # 4. Coordinate fallback — gear icon top-right (~91.5% x, ~7% y)
-        _ratio_tap(drv, 0.915, 0.070, "menu/gear icon (top-right)")
+        # 4. Coordinate fallback — gear icon top-right (~90.6% x, ~10.5% y,
+        # measured from screenshot on 375x812: icon center ≈ (340, 86))
+        _ratio_tap(drv, 0.906, 0.105, "menu/gear icon (top-right)")
         return False
 
     for attempt in range(3):
@@ -591,7 +817,10 @@ def open_menu(drv, wait: float = 2.0):
             drv.screenshot(f"open_menu_fail_ios_{attempt + 1}")
         except Exception:
             pass
-        time.sleep(0.5)
+        # Self-heal: app may be stuck on a sub-screen (Version Info, Patch
+        # Placement) whose back arrow sits top-left. Harmless on Step 1.
+        _ratio_tap(drv, 0.098, 0.105, "back arrow (escape sub-screen)")
+        time.sleep(1.0)
 
     _save_failure_diagnostics(drv, "open_menu_failed_final_ios")
     device_info = ""
@@ -606,18 +835,25 @@ def open_menu(drv, wait: float = 2.0):
 
 
 def close_menu(drv):
-    """Close menu via left-edge swipe (iOS back gesture)."""
+    """
+    Close the menu screen. On iOS this menu is a FULL SCREEN (not a drawer);
+    the home icon at top-right (same spot as the gear icon) returns to Step 1.
+    """
+    _ratio_tap(drv, 0.906, 0.105, "home icon (close menu)")
+    time.sleep(1.0)
+    if not _is_menu_open(drv):
+        return
+    # Fallback: iOS back swipe
     try:
         size = drv.drv.get_window_size()
-        # Swipe from right to left to close side menu
-        drv.drv.swipe(int(size["width"] * 0.5), int(size["height"] * 0.5),
-                      int(size["width"] * 0.02), int(size["height"] * 0.5), 300)
-        time.sleep(0.5)
+        drv.drv.swipe(int(size["width"] * 0.02), int(size["height"] * 0.5),
+                      int(size["width"] * 0.5), int(size["height"] * 0.5), 300)
+        time.sleep(1.0)
     except Exception:
         pass
 
 
-def go_to_main(drv, wait_ble: int = 120):
+def go_to_main(drv, wait_ble: int = 300):
     """
     Navigate to main measurement screen on iOS.
     Uses same state-machine as Android.
@@ -653,24 +889,29 @@ def go_to_main(drv, wait_ble: int = 120):
 
     serial = drv.cfg.get("test_serial_number", "")
 
-    # Serial entry on Step 1
-    if serial:
-        if _enter_serial(drv, serial):
-            log.info("[go_to_main-iOS] Serial entered: %s", serial)
-            time.sleep(0.3)
+    # Serial entry + initial Connect — only when actually on Step 1.
+    # Use TextField presence (not text label) — the pager label always contains
+    # all step text regardless of which step is active.
+    if _find_serial_input(drv):
+        log.info("[go_to_main-iOS] Step 1 detected (serial TextField found)")
+        if serial:
+            if _enter_serial(drv, serial):
+                log.info("[go_to_main-iOS] Serial entered: %s", serial)
+                time.sleep(0.3)
+            else:
+                log.warning("[go_to_main-iOS] Serial entry failed — proceeding anyway")
         else:
-            log.warning("[go_to_main-iOS] Serial entry failed — proceeding anyway")
+            log.info("[go_to_main-iOS] No serial configured — connecting directly")
+        _tap_bottom_button(drv, "Connect", timeout=5)
     else:
-        log.info("[go_to_main-iOS] No serial configured — connecting directly")
-
-    # Tap Connect button (locators → coordinate fallback)
-    _tap_bottom_button(drv, "Connect", timeout=5)
+        log.info("[go_to_main-iOS] Step 1 TextField not found — entering wait loop")
 
     log.info("[go_to_main-iOS] Waiting up to %ds for main screen", wait_ble)
-    _start_ts       = time.monotonic()
-    _last_screen_id = None
+    _start_ts          = time.monotonic()
+    _last_screen_id    = None
     _connect_attempts  = 0
     _ble_error_count   = 0
+    _step2_first_seen  = None   # tracks when we first entered BLE-wait state
     _DIAG_AFTER_N      = 2
     _SLOW_AFTER_N      = 4
     deadline = time.monotonic() + wait_ble
@@ -692,11 +933,41 @@ def go_to_main(drv, wait_ble: int = 120):
             _tap_bottom_button(drv, "Start Study", timeout=5)
             time.sleep(2)
 
-        elif screen_id in ("review_setting", "check_signal"):
-            time.sleep(2)
-            # Tap "Continue" button — locators then coordinate
-            _tap_bottom_button(drv, "Continue", timeout=5)
+        elif screen_id == "review_setting":
+            time.sleep(3)
+            _capture_diagnostics(drv, "review_setting_before_tap")
+            # iOS: Step 3 bottom button is labeled "Connect" (Android uses "Continue")
+            # Locator-based first; if that fails, sweep y positions to find the real button
+            if not _try_tap_element(drv, "Connect", timeout=5):
+                for _y in [0.91, 0.89, 0.93, 0.87, 0.85]:
+                    log.info("[go_to_main-iOS] Step 3 Connect scan y=%.0f%%", _y * 100)
+                    _ratio_tap(drv, 0.50, _y, f"Connect (y={_y:.0%})")
+                    time.sleep(2)
+                    _sid, _ = detect_current_screen(drv)
+                    if _sid != "review_setting":
+                        log.info("[go_to_main-iOS] Screen changed at y=%.0f%% — button found", _y * 100)
+                        break
             time.sleep(1)
+
+        elif screen_id == "check_signal":
+            # Step 2: BLE scanning — S-Patch serial empty means not yet detected.
+            # The pager label always contains Steps 2+3 text; serial presence = BLE connected.
+            # Do NOT tap "Continue" here — Step 2 has no Continue button.
+            # The app auto-advances to Step 3 once BLE connects.
+            if _step2_first_seen is None:
+                _step2_first_seen = time.monotonic()
+            step2_wait = int(time.monotonic() - _step2_first_seen)
+            log.info(
+                "[go_to_main-iOS] BLE scan in progress (%ds) — ensure S-Patch %s is ON and nearby",
+                step2_wait, serial or "device",
+            )
+            # Every 60s try the "View" button (may show device list for manual selection)
+            if step2_wait > 0 and step2_wait % 60 < 6:
+                if _try_tap_element(drv, "View", timeout=2):
+                    log.info("[go_to_main-iOS] Tapped 'View' button on Step 2 (%ds)", step2_wait)
+                    time.sleep(3)
+            else:
+                time.sleep(5)
 
         elif screen_id == "connect_patch":
             _connect_attempts += 1
@@ -727,7 +998,11 @@ def go_to_main(drv, wait_ble: int = 120):
 
         else:
             drv.dismiss_unexpected_popups()
-            time.sleep(1)
+            # Unknown screen — likely a sub-screen (Version/Device/Study Info,
+            # File Information). Tap its top-left back arrow to escape;
+            # harmless on screens without one.
+            _ratio_tap(drv, 0.098, 0.105, "back arrow (escape unknown screen)")
+            time.sleep(1.5)
 
     # Timeout
     elapsed_total = int(time.monotonic() - _start_ts)

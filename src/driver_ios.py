@@ -55,6 +55,77 @@ class IOSDriver:
     # Connection
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _wda_is_running(port: int = 8100) -> bool:
+        """Return True if WDA is already serving on the given port."""
+        import urllib.request
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/status", timeout=3
+            ) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    def _start_wda_via_pymobiledevice3(self, wda_port: int = 8100) -> bool:
+        """
+        Start WDA on the device via pymobiledevice3 (userspace RSD, no root needed).
+        Also starts iproxy to forward device:wda_port → localhost:wda_port.
+        Returns True if WDA is accessible after startup.
+        """
+        wda_bundle = "com.facebook.WebDriverAgentRunner.xctrunner"
+        udid = self.cfg.get("udid", "")
+
+        # Kill any existing iproxy on this port
+        try:
+            subprocess.run(["pkill", "-f", f"iproxy.*{wda_port}"], capture_output=True)
+            time.sleep(0.5)
+        except Exception:
+            pass
+
+        # Start iproxy for port forwarding
+        iproxy_cmd = ["iproxy"]
+        if udid:
+            iproxy_cmd += ["-u", udid]
+        iproxy_cmd.append(f"{wda_port}:{wda_port}")
+        try:
+            subprocess.Popen(iproxy_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log.info("[driver-iOS] iproxy started: localhost:%d → device:%d", wda_port, wda_port)
+        except Exception as e:
+            log.warning("[driver-iOS] iproxy start failed: %s", e)
+
+        # Start WDA via pymobiledevice3 dvt xcuitest (userspace, no root)
+        import sys
+        wda_cmd = [
+            sys.executable, "-m", "pymobiledevice3",
+            "developer", "dvt", "xcuitest",
+            "--userspace",
+            wda_bundle,
+            "--env", f"USE_PORT={wda_port}",
+            "--env", "MJPEG_SERVER_PORT=9100",
+        ]
+        try:
+            proc = subprocess.Popen(
+                wda_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            log.info("[driver-iOS] WDA started via pymobiledevice3 (PID %d)", proc.pid)
+        except Exception as e:
+            log.warning("[driver-iOS] WDA pymobiledevice3 start failed: %s", e)
+            return False
+
+        # Wait up to 30s for WDA to be ready
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if self._wda_is_running(wda_port):
+                log.info("[driver-iOS] WDA ready on port %d", wda_port)
+                return True
+            time.sleep(2)
+
+        log.warning("[driver-iOS] WDA not ready after 30s on port %d", wda_port)
+        return False
+
     def _build_options(self) -> XCUITestOptions:
         opts = XCUITestOptions()
         opts.platform_name = "iOS"
@@ -66,26 +137,39 @@ class IOSDriver:
         opts.no_reset = bool(self.cfg.get("no_reset", True))
         opts.new_command_timeout = int(self.cfg.get("new_command_timeout", 3600))
 
-        xcode_org_id = self.cfg.get("xcode_org_id", "")
-        if xcode_org_id:
-            opts.set_capability("xcodeOrgId", xcode_org_id)
-            opts.set_capability("xcodeSigningId",
-                                self.cfg.get("xcode_signing_id", "Apple Development"))
-
         wda_port = self.cfg.get("wda_local_port", 8100)
         opts.set_capability("wdaLocalPort", wda_port)
+
+        # If WDA is already running, connect directly (skips xcodebuild entirely).
+        # If not running, try starting via pymobiledevice3 (userspace RSD, no root).
+        # xcodebuild fallback is last resort only.
+        if self._wda_is_running(wda_port):
+            log.info("[driver-iOS] WDA already running on port %d — using webDriverAgentUrl", wda_port)
+            opts.set_capability("webDriverAgentUrl", f"http://127.0.0.1:{wda_port}")
+            opts.set_capability("usePrebuiltWDA", True)
+            opts.set_capability("useNewWDA", False)
+        elif self._start_wda_via_pymobiledevice3(wda_port):
+            log.info("[driver-iOS] WDA started via pymobiledevice3 — using webDriverAgentUrl")
+            opts.set_capability("webDriverAgentUrl", f"http://127.0.0.1:{wda_port}")
+            opts.set_capability("usePrebuiltWDA", True)
+            opts.set_capability("useNewWDA", False)
+        else:
+            log.warning("[driver-iOS] pymobiledevice3 WDA start failed — falling back to xcodebuild")
+            xcode_org_id = self.cfg.get("xcode_org_id", "")
+            if xcode_org_id:
+                opts.set_capability("xcodeOrgId", xcode_org_id)
+                opts.set_capability("xcodeSigningId",
+                                    self.cfg.get("xcode_signing_id", "Apple Development"))
+            opts.set_capability("usePrebuiltWDA", False)
+            opts.set_capability("useNewWDA", True)
+            wda_launch_timeout = self.cfg.get("wda_launch_timeout", 60000)
+            opts.set_capability("wdaLaunchTimeout", wda_launch_timeout)
 
         # Keep screen on during test
         opts.set_capability("keepKeyChains", True)
 
         if self.cfg.get("show_xcode_log"):
             opts.set_capability("showXcodeLog", True)
-
-        # Force WDA restart to recover from previous session crash
-        opts.set_capability("useNewWDA", True)
-
-        wda_launch_timeout = self.cfg.get("wda_launch_timeout", 60000)
-        opts.set_capability("wdaLaunchTimeout", wda_launch_timeout)
 
         return opts
 

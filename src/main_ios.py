@@ -14,6 +14,7 @@ import logging
 import os
 import random
 import sys
+import threading
 import time
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,8 @@ from src.timeline import log_event
 from src.regression.helpers_ios import go_to_main, reset_to_step1
 from src.regression.runner import TestRunner
 from src.device_manager_ios import DeviceManagerIOS
-from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
+from src.workflows.symptom_inject_ios import inject_symptom_event, SYMPTOMS
+from src.workflows.connectivity_ios import run_bt_disconnect, run_airplane_mode, ensure_bluetooth_on
 from src.artifact_manager import save_failure_artifacts
 
 
@@ -94,6 +96,10 @@ def main():
     start_imm      = bool(run_cfg.get("start_immediately", True))
     jitter_seconds = float(run_cfg.get("jitter_seconds", 0))
     quiet_hours    = run_cfg.get("quiet_hours") or {}
+    bt_interval_h  = float(run_cfg.get("bt_disconnect_interval_hours", 0))
+    bt_minutes     = float(run_cfg.get("bt_disconnect_minutes", 10))
+    ap_interval_h  = float(run_cfg.get("airplane_mode_interval_hours", 0))
+    ap_minutes     = float(run_cfg.get("airplane_mode_minutes", 5))
     recovery_cfg   = cfg.get("recovery") or {}
     ios_cfg        = cfg.get("ios") or {}
     sel            = (cfg.get("selectors") or {}).get("ios") or {}
@@ -158,6 +164,12 @@ def main():
 
         # ── Single injection mode ────────────────────────────────────────────
         if args.once:
+            from src.regression.helpers_ios import detect_current_screen
+            sid, slabel = detect_current_screen(driver, timeout=3)
+            log.info("[once-iOS] Current screen: %s", slabel)
+            if sid != "log_symptoms":
+                log.info("[once-iOS] Not on main screen — restarting app to Step 1")
+                reset_to_step1(driver, hard=True)
             go_to_main(driver)
             symptom = symptoms_pool[0] if symptoms_pool else None
             inject_symptom_event(driver, symptoms=[symptom] if symptom else None)
@@ -190,31 +202,36 @@ def main():
                 except Exception:
                     pass
 
+        # Pre-run guard: BT radio must be ON (950-popup TCs, BLE connect)
+        try:
+            ensure_bluetooth_on(driver)
+        except Exception:
+            pass
+
         if not args.skip_regression:
-            # iOS regression: reuse same test files — they use drv.tap_text()
-            # which works identically via IOSDriver
-            from src.regression import serial_input, menu_step1, main_screen, add_diary, menu_study
+            # iOS-specific regression files for serial + menu (Android files use android.widget.EditText)
+            from src.regression import (
+                serial_input_ios, menu_step1_ios,
+                main_screen_ios, add_diary_ios, menu_study_ios,
+            )
 
-            reset_to_step1(driver, hard=True)
-            already_measuring = False
-            for _ in range(10):
-                if driver.is_visible_text("Log Symptoms", timeout=2):
-                    already_measuring = True
-                    break
-                if driver.is_visible_text("Connect Your S-Patch", timeout=1):
-                    break
-                time.sleep(1)
+            # reset_to_step1 restarts the app and waits up to 480 s for Step 1.
+            # iOS persists BLE-scan state, so the app typically resumes on Step 2 and
+            # only returns to Step 1 after its own ~300 s BLE timer expires.
+            # Returns True when Step 1 (serial TextField) is ready; False otherwise.
+            on_step1 = reset_to_step1(driver, hard=True)
 
-            if already_measuring:
-                log.info("[iOS] Already measuring — skipping pre-main regression")
+            if on_step1:
+                log.info("[iOS] Step 1 ready — running serial + menu regression")
+                _run_suite("serial", serial_input_ios.TESTS)
+                _run_suite("menu",   menu_step1_ios.TESTS)
             else:
-                _run_suite("serial", serial_input.TESTS)
-                _run_suite("menu",   menu_step1.TESTS)
+                log.warning("[iOS] Step 1 not reached — skipping serial/menu; go_to_main will handle BLE")
 
             go_to_main(driver)
-            _run_suite("main",       main_screen.TESTS)
-            _run_suite("diary",      add_diary.TESTS)
-            _run_suite("menu-study", menu_study.TESTS)
+            _run_suite("main",       main_screen_ios.TESTS)
+            _run_suite("diary",      add_diary_ios.TESTS)
+            _run_suite("menu-study", menu_study_ios.TESTS)
         else:
             log_event("regression: skipped (--skip-regression)")
             go_to_main(driver)
@@ -229,11 +246,55 @@ def main():
                             duration_hours=duration_hours,
                             interval_hours=interval_hours, mention=_mention)
 
+        # ── Periodic BT / airplane tests (mirrors Android main.py) ──────────
+        _first_injection_done = threading.Event()
+        _bt_active            = threading.Event()
+        _airplane_active      = threading.Event()
+        _stop_loop            = threading.Event()
+
+        if bt_interval_h > 0 or ap_interval_h > 0:
+            _loop_interval_h = bt_interval_h or ap_interval_h
+
+            def _periodic_loop():
+                _first_injection_done.wait()
+                while not _stop_loop.is_set():
+                    if bt_interval_h > 0:
+                        _bt_active.set()
+                        try:
+                            run_bt_disconnect(driver, bt_minutes)
+                        except Exception as _e:
+                            log.warning("[bt_disconnect-ios] error: %s", _e)
+                        finally:
+                            _bt_active.clear()
+                        _stop_loop.wait(60)
+                        if _stop_loop.is_set():
+                            break
+                    if ap_interval_h > 0:
+                        _airplane_active.set()
+                        try:
+                            run_airplane_mode(driver, ap_minutes)
+                        except Exception as _e:
+                            log.warning("[airplane_mode-ios] error: %s", _e)
+                        finally:
+                            _airplane_active.clear()
+                        _stop_loop.wait(60)
+                        if _stop_loop.is_set():
+                            break
+                    _stop_loop.wait(_loop_interval_h * 3600)
+
+            threading.Thread(target=_periodic_loop, daemon=True).start()
+            log.info("Periodic loop started (after first injection): BT %.1fmin → airplane %.1fmin → wait %.1fh",
+                     bt_minutes, ap_minutes, _loop_interval_h)
+
         inject_count = 0
 
         def job(at_hour=None, payload=None):
             nonlocal inject_count
             inject_count += 1
+            if _bt_active.is_set() or _airplane_active.is_set():
+                log.info("[job-ios] BT/airplane test in progress — waiting before injection")
+                while _bt_active.is_set() or _airplane_active.is_set():
+                    time.sleep(5)
             payload  = payload or {}
             symptoms = payload.get("symptoms") or []
             if not symptoms:
@@ -243,6 +304,7 @@ def main():
             try:
                 inject_symptom_event(driver, symptoms=symptoms, activities=None)
                 elapsed = round(time.monotonic() - t0, 1)
+                _first_injection_done.set()
                 if _slack_on:
                     slack_injection_notify(_webhook, count=inject_count,
                                            symptom=symptom, elapsed_sec=elapsed,
@@ -266,6 +328,7 @@ def main():
             recovery_cfg=recovery_cfg,
         )
         scheduler.run(job, driver=driver)
+        _stop_loop.set()
 
         reporter.log_event("run_complete_ios", {"status": "ok"})
         log_event("iOS run complete")
