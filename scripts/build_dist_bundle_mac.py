@@ -173,6 +173,39 @@ if ! "$APPIUM_CMD" driver list --installed 2>/dev/null | grep -qi "uiautomator2"
     echo ""
 fi
 
+# ── iOS support (optional, non-blocking) ──────────────────────────────────
+# Installs the XCUITest driver and, when an iPhone + pre-signed WDA.ipa are
+# present, installs WDA on the device. Failures never block Android testing.
+if ! "$APPIUM_CMD" driver list --installed 2>/dev/null | grep -qi "xcuitest"; then
+    echo "  Installing XCUITest driver for iOS (one-time only)..."
+    "$APPIUM_CMD" driver install xcuitest >> "$LOG" 2>&1 \
+        && echo "  OK  XCUITest driver installed." \
+        || echo "  WARN  XCUITest driver install failed (iOS unavailable). Log: $LOG"
+    echo ""
+fi
+
+IOS_UDID=$("$PYTHON" -m pymobiledevice3 usbmux list 2>/dev/null \
+    | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print(d[0]['UniqueDeviceID'] if d else '')" 2>/dev/null)
+if [ -n "$IOS_UDID" ]; then
+    echo "  iPhone detected: $IOS_UDID"
+    if [ -f "$A/runtime/WDA.ipa" ]; then
+        if ! "$PYTHON" -m pymobiledevice3 apps list 2>/dev/null | grep -q "WebDriverAgentRunner"; then
+            echo "  Installing WebDriverAgent on device (one-time only)..."
+            if "$PYTHON" -m pymobiledevice3 apps install "$A/runtime/WDA.ipa" >> "$LOG" 2>&1; then
+                echo "  OK  WebDriverAgent installed."
+            else
+                echo "  WARN  WDA install failed — this iPhone may not be registered."
+                echo "        Send this UDID to the automation admin: $IOS_UDID"
+            fi
+        fi
+        # Developer Mode (iOS 16+, needs one reboot; ignore errors if already on)
+        "$PYTHON" -m pymobiledevice3 amfi enable-developer-mode >> "$LOG" 2>&1 || true
+    else
+        echo "  NOTE  runtime/WDA.ipa not bundled — iOS testing unavailable in this zip."
+    fi
+    echo ""
+fi
+
 # ── Start Appium ───────────────────────────────────────────────────────────
 echo "  Starting Appium..."
 nohup "$APPIUM_CMD" --relaxed-security >> "$LOG" 2>&1 &
@@ -334,6 +367,13 @@ def build(out_dir: Path) -> Path:
             _add_dir(zf, ROOT / "web",     f"{P}/web")
             _add_dir(zf, ROOT / "scripts", f"{P}/scripts")
             _add_config(zf,                f"{P}/config")
+
+            # Pre-signed WebDriverAgent for iOS testers (built by
+            # scripts/build_wda_ipa.sh; only installs on registered UDIDs)
+            wda_ipa = ROOT / "runtime" / "WDA.ipa"
+            if wda_ipa.exists():
+                zf.write(wda_ipa, f"{P}/runtime/WDA.ipa")
+                print("(+ WDA.ipa bundled)", end=" ", flush=True)
 
         size_mb = path.stat().st_size // 1024 // 1024
         print(f"done\n\nMac Standalone ZIP: {path}  ({size_mb} MB)")

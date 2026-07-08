@@ -5,6 +5,7 @@ Run:  python web/app.py   (from project root)
 import atexit
 import datetime
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -13,6 +14,8 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 import yaml
 from flask import Flask, jsonify, render_template, request, send_from_directory, Response
@@ -127,10 +130,21 @@ def get_devices() -> list[str]:
 
 
 def get_ios_devices() -> list[str]:
-    """List connected iOS device UDIDs via libimobiledevice."""
+    """List connected iOS device UDIDs (libimobiledevice, else pymobiledevice3)."""
     try:
         r = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, timeout=5)
-        return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+        devices = [line.strip() for line in r.stdout.splitlines() if line.strip()]
+        if devices:
+            return devices
+    except Exception:
+        pass
+    # pip-only fallback (testers won't have brew libimobiledevice)
+    try:
+        r = subprocess.run([sys.executable, "-m", "pymobiledevice3", "usbmux", "list"],
+                           capture_output=True, text=True, timeout=10)
+        import json as _json
+        data = _json.loads(r.stdout or "[]")
+        return [d.get("UniqueDeviceID", "") for d in data if d.get("UniqueDeviceID")]
     except Exception:
         return []
 

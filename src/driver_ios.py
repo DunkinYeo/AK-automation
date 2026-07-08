@@ -83,16 +83,31 @@ class IOSDriver:
         except Exception:
             pass
 
-        # Start iproxy for port forwarding
-        iproxy_cmd = ["iproxy"]
-        if udid:
-            iproxy_cmd += ["-u", udid]
-        iproxy_cmd.append(f"{wda_port}:{wda_port}")
-        try:
-            subprocess.Popen(iproxy_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            log.info("[driver-iOS] iproxy started: localhost:%d → device:%d", wda_port, wda_port)
-        except Exception as e:
-            log.warning("[driver-iOS] iproxy start failed: %s", e)
+        # Start port forwarding: iproxy (libimobiledevice) if available,
+        # otherwise pymobiledevice3's built-in forwarder (pip-only, no brew)
+        import shutil
+        import sys as _sys
+        if shutil.which("iproxy"):
+            iproxy_cmd = ["iproxy"]
+            if udid:
+                iproxy_cmd += ["-u", udid]
+            iproxy_cmd.append(f"{wda_port}:{wda_port}")
+            try:
+                subprocess.Popen(iproxy_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                log.info("[driver-iOS] iproxy started: localhost:%d → device:%d", wda_port, wda_port)
+            except Exception as e:
+                log.warning("[driver-iOS] iproxy start failed: %s", e)
+        else:
+            fwd_cmd = [_sys.executable, "-m", "pymobiledevice3", "usbmux", "forward",
+                       str(wda_port), str(wda_port)]
+            if udid:
+                fwd_cmd += ["--udid", udid]
+            try:
+                subprocess.Popen(fwd_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                log.info("[driver-iOS] pymobiledevice3 forward started: localhost:%d → device:%d",
+                         wda_port, wda_port)
+            except Exception as e:
+                log.warning("[driver-iOS] pymobiledevice3 forward failed: %s", e)
 
         # Start WDA via pymobiledevice3 dvt xcuitest (userspace, no root)
         import sys
