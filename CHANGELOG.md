@@ -9,8 +9,9 @@
 - **예기치 못한 인앱 오류 팝업으로 자동화 정지**: "Test failed" / "No time zone" 등 알 수 없는 오류 팝업 감지 시 증거 스크린샷 저장 후 자동 해제하고 진행 (`src/workflows/popup_handler.py`)
 
 ### Added
-- **iOS 자동화 지원 (Android 동등 수준)**: serial/menu/main/diary/menu-study regression 36 TC, go_to_main(BLE 연결·Study 시작), 시간별 symptom 주입, BT 차단(설정 앱 스위치 — 제어 센터 타일은 BLE 유지되어 부적합)·에어플레인 모드 테스트 (`src/*_ios.py`, `src/workflows/connectivity_ios.py`)
-- **웹 UI 플랫폼 선택**: Android/iOS 선택 → iOS 기기 목록(idevice_id) 표시, iOS run은 `main_ios.py`로 실행 (`web/app.py`, `web/templates/index.html`)
+- **[Beta] iOS 자동화 (Android 동등 기능)**: serial/menu/main/diary/menu-study regression 36 TC, go_to_main(BLE 연결·Study 시작), 시간별 symptom 주입, BT 차단(설정 앱 스위치 — 제어 센터 타일은 BLE 유지되어 부적합)·에어플레인 모드 테스트 (`src/*_ios.py`, `src/workflows/connectivity_ios.py`)
+  - ⚠️ 검증 환경: iPhone 13 mini (iOS 18.6.2) 1대, 개발 Mac 한정. WDA 기기별 서명·설치 필요 — 테스터 배포 체계(사전 서명 WDA.ipa) 준비 중
+- **웹 UI 플랫폼 선택**: Android/iOS 선택 → iOS 기기 목록(idevice_id) 표시, iOS run은 `main_ios.py`로 실행 (`web/app.py`, `web/templates/index.html`) — iOS는 상기 Beta 제약 동일
 - **iOS 앱 버그 리포트**: BT 상태 카드 UI 미갱신 (재현 조건·증적 포함, `docs/bug_reports/ios_bt_ui_sync_bug.txt`)
 - **RN testID 요청 문서**: 좌표 기반 → element 기반 전환용 (`docs/testid_request_ios.txt`)
 
