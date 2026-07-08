@@ -277,6 +277,18 @@
       </div>
 
       <div class="field">
+        <label>Platform</label>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+            <input type="radio" name="platform" value="android" checked id="platform-android"> Android
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+            <input type="radio" name="platform" value="ios" id="platform-ios"> iOS
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
         <label>Connected Device</label>
         <select id="device-select"><option value="">Detecting devices...</option></select>
       </div>
@@ -851,7 +863,7 @@ async function init() {
   requestNotificationPermission();
   const r = await fetch('/api/init').then(r => r.json());
   updateAppiumUI(r.appium);
-  populateDevices(r.devices);
+  populateDevices(r.devices, r.ios_devices || []);
   if (r.cached_wifi) document.getElementById('wifi-addr').value = r.cached_wifi;
   initSuiteGrid();
   initConnGrid();
@@ -907,20 +919,40 @@ async function detectWifi() {
 }
 
 let _allDevices = [];
+let _iosDevices = [];
 
-function populateDevices(devices) {
+function populateDevices(devices, iosDevices) {
   _allDevices = devices;
+  if (iosDevices !== undefined) _iosDevices = iosDevices;
   _filterDevices();
 }
 
+function selectedPlatform() {
+  return document.getElementById('platform-ios').checked ? 'ios' : 'android';
+}
+
 function _filterDevices() {
-  const isWifi = document.getElementById('adb-wifi').checked;
-  const filtered = _allDevices.filter(d => isWifi ? d.includes(':') : !d.includes(':'));
   const sel = document.getElementById('device-select');
   sel.innerHTML = '';
+  if (selectedPlatform() === 'ios') {
+    if (!_iosDevices.length) sel.innerHTML = `<option value="">No iOS device connected</option>`;
+    else _iosDevices.forEach(d => { const o = document.createElement('option'); o.value = o.textContent = d; sel.appendChild(o); });
+    return;
+  }
+  const isWifi = document.getElementById('adb-wifi').checked;
+  const filtered = _allDevices.filter(d => isWifi ? d.includes(':') : !d.includes(':'));
   if (!filtered.length) sel.innerHTML = `<option value="">No ${isWifi ? 'WiFi' : 'USB'} device connected</option>`;
   else filtered.forEach(d => { const o = document.createElement('option'); o.value = o.textContent = d; sel.appendChild(o); });
 }
+
+document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', () => {
+  // WiFi ADB is Android-only
+  const isIOS = selectedPlatform() === 'ios';
+  const connField = document.getElementById('adb-usb')?.closest('.field');
+  if (connField) connField.style.display = isIOS ? 'none' : '';
+  if (isIOS) { document.getElementById('adb-usb').checked = true; document.getElementById('adb-wifi').checked = false; document.getElementById('wifi-addr-row').style.display = 'none'; }
+  _filterDevices();
+}));
 
 document.getElementById('duration-group').addEventListener('click', e => {
   const btn = e.target.closest('.btn-toggle'); if (!btn) return;
@@ -955,8 +987,9 @@ async function startAppium() {
 document.getElementById('start-btn').addEventListener('click', async () => {
   let pre = null;
   try { pre = await fetch('/api/init').then(r => r.json()); } catch {}
+  const platform = selectedPlatform();
   const errs = [];
-  if (!pre?.devices?.length) errs.push('No device connected');
+  if (platform === 'ios' ? !pre?.ios_devices?.length : !pre?.devices?.length) errs.push('No device connected');
   if (!pre?.appium)          errs.push('Appium is not running');
   if (errs.length) { alert('Cannot start:\n - ' + errs.join('\n - ')); return; }
 
@@ -966,11 +999,12 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   const symptoms = [...document.querySelectorAll('#symptom-grid input:checked')].map(c => c.value);
   if (!symptoms.length) { alert('Please select at least one symptom.'); return; }
 
-  const wifiMode = document.getElementById('adb-wifi').checked;
+  const wifiMode = platform === 'android' && document.getElementById('adb-wifi').checked;
   const wifiAddr = (document.getElementById('wifi-addr').value || '').trim();
   if (wifiMode && !wifiAddr) { alert('Please enter WiFi address (IP:Port).'); return; }
 
   const body = {
+    platform,
     device,
     serial:          (document.getElementById('serial-input').value || '').trim(),
     run_name:        document.getElementById('run-name').value || 'ak_run',

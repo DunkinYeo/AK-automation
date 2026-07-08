@@ -18,6 +18,7 @@ Any check failure triggers 3-step escalating recovery before the job runs.
 import dataclasses
 import datetime
 import json
+import logging
 import random
 import time
 from pathlib import Path
@@ -27,6 +28,27 @@ _INJECT_NOW_FILE  = Path(__file__).resolve().parent.parent / "runtime" / "inject
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
+
+
+def _make_scheduler(cls):
+    """
+    Create an APScheduler instance, surviving hosts without a usable local
+    timezone database. On Windows, Python's zoneinfo has no system tz data —
+    without the `tzdata` pip package APScheduler's local-timezone lookup dies
+    with "No time zone found with key <tz>" (tester-reported: America/Chicago)
+    and the whole run crashes at startup. Fall back to UTC so the run
+    continues (quiet-hours then use UTC — degraded but alive).
+    """
+    try:
+        return cls()
+    except Exception as e:
+        if "No time zone found" not in str(e):
+            raise
+        import pytz  # APScheduler 3.x hard dependency; ships its own tz data
+        logging.getLogger(__name__).warning(
+            "Local timezone unavailable (%s) — scheduler falling back to UTC. "
+            "Fix permanently with: pip install tzdata", e)
+        return cls(timezone=pytz.utc)
 
 
 # ------------------------------------------------------------------
@@ -106,7 +128,7 @@ class LongRunScheduler:
             },
         )
 
-        sched = BlockingScheduler()
+        sched = _make_scheduler(BlockingScheduler)
         cooldown = int(self.recovery_cfg.get("cooldown_seconds_between_steps", 30))
         # Allow missed jobs to fire for up to 1 hour after their scheduled time
         # so that a brief Mac sleep does not silently skip an injection.
@@ -152,7 +174,7 @@ class LongRunScheduler:
     # ------------------------------------------------------------------
 
     def _run_interval(self, job_callable, driver, start, end):
-        sched = BackgroundScheduler()
+        sched = _make_scheduler(BackgroundScheduler)
         counter = [0]
         cooldown = int(self.recovery_cfg.get("cooldown_seconds_between_steps", 30))
         # Grace time = full run duration so that jobs missed during a host sleep/wake

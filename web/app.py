@@ -77,6 +77,31 @@ AK_SELECTORS = {
     "setting_text":            "Setting",
 }
 
+# iOS selectors — main screen has no "Add Diary"; "Log Symptoms" is the
+# main-screen indicator (see config/accurkardia_ios.yaml)
+AK_SELECTORS_IOS = {
+    "symptom_add_text":         "Log Symptoms",
+    "main_screen_text":         "My Study Progress",
+    "log_symptoms_button_text": "Log Symptoms",
+    "connect_button_text":      "Connect",
+    "start_study_button_text":  "Start Study",
+}
+
+# iOS device constants (iPhone 13 mini test device)
+IOS_DEFAULTS = {
+    "appium_server_url":   "http://127.0.0.1:4723",
+    "platform_version":    "18.6",
+    "device_name":         "Wellysis iPhone 13 mini",
+    "bundle_id":           "com.wellysis.accurkardia.accurkardia",
+    "no_reset":            True,
+    "new_command_timeout": 3600,
+    "xcode_org_id":        "9538X2C925",
+    "xcode_signing_id":    "Apple Development",
+    "wda_local_port":      8100,
+    "wda_launch_timeout":  120000,
+    "show_xcode_log":      True,
+}
+
 AK_SYMPTOMS = [
     "Chest pain / discomfort",
     "Shortness of breath",
@@ -97,6 +122,15 @@ def get_devices() -> list[str]:
             for line in r.stdout.splitlines()[1:]
             if "\t" in line and line.split("\t")[1].strip() == "device"
         ]
+    except Exception:
+        return []
+
+
+def get_ios_devices() -> list[str]:
+    """List connected iOS device UDIDs via libimobiledevice."""
+    try:
+        r = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, timeout=5)
+        return [line.strip() for line in r.stdout.splitlines() if line.strip()]
     except Exception:
         return []
 
@@ -316,7 +350,8 @@ def get_cached_wifi() -> str:
 
 @app.route("/api/init")
 def api_init():
-    return jsonify({"devices": get_devices(), "appium": appium_ok(), "cached_wifi": get_cached_wifi()})
+    return jsonify({"devices": get_devices(), "ios_devices": get_ios_devices(),
+                    "appium": appium_ok(), "cached_wifi": get_cached_wifi()})
 
 
 @app.route("/api/detect-wifi", methods=["POST"])
@@ -415,13 +450,14 @@ def api_start():
         if _state["proc"] and _state["proc"].poll() is None:
             return jsonify({"error": "Already running."}), 400
 
-        data    = request.json or {}
-        device  = data.get("device", "")
-        serial  = data.get("serial", "").strip()
+        data     = request.json or {}
+        device   = data.get("device", "")
+        serial   = data.get("serial", "").strip()
+        platform = (data.get("platform") or "android").lower()
 
-        # Optional WiFi ADB connect
+        # Optional WiFi ADB connect (Android only)
         wifi_addr = (data.get("wifi_addr") or "").strip()
-        if data.get("wifi_mode") and wifi_addr:
+        if platform == "android" and data.get("wifi_mode") and wifi_addr:
             try:
                 result = subprocess.run(
                     ["adb", "connect", wifi_addr],
@@ -438,33 +474,20 @@ def api_start():
         symptoms = data.get("symptoms") or AK_SYMPTOMS[:3]
         slack_webhook = (data.get("slack_webhook") or "").strip()
 
-        cfg = {
-            "platform": "android",
-            "run": {
-                "name":                          data.get("run_name") or "ak_run",
-                "duration_hours":                int(data.get("duration_hours", 72)),
-                "symptom_interval_hours":        float(data.get("interval_hours", 1)),
-                "start_immediately":             True,
-                "jitter_seconds":                0,
-                "quiet_hours":                   {"start": 2, "end": 6},
-                "bt_disconnect_interval_hours":  float(data.get("bt_disconnect_interval_hours", 1)),
-                "bt_disconnect_minutes":         float(data.get("bt_disconnect_minutes", 10)),
-                "airplane_mode_interval_hours":  float(data.get("airplane_mode_interval_hours", 1)),
-                "airplane_mode_minutes":         float(data.get("airplane_mode_minutes", 5)),
-            },
+        run_section = {
+            "name":                          data.get("run_name") or "ak_run",
+            "duration_hours":                int(data.get("duration_hours", 72)),
+            "symptom_interval_hours":        float(data.get("interval_hours", 1)),
+            "start_immediately":             True,
+            "jitter_seconds":                0,
+            "quiet_hours":                   {"start": 2, "end": 6},
+            "bt_disconnect_interval_hours":  float(data.get("bt_disconnect_interval_hours", 1)),
+            "bt_disconnect_minutes":         float(data.get("bt_disconnect_minutes", 10)),
+            "airplane_mode_interval_hours":  float(data.get("airplane_mode_interval_hours", 1)),
+            "airplane_mode_minutes":         float(data.get("airplane_mode_minutes", 5)),
+        }
+        common = {
             "recovery": {"cooldown_seconds_between_steps": 30},
-            "android": {
-                "appium_server_url":   "http://127.0.0.1:4723",
-                "device_name":         device,
-                "udid":                device,
-                "test_serial_number":  serial,
-                "search_serial":       serial,
-                "app_package":         "com.wellysis.accurkardia.accurkardia.mobile",
-                "app_activity":        "com.wellysis.accurkardia.accurkardia.mobile.MainActivity",
-                "no_reset":            True,
-                "new_command_timeout": 3600,
-            },
-            "selectors":      {"android": AK_SELECTORS},
             "symptom_catalog": {"symptoms": symptoms},
             "slack": {
                 "enabled":     bool(slack_webhook),
@@ -473,6 +496,39 @@ def api_start():
             },
         }
 
+        if platform == "ios":
+            cfg = {
+                "platform": "ios",
+                "run": run_section,
+                "ios": {
+                    **IOS_DEFAULTS,
+                    "udid":               device,
+                    "test_serial_number": serial,
+                },
+                "selectors": {"ios": AK_SELECTORS_IOS},
+                **common,
+            }
+            entry = "main_ios.py"
+        else:
+            cfg = {
+                "platform": "android",
+                "run": run_section,
+                "android": {
+                    "appium_server_url":   "http://127.0.0.1:4723",
+                    "device_name":         device,
+                    "udid":                device,
+                    "test_serial_number":  serial,
+                    "search_serial":       serial,
+                    "app_package":         "com.wellysis.accurkardia.accurkardia.mobile",
+                    "app_activity":        "com.wellysis.accurkardia.accurkardia.mobile.MainActivity",
+                    "no_reset":            True,
+                    "new_command_timeout": 3600,
+                },
+                "selectors": {"android": AK_SELECTORS},
+                **common,
+            }
+            entry = "main.py"
+
         cfg_path = ROOT / "config" / "_web_run.yaml"
         with open(cfg_path, "w", encoding="utf-8") as f:
             yaml.dump(cfg, f, allow_unicode=True, default_flow_style=False)
@@ -480,7 +536,7 @@ def api_start():
         start_ts = time.time()
         _state["start_ts"] = start_ts
         _state["out_dir"]  = None
-        cmd = [sys.executable, str(ROOT / "src" / "main.py"), "--config", str(cfg_path)]
+        cmd = [sys.executable, str(ROOT / "src" / entry), "--config", str(cfg_path)]
         if data.get("skip_regression"):
             cmd.append("--skip-regression")
         _state["proc"]     = subprocess.Popen(
