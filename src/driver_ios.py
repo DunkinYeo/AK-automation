@@ -155,6 +155,11 @@ class IOSDriver:
         wda_port = self.cfg.get("wda_local_port", 8100)
         opts.set_capability("wdaLocalPort", wda_port)
 
+        # Auto-dismiss iOS SYSTEM alerts (e.g. "iOS 18.7.8 설치되지 않음" OTA
+        # failure at night) — such modals block every tap and stall the long
+        # run until manually cleared (observed 2026-07-09 02:00-08:00).
+        opts.set_capability("autoDismissAlerts", True)
+
         # If WDA is already running, connect directly (skips xcodebuild entirely).
         # If not running, try starting via pymobiledevice3 (userspace RSD, no root).
         # xcodebuild fallback is last resort only.
@@ -382,9 +387,19 @@ class IOSDriver:
         No ADB needed — uses Appium text detection.
         """
         dismissed = False
+        # Native system alert (e.g. nightly OTA-update failure "iOS x.x 설치되지
+        # 않음") — blocks all taps; accept via WDA alert API first
+        try:
+            self.drv.execute_script("mobile: alert", {"action": "accept"})
+            time.sleep(0.5)
+            log.info("[popup-iOS] system alert accepted via mobile: alert")
+            self.reporter.log_event("popup_dismissed_ios", {"tapped": "(system alert)"})
+            dismissed = True
+        except Exception:
+            pass
         # iOS permission + system dialog buttons (safest-first order)
         for text in ["Allow While Using App", "Allow", "Only This Time",
-                     "Continue", "OK", "Close", "Dismiss", "Don't Allow"]:
+                     "Continue", "OK", "Close", "Dismiss", "확인", "Don't Allow"]:
             if self.is_visible_text(text, timeout=0.5):
                 try:
                     self.tap_text(text, timeout=1)
