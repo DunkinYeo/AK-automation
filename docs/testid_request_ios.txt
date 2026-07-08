@@ -1,0 +1,58 @@
+================================================================================
+ [앱팀 요청] React Native testID 추가 요청 — QA 자동화 안정화
+================================================================================
+
+작성일   : 2026-07-08
+목적     : iOS/Android 자동화가 현재 좌표(비율) 기반 탭에 의존 중.
+           기기/OS/앱버전별 레이아웃 변화에 취약하므로, RN 컴포넌트에
+           testID 를 부여해 element 기반 자동화로 전환하고자 함.
+효과     : testID는 iOS에서 accessibilityIdentifier, Android에서
+           resource-id 계열로 노출되어 양 플랫폼 자동화가 동시에 안정화됨.
+           UI 리뉴얼/리사이즈에도 자동화 유지보수 비용이 거의 0이 됨.
+
+--------------------------------------------------------------------------------
+요청 목록 (화면별)
+--------------------------------------------------------------------------------
+■ Step 1 — Connect Your S-Patch
+  - serial-input          : 시리얼 번호 TextInput
+  - connect-button        : 하단 Connect 버튼
+  - stepper-1 / 2 / 3     : 상단 단계 표시 원 (활성 상태를 value/state로 노출되면 더 좋음)
+
+■ 공통 내비게이션
+  - menu-button           : 우상단 기어(메뉴) 아이콘
+  - home-button           : 메뉴 화면 우상단 홈 아이콘
+  - back-button           : 서브 화면 좌상단 back arrow
+
+■ 메뉴 화면
+  - menu-live-streaming   : Live Streaming Duration 행
+  - menu-version-info     : Version Information 행
+  - menu-device-info      : Device Information 행 (study 중)
+  - menu-study-info       : Study Information 행 (study 중)
+  - menu-patch-placement  : Patch Placement 행
+
+■ 메인 화면 (Study 진행 중)
+  - tab-device-status     : Device Status 탭
+  - tab-realtime-ecg      : Real-time ECG 탭
+  - card-network          : Network 상태 카드 (+ 상태 텍스트 value 노출)
+  - card-bluetooth        : Bluetooth 상태 카드 (+ 상태 텍스트 value 노출)
+  - card-battery          : Battery 상태 카드
+  - log-symptoms-button   : Log Symptoms 버튼
+
+■ Log Symptoms 시트
+  - symptom-<name>        : 증상 항목 6개 (예: symptom-dizziness)
+  - symptom-save-button   : Save 버튼
+  - symptom-close-button  : X(닫기) 버튼
+
+■ 팝업/다이얼로그
+  - popup-ok-button       : 950/963 등 오류 팝업의 Ok 버튼
+  - popup-title           : 팝업 타이틀 텍스트
+
+--------------------------------------------------------------------------------
+비고
+--------------------------------------------------------------------------------
+- RN 기준 컴포넌트에 testID="..." 속성 한 줄씩 추가하면 됨 (로직 변경 없음).
+- 특히 Step 1~3 페이저 화면은 현재 전체가 하나의 접근성 컨테이너로 병합되어
+  (flat accessibility tree) 어떤 요소도 개별 탐색이 불가한 상태 —
+  해당 화면들에는 컨테이너에 accessible={false} 지정 + 자식에 testID 부여 필요.
+- 명칭은 예시이며 팀 컨벤션에 맞게 변경 무방. 목록 커버리지가 중요.
+================================================================================
