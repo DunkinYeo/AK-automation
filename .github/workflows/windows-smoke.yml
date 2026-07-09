@@ -1,0 +1,44 @@
+name: Windows Smoke
+
+# Builds the actual Windows standalone ZIP and smoke-tests it with the
+# bundle's own embedded Python — catches the "crashes on tester's PC at
+# startup" class of bug (imports, tzdata, scheduler, web boot) without
+# needing a Windows machine or a device.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'requirements.txt'
+      - '.github/workflows/windows-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build Windows standalone ZIP
+        run: python scripts/build_dist_bundle.py --out ci_dist
+
+      - name: Extract ZIP
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem ci_dist/*.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath extracted
+          Get-ChildItem extracted
+
+      - name: Smoke test with the bundle's embedded Python
+        shell: pwsh
+        run: |
+          $pkg = Get-ChildItem extracted -Directory | Select-Object -First 1
+          & "$($pkg.FullName)\automation\python\python.exe" "$($pkg.FullName)\automation\scripts\smoke_test.py"
