@@ -894,7 +894,12 @@ def _build_report_html(events: list[dict]) -> str:
             duration_h   = data.get("duration_hours")
             interval_h   = data.get("interval_hours")
         elif ev == "device_info":
-            device = f"{data.get('model','')} Android {data.get('android_version','')} ({data.get('udid','')})"
+            model   = data.get("model", "")
+            android = data.get("android_version", "")
+            ios     = data.get("ios_version", "")
+            os_label = (f" iOS {ios}" if ios
+                        else f" Android {android}" if android else "")
+            device = f"{model}{os_label} ({data.get('udid','')})"
         elif ev == "regression_suite_result":
             suites[data.get("suite", "")] = data
         elif ev == "inject_done":

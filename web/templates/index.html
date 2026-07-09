@@ -163,6 +163,14 @@
     .skip-row input[type=checkbox] { width: 15px; height: 15px; accent-color: #1d4ed8; }
     .skip-row label { font-size: .82rem; color: #6b7280; cursor: pointer; }
 
+    /* ── Config lock while a test is running ── */
+    #config-form.locked { opacity: .55; pointer-events: none; user-select: none; }
+    #lock-note {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 12px;
+      padding: 7px 10px; font-size: .8rem; font-weight: 600;
+      background: #fffbeb; color: #92400e; border: 1px solid #fde68a; border-radius: 8px;
+    }
+
     /* ── Injection / periodic stats ── */
     .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
     .stat-box {
@@ -276,6 +284,11 @@
         Regression will navigate to the main screen automatically. A study must be active before starting.
       </div>
 
+      <div id="lock-note" style="display:none">
+        &#128274; Settings are locked while a test is running. Stop the test to change them.
+      </div>
+
+      <div id="config-form">
       <div class="field">
         <label>Platform</label>
         <div style="display:flex;gap:12px;align-items:center">
@@ -364,6 +377,7 @@
         <input type="checkbox" id="skip-regression">
         <label for="skip-regression">Skip Regression <span style="color:#9ca3af">(symptom injection only)</span></label>
       </div>
+      </div><!-- /config-form -->
 
       <div class="action-row">
         <button class="btn-primary" id="start-btn">&#9654; Start Test</button>
@@ -1053,6 +1067,13 @@ function setUIRunning(running) {
   const chip = document.getElementById('run-chip');
   chip.className = 'chip ' + (running ? 'chip-blue' : 'chip-warn');
   chip.textContent = running ? 'Running' : 'Idle';
+
+  // Lock the config form while a test is running — the values only apply at
+  // start time, so mid-run edits would silently do nothing.
+  const form = document.getElementById('config-form');
+  form.classList.toggle('locked', running);
+  form.querySelectorAll('input, select, button').forEach(el => { el.disabled = running; });
+  document.getElementById('lock-note').style.display = running ? '' : 'none';
 }
 
 function setInjectNowEnabled(enabled) {
