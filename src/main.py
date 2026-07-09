@@ -41,7 +41,7 @@ from src.regression.helpers import go_to_main
 from src.regression.runner import TestRunner
 from src.regression import serial_input, menu_step1, main_screen, add_diary, menu_study, connectivity
 from src.regression.helpers import reset_to_step1
-from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS
+from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS, ACTIVITIES
 from src.workflows.bt_disconnect import run_bt_disconnect
 from src.workflows.airplane_mode import run_airplane_mode
 from src.artifact_manager import save_failure_artifacts

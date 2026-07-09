@@ -729,6 +729,10 @@ def api_hub_events():
     data    = request.json or {}
     tester  = data.get("tester_name") or "unknown"
     event   = data.get("event") or ""
+    # iOS runs emit "<name>_ios" events — normalize like read_events() does
+    # so status/device/duration match both platforms
+    if event.endswith("_ios"):
+        event = event[:-4]
     ts      = data.get("ts") or ""
     payload = data.get("data") or {}
 
