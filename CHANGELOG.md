@@ -14,6 +14,8 @@
 - **[iOS] 웹 실행 세션에서 BT 차단 사이클 스킵**: `App-Prefs:Bluetooth` 딥링크가 웹 생성 Appium 세션에서 동작하지 않아 BT 사이클이 통째로 건너뛰어지던 문제 — Settings 재실행 + Bluetooth 행 직접 탭 폴백, 실패 시 진단 스크린샷 저장 (`src/workflows/connectivity_ios.py`). 실기기 풀 사이클(BT 10분 + airplane 5분) 검증 완료
 - **웹 기기 라벨 "Android" 하드코딩**: iOS run에서 대시보드/test report 기기명이 "iPhone14,4 Android"처럼 표시되던 문제 — iOS/Android 자동 구분 (`web/app.py`)
 - **iOS 이벤트 대시보드 미표시**: iOS run이 emit하는 `*_ios` 이벤트를 정규화해 suite 카드·로그·진행률이 양 플랫폼에서 렌더되도록 수정 (`web/app.py`)
+- **`--once` 단발 주입 NameError**: `ACTIVITIES` import 누락으로 dict catalog에서 즉사 — 장기 실행 경로 무영향 (`src/main.py`)
+- **팀 허브 원격 iOS 세션 표시**: `*_ios` 이벤트 미정규화로 영원히 "running" + 기기/시간 빈칸이던 문제 (`web/app.py`)
 
 ### Added
 - **[Beta] iOS 자동화 (Android 동등 기능)**: serial/menu/main/diary/menu-study regression 36 TC, go_to_main(BLE 연결·Study 시작), 시간별 symptom 주입, BT 차단(설정 앱 스위치 — 제어 센터 타일은 BLE 유지되어 부적합)·에어플레인 모드 테스트 (`src/*_ios.py`, `src/workflows/connectivity_ios.py`)
@@ -24,6 +26,8 @@
 - **iOS 앱 버그 리포트**: BT 상태 카드 UI 미갱신 (재현 조건·증적 포함, `docs/bug_reports/ios_bt_ui_sync_bug.txt`)
 - **RN testID 요청 문서**: 좌표 기반 → element 기반 전환용 (`docs/testid_request_ios.txt`)
 - **README 전면 개편 (영문)**: 플랫폼별 현황, 실행 흐름, regression 스위트 표, iOS Beta 상세, 배포 ZIP 가이드, 트러블슈팅
+- **Windows Smoke CI**: main 푸시마다 GitHub Windows 러너에서 실제 배포 ZIP 빌드 → 번들 임베디드 Python으로 6종 스모크(타임존 DB·엔트리포인트 import·스케줄러·웹 부팅) — Windows 기기 없이 시작 크래시류 차단 (`.github/workflows/windows-smoke.yml`, `scripts/smoke_test.py`)
+- **테스터용 `smoke.bat`**: Windows ZIP 루트 포함 — 압축 해제 후 더블클릭으로 30초 설치 자가 점검, 기기 불필요 (`smoke.bat`)
 
 ## [v1.0.5] — 2026-06-30
 
