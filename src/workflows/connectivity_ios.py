@@ -20,6 +20,7 @@ Verified on iPhone 13 mini, iOS 18.6.2, Korean locale (2026-07-07):
   - Close CC:   home gesture (swipe up from bottom edge)
 """
 import logging
+import os
 import time
 
 from appium.webdriver.common.appiumby import AppiumBy
@@ -165,16 +166,72 @@ _BT_DEEPLINK     = "App-Prefs:Bluetooth"
 
 
 def _open_bt_settings(d) -> bool:
-    """Open Settings directly on the Bluetooth page (deep link, verified)."""
+    """Open Settings > Bluetooth page. Deep link first, then UI nav fallback."""
+    # Deep link works in CLI sessions; may fail in web-created Appium sessions
     try:
         d.drv.get(_BT_DEEPLINK)
+        time.sleep(2.0)
+        if _bt_switch(d) is not None:
+            return True
+    except Exception:
+        pass
+
+    # Fallback: relaunch Settings from scratch (terminate resets it to the
+    # root page — otherwise it can restore a sub-page where neither the
+    # switch nor the root Bluetooth row is visible), then tap the row.
+    try:
+        d.drv.execute_script("mobile: terminateApp", {"bundleId": _SETTINGS_BUNDLE})
+        time.sleep(1.0)
+    except Exception:
+        pass
+    try:
+        d.drv.execute_script("mobile: launchApp", {"bundleId": _SETTINGS_BUNDLE})
     except Exception:
         try:
-            d.drv.execute_script("mobile: launchApp", {"bundleId": _SETTINGS_BUNDLE})
-        except Exception:
             d.drv.activate_app(_SETTINGS_BUNDLE)
+        except Exception:
+            pass
     time.sleep(2.0)
-    return _bt_switch(d) is not None
+
+    if _bt_switch(d) is not None:
+        return True
+
+    # Navigate from Settings home → Bluetooth sub-page
+    try:
+        for pred in (
+            'label == "Bluetooth" AND type == "XCUIElementTypeCell"',
+            'label == "Bluetooth" AND type == "XCUIElementTypeStaticText"',
+            'label == "Bluetooth" OR label == "블루투스"',
+        ):
+            els = d.drv.find_elements(AppiumBy.IOS_PREDICATE, pred)
+            if els:
+                els[0].click()
+                time.sleep(1.5)
+                break
+    except Exception:
+        pass
+
+    if _bt_switch(d) is not None:
+        return True
+    _log_bt_settings_failure(d)
+    return False
+
+
+def _log_bt_settings_failure(d):
+    """Record what the device was actually showing when navigation failed."""
+    try:
+        info = d.drv.execute_script("mobile: activeAppInfo") or {}
+        log.warning("[connectivity-ios] BT settings nav failed — active app: %s",
+                    info.get("bundleId", "?"))
+    except Exception:
+        pass
+    try:
+        os.makedirs("runtime", exist_ok=True)
+        path = time.strftime("runtime/bt_settings_fail_%Y%m%d_%H%M%S.png")
+        d.drv.save_screenshot(path)
+        log.warning("[connectivity-ios] Failure screenshot: %s", path)
+    except Exception:
+        pass
 
 
 def _bt_switch(d):
@@ -182,7 +239,8 @@ def _bt_switch(d):
     try:
         els = d.drv.find_elements(
             AppiumBy.IOS_PREDICATE,
-            'type == "XCUIElementTypeSwitch" AND label == "Bluetooth"',
+            'type == "XCUIElementTypeSwitch" AND '
+            '(label == "Bluetooth" OR label == "블루투스")',
         )
         if els:
             return els[0]
