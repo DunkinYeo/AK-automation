@@ -1,19 +1,26 @@
 # Changelog — S-Patch AccurKardia Automation
 
-## [v1.0.6] — 2026-07-08
+## [v1.0.6] — 2026-07-08 (updated 2026-07-09)
 
 ### Fixed
 - **Windows에서 테스트 시작 즉시 크래시 ("Test failed — No time zone found with key America/Chicago")**: Windows에는 시스템 타임존 DB가 없어 APScheduler의 로컬 타임존 조회가 실패 → 런 전체 중단되던 문제 (테스터 리포트)
   - `requirements.txt`에 `tzdata` 추가 — 근본 수정 (`requirements.txt`)
   - 타임존 조회 실패 시에도 크래시 대신 UTC 폴백으로 스케줄러 계속 실행 (`src/scheduler.py`)
 - **예기치 못한 인앱 오류 팝업으로 자동화 정지**: "Test failed" / "No time zone" 등 알 수 없는 오류 팝업 감지 시 증거 스크린샷 저장 후 자동 해제하고 진행 (`src/workflows/popup_handler.py`)
+- **[iOS] 야간 시스템 알림으로 장기 실행 정지**: 'iOS 업데이트 설치되지 않음' 시스템 모달이 02~08시 모든 탭을 차단 → 주입/BT/airplane 6시간 연속 실패하던 문제. `autoDismissAlerts` capability + 팝업 핸들러의 시스템 알림 자동 해제 (`src/driver_ios.py`)
+- **[iOS] 웹 실행 세션에서 BT 차단 사이클 스킵**: `App-Prefs:Bluetooth` 딥링크가 웹 생성 Appium 세션에서 동작하지 않아 BT 사이클이 통째로 건너뛰어지던 문제 — Settings 재실행 + Bluetooth 행 직접 탭 폴백, 실패 시 진단 스크린샷 저장 (`src/workflows/connectivity_ios.py`). 실기기 풀 사이클(BT 10분 + airplane 5분) 검증 완료
+- **웹 기기 라벨 "Android" 하드코딩**: iOS run에서 대시보드/test report 기기명이 "iPhone14,4 Android"처럼 표시되던 문제 — iOS/Android 자동 구분 (`web/app.py`)
+- **iOS 이벤트 대시보드 미표시**: iOS run이 emit하는 `*_ios` 이벤트를 정규화해 suite 카드·로그·진행률이 양 플랫폼에서 렌더되도록 수정 (`web/app.py`)
 
 ### Added
 - **[Beta] iOS 자동화 (Android 동등 기능)**: serial/menu/main/diary/menu-study regression 36 TC, go_to_main(BLE 연결·Study 시작), 시간별 symptom 주입, BT 차단(설정 앱 스위치 — 제어 센터 타일은 BLE 유지되어 부적합)·에어플레인 모드 테스트 (`src/*_ios.py`, `src/workflows/connectivity_ios.py`)
   - ⚠️ 검증 환경: iPhone 13 mini (iOS 18.6.2) 1대, 개발 Mac 한정. WDA 기기별 서명·설치 필요 — 테스터 배포 체계(사전 서명 WDA.ipa) 준비 중
 - **웹 UI 플랫폼 선택**: Android/iOS 선택 → iOS 기기 목록(idevice_id) 표시, iOS run은 `main_ios.py`로 실행 (`web/app.py`, `web/templates/index.html`) — iOS는 상기 Beta 제약 동일
+- **iOS 테스터 배포 파이프라인**: Mac 배포 ZIP에 iOS 지원 통합 — 사전 서명 WDA.ipa 자동 설치(등록 UDID 전용), `iproxy` 없으면 `pymobiledevice3` 폴백(brew 불필요), Developer Mode 안내. 관리자용 WDA.ipa 빌드 스크립트 포함 (`scripts/build_dist_bundle_mac.py`, `scripts/build_wda_ipa.sh`)
+- **웹 UI run 중 설정 잠금**: 테스트 실행 중에는 설정 폼을 잠그고 안내 배너 표시 — 시작 시점에 확정되는 값을 mid-run에 바꿔도 반영되는 것처럼 보이던 혼동 방지. Stop / Inject Now / interval 변경은 계속 사용 가능 (`web/templates/index.html`)
 - **iOS 앱 버그 리포트**: BT 상태 카드 UI 미갱신 (재현 조건·증적 포함, `docs/bug_reports/ios_bt_ui_sync_bug.txt`)
 - **RN testID 요청 문서**: 좌표 기반 → element 기반 전환용 (`docs/testid_request_ios.txt`)
+- **README 전면 개편 (영문)**: 플랫폼별 현황, 실행 흐름, regression 스위트 표, iOS Beta 상세, 배포 ZIP 가이드, 트러블슈팅
 
 ## [v1.0.5] — 2026-06-30
 
