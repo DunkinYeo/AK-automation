@@ -20,6 +20,8 @@ jobs:
   smoke:
     runs-on: windows-latest
     timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"  # Windows console defaults to cp1252; scripts print unicode
     steps:
       - uses: actions/checkout@v4
 
