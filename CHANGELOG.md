@@ -1,6 +1,9 @@
 # Changelog — S-Patch AccurKardia Automation
 
-## [v1.0.6] — 2026-07-08 (updated 2026-07-09)
+## [v1.1.0] — 2026-07-09
+
+> v1.0.6으로 발행 준비되었던 릴리즈를 iOS 자동화 추가 규모를 반영해 v1.1.0으로 재버전
+
 
 ### Fixed
 - **Windows에서 테스트 시작 즉시 크래시 ("Test failed — No time zone found with key America/Chicago")**: Windows에는 시스템 타임존 DB가 없어 APScheduler의 로컬 타임존 조회가 실패 → 런 전체 중단되던 문제 (테스터 리포트)
