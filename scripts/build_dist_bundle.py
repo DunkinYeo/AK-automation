@@ -719,6 +719,8 @@ def build(out_dir: Path):
             # Root launchers
             zf.writestr(f"{R}/run.bat", RUN_BAT.replace("\n", "\r\n"))
             zf.write(ROOT / "STOP.bat", f"{R}/STOP.bat")
+            if (ROOT / "smoke.bat").exists():
+                zf.write(ROOT / "smoke.bat", f"{R}/smoke.bat")
             for fname in ["README_WINDOWS_KR.txt", "README_WINDOWS_EN.txt"]:
                 if (ROOT / fname).exists():
                     zf.write(ROOT / fname, f"{R}/{fname}")
