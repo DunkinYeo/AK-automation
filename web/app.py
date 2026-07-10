@@ -890,11 +890,27 @@ def _build_report_html(events: list[dict]) -> str:
     bt_warnings: list = []
     reg_diary: list = []
     pending_symptom = None
+    nat_bt: list = []          # natural (unscheduled) BT disconnections
+    in_test_window = False     # inside a scheduled BT/airplane test
 
     for e in events:
         ev   = e.get("event", "")
         data = e.get("data", {})
         ts   = e.get("ts", "")
+
+        # Track scheduled-test windows so natural BT drops can be told apart
+        if ev in ("bt_disconnect_start", "airplane_mode_start"):
+            in_test_window = True
+        elif ev in ("bt_disconnect_done", "bt_disconnect_failed", "bt_disconnect_not_supported",
+                    "airplane_mode_done", "airplane_mode_failed", "airplane_mode_skipped"):
+            in_test_window = False
+
+        if ev == "bluetooth_off":
+            nat_bt.append({"ts": ts, "during_test": in_test_window, "elapsed": None, "resolved": False})
+        elif ev in ("bluetooth_reconnected", "bluetooth_off_resolved"):
+            if nat_bt and not nat_bt[-1]["resolved"]:
+                nat_bt[-1]["resolved"] = True
+                nat_bt[-1]["elapsed"] = data.get("elapsed_sec")
         if ev == "run_start":
             start_ts_str = ts
             duration_h   = data.get("duration_hours")
@@ -1009,6 +1025,26 @@ def _build_report_html(events: list[dict]) -> str:
             items = "".join(f"<li style='color:#d97706'>{s[:100]}</li>" for s in skips[:5])
             skip_html = f"<ul class='fail-list'>{items}</ul>"
         suite_html += f"<div class='suite-row'><span class='suite-name'>{name}</span>{_suite_badge(d)}{fail_html}{skip_html}</div>"
+
+    def _dur(sec):
+        if sec is None:
+            return "?"
+        m, s = divmod(int(sec), 60)
+        return f"{m}m {s}s" if m else f"{s}s"
+
+    nat_bt_html = ""
+    for n in nat_bt:
+        if n["during_test"]:
+            tag = "<span class='dur'>during scheduled test</span>"
+            style = "opacity:.55"
+        else:
+            tag = "<span class='dur' style='color:#d97706;font-weight:600'>natural</span>"
+            style = ""
+        status = (f"<span class='ok'>✓ reconnected ({_dur(n['elapsed'])})</span>" if n["resolved"]
+                  else "<span class='err'>✗ not reconnected</span>")
+        nat_bt_html += (f"<div class='list-row' style='{style}'><span class='ts'>{_t(n['ts'])}</span>"
+                        f"{tag}{status}</div>")
+    nat_count = sum(1 for n in nat_bt if not n["during_test"])
 
     reg_diary_html = ""
     for r in reg_diary:
@@ -1155,6 +1191,16 @@ def _build_report_html(events: list[dict]) -> str:
       <span class="card-count">{ap_rate} succeeded</span>
     </div>
     {ap_html if ap_html else "<div class='empty'>No airplane tests yet.</div>"}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">📶</span>
+      <span class="card-title">Observed BT Disconnections</span>
+      <span class="card-count">{nat_count} natural</span>
+    </div>
+    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">Detected by the 30s connectivity monitor — separate from the scheduled BT Disconnect Tests above. Drops during a scheduled test window are dimmed; "natural" rows mean the patch↔phone link dropped on its own (out of range, interference, manual separation).</div>
+    {nat_bt_html if nat_bt_html else "<div class='empty'>No unscheduled BT disconnections observed.</div>"}
   </div>
 
 </div>
