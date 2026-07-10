@@ -1008,7 +1008,10 @@ class AndroidDriver:
         import time as _time
         try:
             log.info("[connectivity] Verifying ECG signal after BT reconnect")
-            if not self.is_visible_text("View", timeout=5):
+            # 20s: right after a long BT-off the app repaints the main screen
+            # slowly — a 5s check false-flagged "no ECG" at 2026-07-10 15:25
+            # (early-exits as soon as the button appears)
+            if not self.is_visible_text("View", timeout=20):
                 self.reporter.log_event("bt_reconnect_ecg_result", {"result": "View button not found"})
                 return
             self.tap_text("View", timeout=5)
