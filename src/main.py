@@ -481,7 +481,8 @@ def main():
         log_event("run complete")
         if _slack_on:
             slack_run_complete(_webhook, run_id=run_id, injection_count=inject_count,
-                               duration_hours=duration_hours, mention=_mention)
+                               duration_hours=duration_hours, mention=_mention,
+                               failed_jobs=reporter.count_events("job_failed"))
 
     except Exception as e:
         reporter.log_event("run_failed", {"error": str(e)})

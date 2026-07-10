@@ -20,6 +20,22 @@ class RunReporter:
         if self._hub_url:
             self._forward_to_hub(rec)
 
+    def count_events(self, name: str) -> int:
+        """Count persisted events named `name` (the iOS `<name>_ios` twin included)."""
+        n = 0
+        try:
+            with open(self.events_path, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        ev = json.loads(line).get("event", "")
+                    except Exception:
+                        continue
+                    if ev == name or ev == name + "_ios":
+                        n += 1
+        except Exception:
+            pass
+        return n
+
     def _forward_to_hub(self, rec: dict):
         payload = {**rec, "tester_name": self._tester_name}
         def _send():

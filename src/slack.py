@@ -58,14 +58,19 @@ def slack_injection_notify(webhook_url: str, count: int, symptom: str,
 
 
 def slack_run_complete(webhook_url: str, run_id: str, injection_count: int,
-                       duration_hours: float, mention: str = ""):
+                       duration_hours: float, mention: str = "",
+                       failed_jobs: int = 0):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    icon = ":white_check_mark:" if failed_jobs == 0 else ":warning:"
     text = (
-        f":white_check_mark: *AccurKardia Run Complete* — {now}\n"
+        f"{icon} *AccurKardia Run Complete* — {now}\n"
         f"  • Run ID: `{run_id}`\n"
         f"  • Duration: `{int(duration_hours)}h`\n"
         f"  • Total injections: `{injection_count}`"
     )
+    if failed_jobs:
+        text += (f"\n  • :warning: Failed jobs during run: `{failed_jobs}` "
+                 f"— run kept going (by design); see the HTML report for details")
     _post(webhook_url, {"text": text})
 
 

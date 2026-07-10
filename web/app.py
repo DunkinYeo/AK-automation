@@ -888,6 +888,8 @@ def _build_report_html(events: list[dict]) -> str:
     bt_tests: list = []
     ap_tests: list = []
     bt_warnings: list = []
+    reg_diary: list = []
+    pending_symptom = None
 
     for e in events:
         ev   = e.get("event", "")
@@ -906,10 +908,17 @@ def _build_report_html(events: list[dict]) -> str:
             device = f"{model}{os_label} ({data.get('udid','')})"
         elif ev == "regression_suite_result":
             suites[data.get("suite", "")] = data
+        elif ev == "inject_start":
+            pending_symptom = data.get("symptom")  # for job_failed attribution
         elif ev == "inject_done":
             injections.append({"ts": ts, "symptom": data.get("symptom"), "elapsed": data.get("elapsed_sec"), "ok": True})
+            pending_symptom = None
         elif ev == "job_failed":
-            injections.append({"ts": ts, "symptom": data.get("symptom", "-"), "elapsed": None, "ok": False, "error": data.get("error", "")})
+            injections.append({"ts": ts, "symptom": data.get("symptom") or pending_symptom or "-",
+                               "elapsed": None, "ok": False, "error": data.get("error", "")})
+            pending_symptom = None
+        elif ev == "regression_diary_saved":
+            reg_diary.append({"ts": ts, "symptom": data.get("symptom", "-"), "source": data.get("source", "")})
         elif ev == "bt_disconnect_done":
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
         elif ev == "bt_disconnect_not_supported":
@@ -1000,6 +1009,12 @@ def _build_report_html(events: list[dict]) -> str:
             items = "".join(f"<li style='color:#d97706'>{s[:100]}</li>" for s in skips[:5])
             skip_html = f"<ul class='fail-list'>{items}</ul>"
         suite_html += f"<div class='suite-row'><span class='suite-name'>{name}</span>{_suite_badge(d)}{fail_html}{skip_html}</div>"
+
+    reg_diary_html = ""
+    for r in reg_diary:
+        reg_diary_html += (f"<div class='list-row'><span class='ts'>{_t(r['ts'])}</span>"
+                           f"<span class='symptom'>{r['symptom']}</span>"
+                           f"<span class='dur'>{r['source']}</span></div>")
 
     inj_html = ""
     for i in injections:
@@ -1102,6 +1117,16 @@ def _build_report_html(events: list[dict]) -> str:
       <span class="card-count">{len(suites)} suites</span>
     </div>
     {suite_html if suite_html else "<div class='empty'>No regression results yet.</div>"}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">📝</span>
+      <span class="card-title">Diary Entries Created by Regression</span>
+      <span class="card-count">{len(reg_diary)} entries</span>
+    </div>
+    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">These test cases save real diary entries — expect them in the portal alongside the scheduled injections below.</div>
+    {reg_diary_html if reg_diary_html else "<div class='empty'>No regression-created entries (skip-regression run or older tool version).</div>"}
   </div>
 
   <div class="card">
