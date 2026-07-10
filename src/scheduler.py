@@ -323,6 +323,23 @@ def _is_quiet_hour(dt: datetime.datetime, quiet_hours: dict) -> bool:
 
 def _run_with_health_check(job_callable, driver, at_hour, payload, reporter, cooldown_seconds=30):
     """
+    Wrapper: flags the driver busy for the WHOLE job — pre-job health checks
+    and recovery included — so the connectivity monitor pauses and never
+    races the session lifecycle (concurrent reconnects thrash, 2026-07-10).
+    """
+    busy = getattr(driver, "_job_busy", None)
+    if busy is not None:
+        busy.set()
+    try:
+        return _run_with_health_check_inner(
+            job_callable, driver, at_hour, payload, reporter, cooldown_seconds)
+    finally:
+        if busy is not None:
+            busy.clear()
+
+
+def _run_with_health_check_inner(job_callable, driver, at_hour, payload, reporter, cooldown_seconds=30):
+    """
     Run pre-job health checks then execute the job.
     Returns a JobResult; also emits job_result event to the reporter.
 

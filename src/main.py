@@ -441,22 +441,24 @@ def main():
         # card stale) until the next hourly job. Paused during airplane
         # tests and injections; intentionally NOT paused during the BT-off
         # window (the bt-off diary check relies on detection there).
+        driver._job_busy = threading.Event()  # set by scheduler around each job
+
         def _connectivity_monitor():
+            # READ-ONLY by design: the monitor must never touch the session
+            # lifecycle (ensure_session/reconnect). Two threads recreating
+            # the driver concurrently invalidate each other's session in a
+            # thrash loop (observed 2026-07-10). Session recovery is owned
+            # exclusively by the scheduler job path; a dead session here
+            # just means skipped ticks until it comes back.
             while not _stop_monitor.is_set():
-                if not (_airplane_active.is_set() or _inject_active.is_set()):
+                if not (_airplane_active.is_set() or _inject_active.is_set()
+                        or driver._job_busy.is_set()):
                     try:
-                        driver.ensure_session()
-                        driver.ensure_ui_automation()
                         driver.check_connectivity()
                     except Exception as _e:
-                        log.warning("[connectivity monitor] error: %s", _e)
-                        try:
-                            driver.reconnect()
-                            driver.check_connectivity()
-                        except Exception as _e2:
-                            log.warning("[connectivity monitor] retry failed: %s", _e2)
+                        log.warning("[connectivity monitor] tick skipped: %s", _e)
                     try:
-                        driver.check_app_process()
+                        driver.check_app_process()  # ADB-only, session-independent
                     except Exception as _e:
                         log.warning("[app-watch] error: %s", _e)
                 _stop_monitor.wait(30)
