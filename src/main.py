@@ -335,20 +335,19 @@ def main():
                     pass
 
         if args.skip_regression:
-            # Skip regression TCs (serial/menu/main/diary/menu-study) but still run connectivity
+            # Skip ALL regression suites, connectivity included — the long-run
+            # phase exercises injection/BT/airplane anyway (user decision
+            # 2026-07-10; previously connectivity still ran here)
             log_event("regression: skipped (--skip-regression)")
             for suite_name, _ in pre_main_suites:
                 reporter.log_event("regression_suite_result", {
                     "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
                 })
             for suite_name, tests in post_main_suites:
-                if suite_name == "connectivity":
-                    continue
                 reporter.log_event("regression_suite_result", {
                     "suite": suite_name, "passed": 0, "total": 0, "failures": [], "skipped": True,
                 })
             go_to_main(driver)
-            _run_suite("connectivity", connectivity.TESTS)
         else:
             # Phase 1: Step 1 — reset app, run serial + menu
             reset_to_step1(driver, hard=True)

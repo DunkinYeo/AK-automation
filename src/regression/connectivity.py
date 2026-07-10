@@ -56,10 +56,20 @@ def _adb_out(drv, *args) -> str:
 
 
 def _bt_is_off(drv) -> bool:
-    """Verify BT is actually off via dumpsys."""
+    """
+    Verify BT is actually off. Primary: settings global bluetooth_on — the
+    same readout bt_disconnect.py uses (proven across versions). The old
+    dumpsys 'enabled:' line no longer exists on Android 16 and the parser
+    mis-matched 'A2dpOffloadEnabled: true' → BT always read as ON → TC-CONN
+    false-skipped even though the radio actually turned off (2026-07-10).
+    """
+    out = _adb_out(drv, "shell", "settings", "get", "global", "bluetooth_on").strip()
+    if out in ("0", "1"):
+        return out == "0"
+    # Fallback: dumpsys, tightened to the exact 'enabled:' line
     out = _adb_out(drv, "shell", "dumpsys", "bluetooth_manager")
     for line in out.splitlines():
-        if "enabled:" in line:
+        if line.strip().lower().startswith("enabled:"):
             return "false" in line.lower()
     return False
 

@@ -1033,7 +1033,9 @@ def _build_report_html(events: list[dict]) -> str:
             return "<span class='badge badge-skip'>SKIP</span>"
         ok = d.get("passed") == d.get("total")
         cls = "badge-pass" if ok else "badge-fail"
-        return f"<span class='badge {cls}'>{'✓' if ok else '✗'} {d['passed']}/{d['total']}</span>"
+        n_skip = len(d.get("skipped_tests") or [])
+        skip_note = (f" <span class='badge badge-skip'>{n_skip} skipped</span>" if n_skip else "")
+        return f"<span class='badge {cls}'>{'✓' if ok else '✗'} {d['passed']}/{d['total']}</span>{skip_note}"
 
     suite_html = ""
     for name, d in suites.items():
