@@ -155,6 +155,12 @@ class AndroidDriver:
         logging.warning("[SESSION] recreating driver")
         self.reporter.log_event("session_recreating", {})
         self._last_adb_reconnect_at = 0.0  # reset cooldown: real disconnection must always reconnect
+        # USB after host sleep: the device may not have re-enumerated yet —
+        # creating a session before ADB sees it again fails instantly
+        # (tester incident 2026-07-09, issue #6). WiFi ADB path is unchanged:
+        # _ensure_adb_connected() below still handles the adb-connect case.
+        if not self._adb_device_present():
+            self.wait_for_adb_device(timeout=300)
         self._ensure_adb_connected()
         try:
             self.drv.quit()
@@ -733,6 +739,16 @@ class AndroidDriver:
 
         return False
 
+    def _adb_device_present(self) -> bool:
+        """Quick non-waiting check that ADB currently sees the device."""
+        udid = self.cfg.get("udid", "")
+        cmd = ["adb"] + (["-s", udid] if udid else []) + ["get-state"]
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=5)
+            return r.returncode == 0 and b"device" in r.stdout
+        except Exception:
+            return False
+
     def wait_for_adb_device(self, timeout: int = 300) -> bool:
         """
         Poll ADB until device responds or timeout expires.
@@ -815,6 +831,8 @@ class AndroidDriver:
                 "symptom": symptom,
                 "result": "submitted and returned to main" if back_on_main else "submitted — screen changed",
             })
+            self.reporter.log_event("regression_diary_saved",
+                                    {"symptom": symptom, "source": "connectivity-wifi-off"})
         except Exception as e:
             self.screenshot("connectivity_wifi_off_diary_error")
             log.warning("[connectivity] wifi_off_diary error: %s", e)
@@ -872,6 +890,8 @@ class AndroidDriver:
                 "symptom": symptom,
                 "result": "submitted and returned to main" if back_on_main else "submitted — screen changed",
             })
+            self.reporter.log_event("regression_diary_saved",
+                                    {"symptom": symptom, "source": "connectivity-bt-off"})
         except Exception as e:
             self.screenshot("connectivity_bt_off_diary_error")
             log.warning("[connectivity] bt_off_diary error: %s", e)
