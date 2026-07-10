@@ -201,6 +201,21 @@ class AndroidDriver:
             self.reporter.log_event("session_lost", {"reason": "session_not_alive"})
             self.reconnect()
 
+    def ensure_ui_automation(self):
+        """Probe the UiAutomator2 proxy, not just Appium's ADB-backed session.
+
+        Appium can still answer current_activity/current_package while the
+        UiAutomator2 instrumentation process is dead. Connectivity monitoring
+        depends on UI queries, so force one proxied call and reconnect if it
+        cannot reach UiAutomator2.
+        """
+        try:
+            self.drv.find_elements(By.CLASS_NAME, "android.widget.TextView")
+        except Exception as e:
+            logging.warning("[SESSION] UiAutomator2 proxy lost — recreating driver")
+            self.reporter.log_event("uiautomator_proxy_lost", {"error": str(e)})
+            self.reconnect()
+
     def close(self):
         try:
             self.drv.quit()
@@ -395,6 +410,69 @@ class AndroidDriver:
     # Artifact helpers
     # ------------------------------------------------------------------
 
+    def check_app_process(self):
+        """
+        Detect the AUT process dying mid-run (field reports: app crashes
+        during use). Called by the connectivity monitor every 30s — pure
+        ADB, no UI interaction, so it cannot disturb a running flow.
+        On death: saves the logcat crash buffer as evidence, emits
+        app_crashed, and relaunches the app so the study keeps recording.
+        Also catches "died and came back" (pid changed between ticks).
+        """
+        pkg = self.cfg.get("app_package", "")
+        if not pkg:
+            return
+        udid = self.cfg.get("udid", "")
+        adb = ["adb"] + (["-s", udid] if udid else [])
+        try:
+            r = subprocess.run(adb + ["shell", "pidof", "-s", pkg],
+                               capture_output=True, text=True, timeout=10)
+            pid = r.stdout.strip()
+        except Exception:
+            return  # adb hiccup — let the next tick decide
+        last = getattr(self, "_app_pid_last", None)
+
+        if pid:
+            if last and pid != last:
+                log.warning("[app-watch] app restarted silently (pid %s → %s)", last, pid)
+                self.reporter.log_event("app_crashed", {
+                    "kind": "silent_restart", "pid_before": last, "pid_after": pid,
+                    "evidence": self._save_crash_evidence(),
+                })
+            self._app_pid_last = pid
+            return
+
+        if last is None:
+            return  # never seen alive yet — nothing to compare against
+
+        log.warning("[app-watch] app process GONE (was pid %s) — saving evidence, relaunching", last)
+        self.reporter.log_event("app_crashed", {
+            "kind": "process_gone", "pid_before": last,
+            "evidence": self._save_crash_evidence(),
+        })
+        self._app_pid_last = None
+        try:
+            self.bring_to_foreground()
+            self.reporter.log_event("app_relaunched_after_crash", {})
+        except Exception as e:
+            log.warning("[app-watch] relaunch failed (next job's recovery will retry): %s", e)
+
+    def _save_crash_evidence(self) -> str:
+        """Dump the logcat crash buffer (Java stacktraces/ANRs) to artifacts."""
+        udid = self.cfg.get("udid", "")
+        adb = ["adb"] + (["-s", udid] if udid else [])
+        try:
+            r = subprocess.run(adb + ["logcat", "-b", "crash", "-d", "-t", "300"],
+                               capture_output=True, text=True, timeout=15)
+            text = (r.stdout or "").strip()
+            if not text:
+                return ""
+            return self.artifacts.save_text(
+                time.strftime("app_crash_%Y%m%d_%H%M%S.log"), text)
+        except Exception as e:
+            log.warning("[app-watch] crash-log capture failed: %s", e)
+            return ""
+
     def screenshot(self, name: str) -> str:
         return self.artifacts.screenshot(self.drv, name)
 
@@ -563,20 +641,52 @@ class AndroidDriver:
             detected = any(self.is_visible_text(t, timeout=1) for t in texts)
             self._emit_conn_event(event_name, detected, desc)
 
-        # Inferred: BT disconnected — on main screen but ECG section gone
+        # Inferred: BT disconnected.
+        #
+        # Do not use "Live ECG Signal" absence as the primary signal: that
+        # text is only visible on the Real-time ECG tab, so the normal Device
+        # Status / My Study Progress view can otherwise look disconnected.
+        # Prefer explicit OS/app signals:
+        #   - phone Bluetooth is actually off (scheduled BT workflow)
+        #   - AK shows the disconnected status/guidance (natural patch drop)
         _main_indicator = self.sel.get("symptom_add_text", "Log Symptoms")
         on_main_screen = self.is_visible_text(_main_indicator, timeout=1)
-        ecg_visible    = self.is_visible_text("Live ECG Signal", timeout=1)
-        bt_disconnected = on_main_screen and not ecg_visible
+        phone_bt_off = self._adb_bt_off()
+        wifi_off = self._adb_wifi_off()
+        bt_guidance_visible = any(
+            self.is_visible_text(t, contains=True, timeout=1)
+            for t in (
+                "Bluetooth not enabled",
+                "Cannot find your S-Patch",
+                "Reset your S-Patch",
+                "Attacth",
+                "Attach the S-Patch",
+            )
+        )
+        bt_status_disconnected = (
+            on_main_screen
+            and not wifi_off
+            and self.is_visible_text("Bluetooth", contains=True, timeout=1)
+            and self.is_visible_text("Disconnected", contains=True, timeout=1)
+        )
+        bt_disconnected = phone_bt_off or bt_guidance_visible or bt_status_disconnected
+        bt_source = (
+            "phone_bluetooth_off" if phone_bt_off
+            else "ak_bt_guidance" if bt_guidance_visible
+            else "ak_bt_status_disconnected" if bt_status_disconnected
+            else "none"
+        )
         was_bt_off = self._conn_state.get("bluetooth_off", False)
 
         if bt_disconnected:
-            self._emit_conn_event("bluetooth_off", True, "Bluetooth disconnected")
-            if not was_bt_off:
+            self._emit_conn_event("bluetooth_off", True, f"Bluetooth disconnected ({bt_source})")
+            if not was_bt_off and phone_bt_off:
                 self._try_add_diary_bt_off()
                 self._bt_disconnect_ts = time.time()
-        elif was_bt_off and ecg_visible:
-            # Positive confirmation: ECG signal visible again → genuinely reconnected
+            elif not was_bt_off:
+                self._bt_disconnect_ts = time.time()
+        elif was_bt_off and not bt_disconnected:
+            # Positive confirmation: explicit disconnected signals are gone.
             self._emit_conn_event("bluetooth_off", False, "Bluetooth disconnected")
             if hasattr(self, "_bt_disconnect_ts"):
                 elapsed = int(time.time() - self._bt_disconnect_ts)
@@ -590,7 +700,6 @@ class AndroidDriver:
         # else: was_bt_off=True but on a different screen — preserve disconnected state
 
         # WiFi off — detected via ADB settings (OS-level, reliable)
-        wifi_off = self._adb_wifi_off()
         was_wifi_off = self._conn_state.get("wifi_off", False)
         self._emit_conn_event("wifi_off", wifi_off, "WiFi off")
 
@@ -611,7 +720,7 @@ class AndroidDriver:
         # When BT is off the app shows "How to Replace the Battery" guidance card,
         # which causes false "Replace" reads. Use ADB as ground truth to guard
         # against cases where UI detection misses a natural BT disconnection.
-        bt_actually_off = bt_disconnected or self._adb_bt_off()
+        bt_actually_off = bt_disconnected or phone_bt_off
         if bt_actually_off:
             if self._conn_state.get("battery_status"):
                 self._conn_state["battery_status"] = None

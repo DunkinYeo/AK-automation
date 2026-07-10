@@ -445,9 +445,20 @@ def main():
             while not _stop_monitor.is_set():
                 if not (_airplane_active.is_set() or _inject_active.is_set()):
                     try:
+                        driver.ensure_session()
+                        driver.ensure_ui_automation()
                         driver.check_connectivity()
                     except Exception as _e:
                         log.warning("[connectivity monitor] error: %s", _e)
+                        try:
+                            driver.reconnect()
+                            driver.check_connectivity()
+                        except Exception as _e2:
+                            log.warning("[connectivity monitor] retry failed: %s", _e2)
+                    try:
+                        driver.check_app_process()
+                    except Exception as _e:
+                        log.warning("[app-watch] error: %s", _e)
                 _stop_monitor.wait(30)
 
         threading.Thread(target=_connectivity_monitor, daemon=True,

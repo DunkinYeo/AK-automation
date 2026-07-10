@@ -890,7 +890,8 @@ def _build_report_html(events: list[dict]) -> str:
     bt_warnings: list = []
     reg_diary: list = []
     pending_symptom = None
-    nat_bt: list = []          # natural (unscheduled) BT disconnections
+    nat_bt: list = []          # app-observed patch<->phone BT disconnections
+    crashes: list = []         # app process deaths caught by app-watch
     in_test_window = False     # inside a scheduled BT/airplane test
 
     for e in events:
@@ -906,11 +907,27 @@ def _build_report_html(events: list[dict]) -> str:
             in_test_window = False
 
         if ev == "bluetooth_off":
-            nat_bt.append({"ts": ts, "during_test": in_test_window, "elapsed": None, "resolved": False})
+            desc = data.get("desc", "")
+            if "ak_bt_status_disconnected" in desc:
+                source = "app_status"
+            elif "ak_bt_guidance" in desc:
+                source = "app_guidance"
+            elif "phone_bluetooth_off" in desc:
+                source = "phone_bt_off"
+            else:
+                source = "unknown"
+            natural = (source in ("app_status", "app_guidance")) and not in_test_window
+            nat_bt.append({
+                "ts": ts, "resolved_ts": "", "during_test": in_test_window,
+                "elapsed": None, "resolved": False, "source": source,
+                "natural": natural,
+            })
         elif ev in ("bluetooth_reconnected", "bluetooth_off_resolved"):
-            if nat_bt and not nat_bt[-1]["resolved"]:
+            if nat_bt:
                 nat_bt[-1]["resolved"] = True
-                nat_bt[-1]["elapsed"] = data.get("elapsed_sec")
+                nat_bt[-1]["resolved_ts"] = ts
+                if data.get("elapsed_sec") is not None:
+                    nat_bt[-1]["elapsed"] = data.get("elapsed_sec")
         if ev == "run_start":
             start_ts_str = ts
             duration_h   = data.get("duration_hours")
@@ -935,6 +952,12 @@ def _build_report_html(events: list[dict]) -> str:
             pending_symptom = None
         elif ev == "regression_diary_saved":
             reg_diary.append({"ts": ts, "symptom": data.get("symptom", "-"), "source": data.get("source", "")})
+        elif ev == "app_crashed":
+            crashes.append({"ts": ts, "kind": data.get("kind", ""),
+                            "evidence": data.get("evidence", ""), "relaunched": False})
+        elif ev == "app_relaunched_after_crash":
+            if crashes:
+                crashes[-1]["relaunched"] = True
         elif ev == "bt_disconnect_done":
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
         elif ev == "bt_disconnect_not_supported":
@@ -1034,17 +1057,27 @@ def _build_report_html(events: list[dict]) -> str:
 
     nat_bt_html = ""
     for n in nat_bt:
-        if n["during_test"]:
-            tag = "<span class='dur'>during scheduled test</span>"
-            style = "opacity:.55"
-        else:
-            tag = "<span class='dur' style='color:#d97706;font-weight:600'>natural</span>"
-            style = ""
+        if not n.get("natural"):
+            continue
+        tag = "<span class='dur' style='color:#d97706;font-weight:600'>natural patch link</span>"
         status = (f"<span class='ok'>✓ reconnected ({_dur(n['elapsed'])})</span>" if n["resolved"]
                   else "<span class='err'>✗ not reconnected</span>")
-        nat_bt_html += (f"<div class='list-row' style='{style}'><span class='ts'>{_t(n['ts'])}</span>"
-                        f"{tag}{status}</div>")
-    nat_count = sum(1 for n in nat_bt if not n["during_test"])
+        reconnected_at = _t(n.get("resolved_ts", "")) if n.get("resolved_ts") else "-"
+        nat_bt_html += (f"<div class='list-row'><span class='ts'>{_t(n['ts'])}</span>"
+                        f"{tag}<span class='dur'>reconnected {reconnected_at}</span>{status}</div>")
+    nat_count = sum(1 for n in nat_bt if n.get("natural"))
+
+    crash_html = ""
+    for c in crashes:
+        kind = {"process_gone": "crashed (process gone)",
+                "silent_restart": "crashed & auto-restarted by OS"}.get(c["kind"], c["kind"])
+        ev_name = os.path.basename(c["evidence"]) if c.get("evidence") else "no crash log captured"
+        state = ("<span class='ok'>✓ relaunched</span>" if c["relaunched"]
+                 else ("<span class='dur'>self-recovered</span>" if c["kind"] == "silent_restart"
+                       else "<span class='err'>✗ relaunch failed</span>"))
+        crash_html += (f"<div class='list-row'><span class='ts'>{_t(c['ts'])}</span>"
+                       f"<span class='symptom' style='color:#dc2626'>{kind}</span>"
+                       f"<span class='dur'>{ev_name}</span>{state}</div>")
 
     reg_diary_html = ""
     for r in reg_diary:
@@ -1199,8 +1232,18 @@ def _build_report_html(events: list[dict]) -> str:
       <span class="card-title">Observed BT Disconnections</span>
       <span class="card-count">{nat_count} natural</span>
     </div>
-    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">Detected by the 30s connectivity monitor — separate from the scheduled BT Disconnect Tests above. Drops during a scheduled test window are dimmed; "natural" rows mean the patch↔phone link dropped on its own (out of range, interference, manual separation).</div>
+    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">Detected by the 30s connectivity monitor. Shows only unscheduled S-Patch Bluetooth link drops reported by the app; scheduled BT signal and airplane-mode test drops are excluded.</div>
     {nat_bt_html if nat_bt_html else "<div class='empty'>No unscheduled BT disconnections observed.</div>"}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">💥</span>
+      <span class="card-title">App Crashes</span>
+      <span class="card-count" {'style="background:#fee2e2;color:#991b1b;font-weight:700"' if crashes else ''}>{len(crashes)} detected</span>
+    </div>
+    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">App process deaths caught by the 30s app-watch (ADB pidof). Crash-buffer logcat is saved as evidence for the app team — see the artifacts folder.</div>
+    {crash_html if crash_html else "<div class='empty'>No app crashes detected.</div>"}
   </div>
 
 </div>
