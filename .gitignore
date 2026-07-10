@@ -28,3 +28,6 @@ artifacts/**
 # Build output
 dist/
 *.zip
+
+# Local runtime state (WDA.ipa, adb cache, diagnostics)
+runtime/
