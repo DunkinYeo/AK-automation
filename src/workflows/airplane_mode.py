@@ -120,6 +120,13 @@ def run_airplane_mode(driver: AndroidDriver, airplane_minutes: float) -> None:
     # Run connectivity check after WiFi restores to emit wifi_off_resolved / wifi_restored.
     time.sleep(2)
     try:
+        driver.ensure_session()
+        driver.ensure_ui_automation()
         driver.check_connectivity()
     except Exception as _e:
         log.warning("[airplane_mode] post-disable connectivity check failed: %s", _e)
+        try:
+            driver.reconnect()
+            driver.check_connectivity()
+        except Exception as _e2:
+            log.warning("[airplane_mode] post-disable connectivity retry failed: %s", _e2)
