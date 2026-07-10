@@ -155,13 +155,15 @@ class AndroidDriver:
         logging.warning("[SESSION] recreating driver")
         self.reporter.log_event("session_recreating", {})
         self._last_adb_reconnect_at = 0.0  # reset cooldown: real disconnection must always reconnect
+        self._ensure_adb_connected()
         # USB after host sleep: the device may not have re-enumerated yet —
         # creating a session before ADB sees it again fails instantly
-        # (tester incident 2026-07-09, issue #6). WiFi ADB path is unchanged:
-        # _ensure_adb_connected() below still handles the adb-connect case.
-        if not self._adb_device_present():
+        # (tester incident 2026-07-09, issue #6). USB only: a WiFi device
+        # reappears via the adb-connect above, never by waiting.
+        udid = self.cfg.get("udid", "")
+        is_wifi = ":" in udid and not udid.startswith("/")
+        if not is_wifi and not self._adb_device_present():
             self.wait_for_adb_device(timeout=300)
-        self._ensure_adb_connected()
         try:
             self.drv.quit()
         except Exception:
