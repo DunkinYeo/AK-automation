@@ -452,9 +452,16 @@ class AndroidDriver:
             return  # adb hiccup — let the next tick decide
         last = getattr(self, "_app_pid_last", None)
 
+        # Expected-restart flag lifecycle (review 2026-07-10 #2): the flag
+        # must be consumed on EVERY app-comes-back path and must expire —
+        # a stale flag would hide the next real crash forever.
+        expect = getattr(self, "_expect_app_restart", False)
+        if expect and time.time() - getattr(self, "_expect_app_restart_ts", 0) > 300:
+            expect = self._expect_app_restart = False  # stale (>5min) — stop suppressing
+
         if pid:
             if last and pid != last:
-                if getattr(self, "_expect_app_restart", False):
+                if expect:
                     self._expect_app_restart = False  # our recovery did it
                 else:
                     log.warning("[app-watch] app restarted silently (pid %s → %s)", last, pid)
@@ -462,12 +469,17 @@ class AndroidDriver:
                         "kind": "silent_restart", "pid_before": last, "pid_after": pid,
                         "evidence": self._save_crash_evidence(),
                     })
+            elif last is None and expect:
+                self._expect_app_restart = False  # back after our kill — consume
             self._app_pid_last = pid
             self._app_alive_device_ts = self._device_now(adb)
             return
 
         if last is None:
             return  # never seen alive yet — nothing to compare against
+
+        if expect:
+            return  # our recovery's kill window — not a field crash; await relaunch
 
         log.warning("[app-watch] app process GONE (was pid %s) — saving evidence%s",
                     last, ", relaunching" if allow_relaunch else " (relaunch deferred to job recovery)")
@@ -625,6 +637,7 @@ class AndroidDriver:
                 # Step 3: Kill the app and restart it
                 self.reporter.log_event("recovery_step_3", {"action": "kill_and_relaunch"})
                 self._expect_app_restart = True  # app-watch: this restart is ours, not a field crash
+                self._expect_app_restart_ts = time.time()
                 if pkg:
                     try:
                         self.drv.terminate_app(pkg)
