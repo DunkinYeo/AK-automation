@@ -954,7 +954,8 @@ def _build_report_html(events: list[dict]) -> str:
             reg_diary.append({"ts": ts, "symptom": data.get("symptom", "-"), "source": data.get("source", "")})
         elif ev == "app_crashed":
             crashes.append({"ts": ts, "kind": data.get("kind", ""),
-                            "evidence": data.get("evidence", ""), "relaunched": False})
+                            "evidence": data.get("evidence", ""), "relaunched": False,
+                            "deferred": data.get("relaunch") == "deferred_to_job_recovery"})
         elif ev == "app_relaunched_after_crash":
             if crashes:
                 crashes[-1]["relaunched"] = True
@@ -1074,9 +1075,14 @@ def _build_report_html(events: list[dict]) -> str:
         kind = {"process_gone": "crashed (process gone)",
                 "silent_restart": "crashed & auto-restarted by OS"}.get(c["kind"], c["kind"])
         ev_name = os.path.basename(c["evidence"]) if c.get("evidence") else "no crash log captured"
-        state = ("<span class='ok'>✓ relaunched</span>" if c["relaunched"]
-                 else ("<span class='dur'>self-recovered</span>" if c["kind"] == "silent_restart"
-                       else "<span class='err'>✗ relaunch failed</span>"))
+        if c["relaunched"]:
+            state = "<span class='ok'>✓ relaunched</span>"
+        elif c["kind"] == "silent_restart":
+            state = "<span class='dur'>self-recovered</span>"
+        elif c.get("deferred"):
+            state = "<span class='dur' style='color:#d97706'>… recovery pending</span>"
+        else:
+            state = "<span class='err'>✗ relaunch failed</span>"
         crash_html += (f"<div class='list-row'><span class='ts'>{_t(c['ts'])}</span>"
                        f"<span class='symptom' style='color:#dc2626'>{kind}</span>"
                        f"<span class='dur'>{ev_name}</span>{state}</div>")

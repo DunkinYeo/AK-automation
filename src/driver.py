@@ -469,8 +469,17 @@ class AndroidDriver:
                         "kind": "silent_restart", "pid_before": last, "pid_after": pid,
                         "evidence": self._save_crash_evidence(),
                     })
-            elif last is None and expect:
-                self._expect_app_restart = False  # back after our kill — consume
+            elif last is None:
+                if expect:
+                    self._expect_app_restart = False  # back after our kill — consume
+                if getattr(self, "_crash_pending", False):
+                    # Close the pairing: a recorded process_gone crash is now
+                    # back alive (job recovery / OS restarted it) — without
+                    # this the report renders a successful recovery as
+                    # "relaunch failed" (review 2026-07-10 #3)
+                    self._crash_pending = False
+                    self.reporter.log_event("app_relaunched_after_crash",
+                                            {"by": "job_recovery_or_system"})
             self._app_pid_last = pid
             self._app_alive_device_ts = self._device_now(adb)
             return
@@ -489,11 +498,13 @@ class AndroidDriver:
             "relaunch": "monitor" if allow_relaunch else "deferred_to_job_recovery",
         })
         self._app_pid_last = None
+        self._crash_pending = True  # closed by the next alive tick or below
         if not allow_relaunch:
             return
         try:
             self.bring_to_foreground()
-            self.reporter.log_event("app_relaunched_after_crash", {})
+            self._crash_pending = False
+            self.reporter.log_event("app_relaunched_after_crash", {"by": "monitor"})
         except Exception as e:
             log.warning("[app-watch] relaunch failed (next job's recovery will retry): %s", e)
 
