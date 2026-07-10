@@ -74,11 +74,16 @@ def _bt_off(drv) -> bool:
             _adb(drv, *args)
         except Exception:
             pass
-    time.sleep(2)
-    off = _bt_is_off(drv)
-    if not off:
-        log.warning("_bt_off: BT still ON after disable commands (device/OS may not support ADB BT toggle)")
-    return off
+    # Poll up to 20s — BT stack teardown lags the command on many devices
+    # (same window bt_disconnect.py uses; a fixed 2s single check
+    # false-flagged Pixel 7 as "not supported" while the long-run
+    # cycle on the same device worked fine — 2026-07-10)
+    for _ in range(10):
+        time.sleep(2)
+        if _bt_is_off(drv):
+            return True
+    log.warning("_bt_off: BT still ON after disable commands (device/OS may not support ADB BT toggle)")
+    return False
 
 
 def _bt_on(drv):
