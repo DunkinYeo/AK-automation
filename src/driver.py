@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import threading
 import time
 
 log = logging.getLogger(__name__)
@@ -146,12 +147,21 @@ class AndroidDriver:
         except Exception as e:
             self.reporter.log_event("adb_reconnect_failed", {"addr": wifi_addr, "error": str(e)})
 
+    # Serializes session recreation across threads (scheduler recovery vs
+    # monitor self-heal) — concurrent reconnects thrash (2026-07-10)
+    _reconnect_lock = threading.RLock()
+
     def reconnect(self):
         """
         Re-establish Appium session after a crash or timeout.
         Re-establishes the ADB WiFi connection first (dropped on host sleep),
         then creates a new Appium session and brings the app to foreground.
+        Thread-safe: serialized via _reconnect_lock.
         """
+        with self._reconnect_lock:
+            self._reconnect_locked()
+
+    def _reconnect_locked(self):
         logging.warning("[SESSION] recreating driver")
         self.reporter.log_event("session_recreating", {})
         self._last_adb_reconnect_at = 0.0  # reset cooldown: real disconnection must always reconnect

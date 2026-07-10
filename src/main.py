@@ -465,7 +465,19 @@ def main():
                     try:
                         driver.check_connectivity()
                     except Exception as _e:
-                        log.warning("[connectivity monitor] tick skipped: %s", _e)
+                        # Session/instrumentation died between jobs (e.g. after
+                        # an airplane cycle). Without self-heal the monitor is
+                        # blind until the next hourly job (observed 15:32→16:14
+                        # gap, 2026-07-10). Heal ONLY while idle; reconnect()
+                        # itself is lock-serialized against job recovery, so
+                        # this can no longer thrash like the 15:07 incident.
+                        log.warning("[connectivity monitor] tick failed: %s — recovering session (idle)", _e)
+                        try:
+                            if not driver._job_busy.is_set():
+                                driver.reconnect()
+                                driver.check_connectivity()
+                        except Exception as _e2:
+                            log.warning("[connectivity monitor] recovery failed: %s", _e2)
                 _stop_monitor.wait(30)
 
         threading.Thread(target=_connectivity_monitor, daemon=True,
