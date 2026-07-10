@@ -443,23 +443,29 @@ def main():
         driver._job_busy = threading.Event()  # set by scheduler around each job
 
         def _connectivity_monitor():
-            # READ-ONLY by design: the monitor must never touch the session
-            # lifecycle (ensure_session/reconnect). Two threads recreating
-            # the driver concurrently invalidate each other's session in a
-            # thrash loop (observed 2026-07-10). Session recovery is owned
-            # exclusively by the scheduler job path; a dead session here
-            # just means skipped ticks until it comes back.
+            # Session lifecycle rules (2026-07-10, session-thrash incident +
+            # code review):
+            #  - This thread NEVER touches the session (no ensure_session/
+            #    reconnect) — recovery is owned by the scheduler job path.
+            #  - App-crash watch (pure ADB) runs on EVERY tick — crashes are
+            #    most likely during injections, so it must not pause; only
+            #    the relaunch action is gated while something owns the device.
+            #  - check_connectivity DOES touch the UI (popup dismiss, BT-off
+            #    diary, ECG check), so it runs only when fully idle — incl.
+            #    BT windows, where run_bt_disconnect calls it itself
+            #    (double-running raced _conn_state → duplicate diaries).
             while not _stop_monitor.is_set():
-                if not (_airplane_active.is_set() or _inject_active.is_set()
-                        or driver._job_busy.is_set()):
+                device_owned = (_airplane_active.is_set() or _bt_active.is_set()
+                                or _inject_active.is_set() or driver._job_busy.is_set())
+                try:
+                    driver.check_app_process(allow_relaunch=not device_owned)
+                except Exception as _e:
+                    log.warning("[app-watch] error: %s", _e)
+                if not device_owned:
                     try:
                         driver.check_connectivity()
                     except Exception as _e:
                         log.warning("[connectivity monitor] tick skipped: %s", _e)
-                    try:
-                        driver.check_app_process()  # ADB-only, session-independent
-                    except Exception as _e:
-                        log.warning("[app-watch] error: %s", _e)
                 _stop_monitor.wait(30)
 
         threading.Thread(target=_connectivity_monitor, daemon=True,

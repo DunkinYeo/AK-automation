@@ -410,68 +410,121 @@ class AndroidDriver:
     # Artifact helpers
     # ------------------------------------------------------------------
 
-    def check_app_process(self):
+    def check_app_process(self, allow_relaunch: bool = True):
         """
         Detect the AUT process dying mid-run (field reports: app crashes
-        during use). Called by the connectivity monitor every 30s — pure
-        ADB, no UI interaction, so it cannot disturb a running flow.
-        On death: saves the logcat crash buffer as evidence, emits
-        app_crashed, and relaunches the app so the study keeps recording.
-        Also catches "died and came back" (pid changed between ticks).
+        during use). Pure ADB, no UI interaction — safe to call at any
+        time, including during injections (where crashes are most likely).
+
+        allow_relaunch=False records the crash but leaves relaunching to
+        the scheduler job path (used while a job/BT/airplane owns the
+        device, so the watch never fights an in-flight flow).
+
+        Guards (code review 2026-07-10):
+          - ADB health is verified first — an offline/unauthorized adb
+            must not be mistaken for an app crash (false process_gone)
+          - restarts caused by our own recovery (kill_and_relaunch) are
+            expected: recover_session sets _expect_app_restart and the
+            pid change is then NOT reported as a field crash
         """
         pkg = self.cfg.get("app_package", "")
         if not pkg:
             return
+        if not self._adb_device_present():
+            return  # ADB unhealthy — cannot judge the app; skip this tick
         udid = self.cfg.get("udid", "")
         adb = ["adb"] + (["-s", udid] if udid else [])
         try:
             r = subprocess.run(adb + ["shell", "pidof", "-s", pkg],
                                capture_output=True, text=True, timeout=10)
-            pid = r.stdout.strip()
+            pid = r.stdout.strip() if r.returncode == 0 else ""
         except Exception:
             return  # adb hiccup — let the next tick decide
         last = getattr(self, "_app_pid_last", None)
 
         if pid:
             if last and pid != last:
-                log.warning("[app-watch] app restarted silently (pid %s → %s)", last, pid)
-                self.reporter.log_event("app_crashed", {
-                    "kind": "silent_restart", "pid_before": last, "pid_after": pid,
-                    "evidence": self._save_crash_evidence(),
-                })
+                if getattr(self, "_expect_app_restart", False):
+                    self._expect_app_restart = False  # our recovery did it
+                else:
+                    log.warning("[app-watch] app restarted silently (pid %s → %s)", last, pid)
+                    self.reporter.log_event("app_crashed", {
+                        "kind": "silent_restart", "pid_before": last, "pid_after": pid,
+                        "evidence": self._save_crash_evidence(),
+                    })
             self._app_pid_last = pid
+            self._app_alive_device_ts = self._device_now(adb)
             return
 
         if last is None:
             return  # never seen alive yet — nothing to compare against
 
-        log.warning("[app-watch] app process GONE (was pid %s) — saving evidence, relaunching", last)
+        log.warning("[app-watch] app process GONE (was pid %s) — saving evidence%s",
+                    last, ", relaunching" if allow_relaunch else " (relaunch deferred to job recovery)")
         self.reporter.log_event("app_crashed", {
             "kind": "process_gone", "pid_before": last,
             "evidence": self._save_crash_evidence(),
+            "relaunch": "monitor" if allow_relaunch else "deferred_to_job_recovery",
         })
         self._app_pid_last = None
+        if not allow_relaunch:
+            return
         try:
             self.bring_to_foreground()
             self.reporter.log_event("app_relaunched_after_crash", {})
         except Exception as e:
             log.warning("[app-watch] relaunch failed (next job's recovery will retry): %s", e)
 
+    @staticmethod
+    def _device_now(adb: list) -> str:
+        """Device-clock 'MM-DD HH:MM:SS' (logcat timestamps use device time)."""
+        try:
+            r = subprocess.run(adb + ["shell", "date", "+%m-%d %H:%M:%S"],
+                               capture_output=True, text=True, timeout=5)
+            return r.stdout.strip()
+        except Exception:
+            return ""
+
     def _save_crash_evidence(self) -> str:
-        """Dump the logcat crash buffer (Java stacktraces/ANRs) to artifacts."""
+        """
+        Save crash evidence for the app team. Primary file = crash-buffer
+        lines SINCE the last tick the app was seen alive (device clock) —
+        the raw buffer keeps old crashes for days (a 2026-07-01 crash was
+        still in the Pixel 7 buffer), which would muddy the evidence.
+        The unfiltered buffer is saved alongside as *_full.log.
+        """
         udid = self.cfg.get("udid", "")
         adb = ["adb"] + (["-s", udid] if udid else [])
         try:
-            r = subprocess.run(adb + ["logcat", "-b", "crash", "-d", "-t", "300"],
+            r = subprocess.run(adb + ["logcat", "-b", "crash", "-d"],
                                capture_output=True, text=True, timeout=15)
-            text = (r.stdout or "").strip()
-            if not text:
+            full = (r.stdout or "").strip()
+            if not full:
                 return ""
-            return self.artifacts.save_text(
-                time.strftime("app_crash_%Y%m%d_%H%M%S.log"), text)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            since = getattr(self, "_app_alive_device_ts", "")
+            recent = self._crash_lines_since(full, since) if since else ""
+            full_path = self.artifacts.save_text(f"app_crash_{stamp}_full.log", full)
+            if recent:
+                return self.artifacts.save_text(f"app_crash_{stamp}.log", recent)
+            return full_path  # can't scope by time — full buffer is the evidence
         except Exception as e:
             log.warning("[app-watch] crash-log capture failed: %s", e)
             return ""
+
+    @staticmethod
+    def _crash_lines_since(buffer_text: str, since_ts: str) -> str:
+        """Return buffer lines at/after 'MM-DD HH:MM:SS' (lexicographic on
+        logcat's zero-padded timestamps; header lines are kept with what
+        follows them)."""
+        out, keep = [], False
+        for line in buffer_text.splitlines():
+            ts = line[:14]  # 'MM-DD HH:MM:SS'
+            if len(ts) == 14 and ts[2] == "-" and ts[5] == " ":
+                keep = ts >= since_ts
+            if keep:
+                out.append(line)
+        return "\n".join(out).strip()
 
     def screenshot(self, name: str) -> str:
         return self.artifacts.screenshot(self.drv, name)
@@ -561,6 +614,7 @@ class AndroidDriver:
             elif step == 3:
                 # Step 3: Kill the app and restart it
                 self.reporter.log_event("recovery_step_3", {"action": "kill_and_relaunch"})
+                self._expect_app_restart = True  # app-watch: this restart is ours, not a field crash
                 if pkg:
                     try:
                         self.drv.terminate_app(pkg)
