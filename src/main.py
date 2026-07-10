@@ -398,6 +398,8 @@ def main():
         _bt_active            = threading.Event()
         _airplane_active      = threading.Event()
         _stop_loop            = threading.Event()
+        _inject_active        = threading.Event()
+        _stop_monitor         = threading.Event()
 
         if bt_interval_h > 0 or ap_interval_h > 0:
             _loop_interval_h = bt_interval_h or ap_interval_h
@@ -433,6 +435,25 @@ def main():
             log.info("Periodic loop started (after first injection): BT %.1fmin → airplane %.1fmin → wait %.1fh",
                      bt_minutes, ap_minutes, _loop_interval_h)
 
+        # Connectivity monitor — detects NATURAL BT drops between jobs.
+        # Ported from run.py: main.py long runs had no 30s monitor, so an
+        # unscheduled disconnection stayed invisible (and the dashboard BT
+        # card stale) until the next hourly job. Paused during airplane
+        # tests and injections; intentionally NOT paused during the BT-off
+        # window (the bt-off diary check relies on detection there).
+        def _connectivity_monitor():
+            while not _stop_monitor.is_set():
+                if not (_airplane_active.is_set() or _inject_active.is_set()):
+                    try:
+                        driver.check_connectivity()
+                    except Exception as _e:
+                        log.warning("[connectivity monitor] error: %s", _e)
+                _stop_monitor.wait(30)
+
+        threading.Thread(target=_connectivity_monitor, daemon=True,
+                         name="conn-monitor").start()
+        log.info("Connectivity monitor started (30s interval; paused during airplane/injection)")
+
         inject_count = 0
 
         def job(at_hour: float | None = None, payload: dict | None = None):
@@ -448,6 +469,7 @@ def main():
                 symptoms = [random.choice(symptoms_pool)]
             symptom = symptoms[0]
             t0 = time.monotonic()
+            _inject_active.set()
             try:
                 inject_symptom_event(driver, symptoms=symptoms, activities=None)
                 elapsed = round(time.monotonic() - t0, 1)
@@ -461,6 +483,7 @@ def main():
                                            mention=_mention)
                 raise
             finally:
+                _inject_active.clear()
                 _first_injection_done.set()
 
         scheduler = LongRunScheduler(
@@ -476,6 +499,7 @@ def main():
         )
         scheduler.run(job, driver=driver)
         _stop_loop.set()
+        _stop_monitor.set()
 
         reporter.log_event("run_complete", {"status": "ok"})
         log_event("run complete")
