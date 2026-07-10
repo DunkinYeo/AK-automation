@@ -64,25 +64,43 @@ def _bt_is_off(drv) -> bool:
     return False
 
 
+_bt_toggle_unsupported = False  # memoized per run — don't re-wait in every TC
+
+
 def _bt_off(drv) -> bool:
     """Try to disable BT. Returns True if BT actually went off."""
-    for args in (
-        ("shell", "svc", "bluetooth", "disable"),
-        ("shell", "cmd", "bluetooth_manager", "disable"),
-    ):
+    global _bt_toggle_unsupported
+    if _bt_toggle_unsupported:
+        return False
+
+    udid = drv.cfg.get("udid", "")
+    adb = ["adb"] + (["-s", udid] if udid else [])
+    accepted = False
+    for args in (["shell", "svc", "bluetooth", "disable"],
+                 ["shell", "cmd", "bluetooth_manager", "disable"]):
         try:
-            _adb(drv, *args)
+            r = subprocess.run(adb + args, capture_output=True, timeout=10)
+            if r.returncode == 0 and b"error" not in r.stderr.lower():
+                accepted = True
         except Exception:
             pass
-    # Poll up to 20s — BT stack teardown lags the command on many devices
-    # (same window bt_disconnect.py uses; a fixed 2s single check
-    # false-flagged Pixel 7 as "not supported" while the long-run
-    # cycle on the same device worked fine — 2026-07-10)
-    for _ in range(10):
+
+    if not accepted:
+        # Commands themselves rejected — genuinely unsupported; no point waiting
+        log.warning("_bt_off: BT disable commands rejected — ADB BT toggle not supported")
+        _bt_toggle_unsupported = True
+        return False
+
+    # Command accepted — the BT stack teardown can lag well past a fixed 2s
+    # (a 2s single check false-flagged Pixel 7 on 2026-07-10 while the
+    # long-run cycle on the same device worked). Poll up to 30s for slower
+    # devices; early-exits every 2s so fast devices pay nothing.
+    for _ in range(15):
         time.sleep(2)
         if _bt_is_off(drv):
             return True
-    log.warning("_bt_off: BT still ON after disable commands (device/OS may not support ADB BT toggle)")
+    log.warning("_bt_off: BT still ON 30s after an accepted disable command — treating as unsupported")
+    _bt_toggle_unsupported = True
     return False
 
 
