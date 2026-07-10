@@ -1066,7 +1066,8 @@ def _build_report_html(events: list[dict]) -> str:
         status = (f"<span class='ok'>✓ reconnected ({_dur(n['elapsed'])})</span>" if n["resolved"]
                   else "<span class='err'>✗ not reconnected</span>")
         reconnected_at = _t(n.get("resolved_ts", "")) if n.get("resolved_ts") else "-"
-        nat_bt_html += (f"<div class='list-row'><span class='ts'>{_t(n['ts'])}</span>"
+        nat_bt_html += (f"<div class='list-row'><span class='ts'>{_t(n['ts'])}"
+                        f" <span style='color:#dc2626;font-weight:600'>- Disconnected time</span></span>"
                         f"{tag}<span class='dur'>reconnected {reconnected_at}</span>{status}</div>")
     nat_count = sum(1 for n in nat_bt if n.get("natural"))
 

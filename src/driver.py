@@ -1042,10 +1042,27 @@ class AndroidDriver:
         import time as _time
         try:
             log.info("[connectivity] Verifying ECG signal after BT reconnect")
-            # 20s: right after a long BT-off the app repaints the main screen
-            # slowly — a 5s check false-flagged "no ECG" at 2026-07-10 15:25
-            # (early-exits as soon as the button appears)
-            if not self.is_visible_text("View", timeout=20):
+            # If the patch link is still down (radio restored but the patch
+            # is away/out of range), "no View button" is the EXPECTED state —
+            # report the real cause instead of a misleading UI failure
+            # (2026-07-10 16:11: radio-restore resolved the BT state while
+            # the patch was physically separated)
+            if (self.is_visible_text("Bluetooth", contains=True, timeout=2)
+                    and self.is_visible_text("Disconnected", contains=True, timeout=2)):
+                self.reporter.log_event("bt_reconnect_ecg_result",
+                                        {"result": "patch link still down — ECG check skipped"})
+                return
+            # Poll in rounds instead of one long wait: right after BT toggles
+            # a transient session error makes a single wait raise instantly
+            # (→ returned False in 0s despite timeout=20, seen 16:11:20).
+            # 3 rounds × 7s tolerate one-off hiccups; early-exits when found.
+            found = False
+            for _ in range(3):
+                if self.is_visible_text("View", timeout=7):
+                    found = True
+                    break
+                _time.sleep(1)
+            if not found:
                 self.reporter.log_event("bt_reconnect_ecg_result", {"result": "View button not found"})
                 return
             self.tap_text("View", timeout=5)
