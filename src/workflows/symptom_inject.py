@@ -41,6 +41,21 @@ _LOG_SYMPTOMS_BTN  = "Log Symptoms"
 _SAVE_BTN          = "Save"
 
 
+def _save_enabled(d) -> bool:
+    """
+    True if the Save button is enabled — the app disables it while no
+    symptom is selected. Unknown/unreadable state returns True so apps
+    with server-side validation (Save always enabled) are not blocked.
+    """
+    try:
+        btn = d.find(_SAVE_BTN, timeout=3)
+        if btn is None:
+            return True
+        return btn.get_attribute("enabled") != "false"
+    except Exception:
+        return True
+
+
 @retry(tries=3, delay=5)
 def inject_symptom_event(
     d: AndroidDriver,
@@ -78,21 +93,37 @@ def inject_symptom_event(
     d.tap_text(_LOG_SYMPTOMS_BTN, timeout=5)
     d.wait_idle(1.0)
 
-    # ── 5. Select symptom ────────────────────────────────────────────────
+    # ── 5. Select symptom, then verify the selection registered ──────────
+    # With nothing selected the Save button stays disabled (the same signal
+    # TC-DIARY-005 checks) — without this check a missed tap would be
+    # silently saved as a successful injection (issue #7).
     d.tap_text(symptom, timeout=5)
     d.wait_idle(0.3)
+    if not _save_enabled(d):
+        d.tap_text(symptom, timeout=5)  # one retry — RN render lag
+        d.wait_idle(0.5)
+        if not _save_enabled(d):
+            d.screenshot("inject_select_failed")
+            raise RuntimeError(f"Symptom tap did not register: {symptom!r} (Save still disabled)")
 
     # ── 6. Submit via Save ─────────────────────────────────────────────────
     d.tap_text(_SAVE_BTN, timeout=5)
     d.wait_idle(1.5)
 
     # ── 7. Confirm return to main screen ───────────────────────────────────────────
+    # Do NOT blindly close the sheet with Back and report success — if the
+    # sheet is still open, Save didn't go through (issue #7).
     if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
-        try:
-            d.drv.press_keycode(4)  # Back key — close sheet on any device
-            d.wait_idle(1.0)
-        except Exception:
-            pass
+        if d.is_visible_text(symptom, timeout=2):  # sheet still open → save failed
+            d.screenshot("inject_submit_failed")
+            try:
+                d.drv.press_keycode(4)  # close sheet so the next job starts clean
+                d.wait_idle(1.0)
+            except Exception:
+                pass
+            raise RuntimeError("Save did not close the Log Symptoms sheet — injection not confirmed")
+        # Neither main nor sheet visible — likely a loading overlay; give it time
+        d.wait_idle(3.0)
         if not d.is_visible_text(_MAIN_SCREEN_TEXT, timeout=5):
             d.screenshot("inject_submit_failed")
             raise RuntimeError("Failed to return to main screen after Log Symptoms submission")

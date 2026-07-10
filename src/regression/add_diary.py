@@ -100,10 +100,13 @@ def test_diary_003_random_inject(drv, runner):
     time.sleep(0.3)
     drv.tap_text("Save", timeout=5)
     time.sleep(1.5)
-    runner.assert_true(
-        drv.is_visible_text(_MAIN_BTN, timeout=5),
-        f"Main screen not restored after Save ({symptom})"
-    )
+    saved = drv.is_visible_text(_MAIN_BTN, timeout=5)
+    if saved:
+        # This writes a REAL diary entry to the portal — record it so the
+        # report can be cross-checked against portal data (issue #7)
+        drv.reporter.log_event("regression_diary_saved",
+                               {"symptom": symptom, "source": "TC-DIARY-003"})
+    runner.assert_true(saved, f"Main screen not restored after Save ({symptom})")
 
 
 def test_diary_004_close_x_button(drv, runner):
