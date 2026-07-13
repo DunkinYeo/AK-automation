@@ -311,9 +311,14 @@ def _kill_proc():
         if proc and proc.poll() is None:
             try:
                 proc.terminate()
-                proc.wait(timeout=5)
+                # 15s parity with /api/stop — the run's finally needs time to
+                # restore the device screen timeout (review 2026-07-14)
+                proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 proc.kill()
+    # Same backstop as /api/stop: web-server restart/shutdown that takes the
+    # run down with it must not leave the 24h marker on the device
+    _screen_timeout_backstop()
 
 atexit.register(_kill_proc)
 signal.signal(signal.SIGTERM, lambda *_: (_kill_proc(), sys.exit(0)))
@@ -587,9 +592,23 @@ def _screen_timeout_backstop():
         r = subprocess.run(adb + ["get", "system", "screen_off_timeout"],
                            capture_output=True, text=True, timeout=5)
         if r.stdout.strip() == "86400000":
-            subprocess.run(adb + ["put", "system", "screen_off_timeout", "1800000"],
+            # Exact original saved by the run at set-time (runtime file);
+            # fall back to the Android default if it's missing
+            orig = "1800000"
+            orig_file = ROOT / "runtime" / "screen_timeout_orig.json"
+            try:
+                saved = json.loads(orig_file.read_text(encoding="utf-8"))
+                if str(saved.get("orig", "")).isdigit():
+                    orig = str(saved["orig"])
+            except Exception:
+                pass
+            subprocess.run(adb + ["put", "system", "screen_off_timeout", orig],
                            capture_output=True, timeout=5)
-            print("[stop] screen-timeout backstop: marker found → restored 1800000", flush=True)
+            try:
+                orig_file.unlink()
+            except Exception:
+                pass
+            print(f"[stop] screen-timeout backstop: marker found → restored {orig}", flush=True)
     except Exception:
         pass
 

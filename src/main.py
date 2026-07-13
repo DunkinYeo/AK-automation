@@ -80,6 +80,41 @@ def load_cfg(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+# Screen-timeout original value, persisted so the web backstop can restore
+# the EXACT tester setting even if this process is hard-killed (review
+# 2026-07-14). Single source of truth for all three defense layers.
+_SCREEN_ORIG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "runtime", "screen_timeout_orig.json")
+
+
+def _save_screen_orig(val: str) -> None:
+    try:
+        import json
+        os.makedirs(os.path.dirname(_SCREEN_ORIG_FILE), exist_ok=True)
+        with open(_SCREEN_ORIG_FILE, "w", encoding="utf-8") as f:
+            json.dump({"orig": val, "saved_at": datetime.datetime.now().isoformat()}, f)
+    except Exception:
+        pass
+
+
+def _read_screen_orig() -> str | None:
+    try:
+        import json
+        with open(_SCREEN_ORIG_FILE, encoding="utf-8") as f:
+            v = str(json.load(f).get("orig", ""))
+        return v if v.isdigit() else None
+    except Exception:
+        return None
+
+
+def _clear_screen_orig() -> None:
+    try:
+        os.remove(_SCREEN_ORIG_FILE)
+    except Exception:
+        pass
+
+
 def _dry_run(cfg: dict) -> None:
     """Validate config and print what will run — no device connection."""
     run_cfg    = cfg.get("run") or {}
@@ -504,12 +539,12 @@ def main():
         # Restored in the finally block (review 2026-07-14: crash/stop paths
         # must not leave the tester's device polluted).
         _orig = driver.set_screen_timeout(86400000)  # 24h
-        # Sanity: if a previous run died without restoring (e.g. old builds,
-        # SIGKILL), the captured "original" IS our marker — restoring it
-        # would make the pollution permanent. Fall back to the Android
-        # default instead.
+        # Sanity: if a previous run died without restoring (SIGKILL), the
+        # captured "original" IS our marker — recover the true original from
+        # the runtime file that run saved; Android default as last resort.
         if _orig == "86400000":
-            _orig = "1800000"
+            _orig = _read_screen_orig() or "1800000"
+        _save_screen_orig(_orig)  # lets the web backstop restore the EXACT value
         _screen_restore["driver"] = driver
         _screen_restore["orig"] = _orig
         driver.ensure_screen_on()
@@ -584,6 +619,7 @@ def main():
         try:
             if _screen_restore.get("driver") and str(_screen_restore.get("orig", "")).isdigit():
                 _screen_restore["driver"].set_screen_timeout(int(_screen_restore["orig"]))
+                _clear_screen_orig()  # restored — the backstop file is no longer needed
         except Exception:
             pass
         if dm:
