@@ -76,12 +76,18 @@ class IOSDriver:
         wda_bundle = "com.facebook.WebDriverAgentRunner.xctrunner"
         udid = self.cfg.get("udid", "")
 
-        # Kill any existing iproxy on this port
-        try:
-            subprocess.run(["pkill", "-f", f"iproxy.*{wda_port}"], capture_output=True)
-            time.sleep(0.5)
-        except Exception:
-            pass
+        # Kill ALL stale tunnel/launcher leftovers before starting fresh.
+        # The iproxy-only pkill missed a day-old `pymobiledevice3 … xcuitest`
+        # zombie that kept WDA from ever becoming ready after a cable replug
+        # (2026-07-09 incident — recovery spun for 40min; issue #1).
+        for _pat in (f"iproxy.*{wda_port}",
+                     f"pymobiledevice3 usbmux forward.*{wda_port}",
+                     f"pymobiledevice3.*xcuitest.*{wda_bundle}"):
+            try:
+                subprocess.run(["pkill", "-f", _pat], capture_output=True)
+            except Exception:
+                pass
+        time.sleep(0.5)
 
         # Start port forwarding: iproxy (libimobiledevice) if available,
         # otherwise pymobiledevice3's built-in forwarder (pip-only, no brew)
@@ -131,14 +137,16 @@ class IOSDriver:
             return False
 
         # Wait up to 30s for WDA to be ready
-        deadline = time.monotonic() + 30
+        # 60s: a cold start after days idle exceeded 30s (2026-07-14);
+        # warm starts return in a few seconds — early-exit poll
+        deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             if self._wda_is_running(wda_port):
                 log.info("[driver-iOS] WDA ready on port %d", wda_port)
                 return True
             time.sleep(2)
 
-        log.warning("[driver-iOS] WDA not ready after 30s on port %d", wda_port)
+        log.warning("[driver-iOS] WDA not ready after 60s on port %d", wda_port)
         return False
 
     def _build_options(self) -> XCUITestOptions:
