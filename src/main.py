@@ -265,6 +265,16 @@ def main():
     # ── Full long-run mode ───────────────────────────────────────────────────
     dm = None
     keep_awake = KeepAwake()
+    _screen_restore: dict = {}  # filled once the driver sets the run timeout
+
+    # Web Stop sends SIGTERM, which by default kills the process WITHOUT
+    # running finally — the screen-timeout restore (and driver cleanup)
+    # would be skipped. Convert to SystemExit so finally executes; the web
+    # side still SIGKILLs after 5s if cleanup hangs, so worst case is
+    # today's behavior.
+    import signal as _signal
+    _signal.signal(_signal.SIGTERM, lambda *_: sys.exit(143))
+
     try:
         if platform != "android":
             raise RuntimeError(
@@ -491,7 +501,17 @@ def main():
         # Charging-independent screen keep-awake: stay_awake capability lapses
         # when the device pauses charging (Pixel battery protection) — the
         # 2026-07-11 soak lost 39h of injections to a locked screen.
-        _orig_screen_timeout = driver.set_screen_timeout(86400000)  # 24h
+        # Restored in the finally block (review 2026-07-14: crash/stop paths
+        # must not leave the tester's device polluted).
+        _orig = driver.set_screen_timeout(86400000)  # 24h
+        # Sanity: if a previous run died without restoring (e.g. old builds,
+        # SIGKILL), the captured "original" IS our marker — restoring it
+        # would make the pollution permanent. Fall back to the Android
+        # default instead.
+        if _orig == "86400000":
+            _orig = "1800000"
+        _screen_restore["driver"] = driver
+        _screen_restore["orig"] = _orig
         driver.ensure_screen_on()
 
         inject_count = 0
@@ -540,8 +560,6 @@ def main():
         scheduler.run(job, driver=driver)
         _stop_loop.set()
         _stop_monitor.set()
-        if _orig_screen_timeout.isdigit():
-            driver.set_screen_timeout(int(_orig_screen_timeout))  # restore tester's setting
 
         reporter.log_event("run_complete", {"status": "ok"})
         log_event("run complete")
@@ -560,6 +578,14 @@ def main():
 
     finally:
         keep_awake.stop()
+        # Restore the tester's screen timeout on EVERY exit path — normal
+        # completion, exception, Ctrl-C, and web Stop (SIGTERM → SystemExit
+        # via the handler installed in main()).
+        try:
+            if _screen_restore.get("driver") and str(_screen_restore.get("orig", "")).isdigit():
+                _screen_restore["driver"].set_screen_timeout(int(_screen_restore["orig"]))
+        except Exception:
+            pass
         if dm:
             dm.close()
         try:
