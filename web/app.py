@@ -569,6 +569,31 @@ def api_start():
         return jsonify({"ok": True})
 
 
+def _screen_timeout_backstop():
+    """
+    If a hard-killed run left the 24h screen-timeout marker on the device,
+    restore the Android default. Covers the SIGKILL window the run's own
+    finally-restore cannot (review 2026-07-14). Idempotent — only acts on
+    the exact marker value.
+    """
+    try:
+        cfg = yaml.safe_load((ROOT / "config" / "_web_run.yaml").read_text(encoding="utf-8")) or {}
+        if (cfg.get("platform") or "android") != "android":
+            return
+        udid = (cfg.get("android") or {}).get("udid", "")
+        if not udid:
+            return
+        adb = ["adb", "-s", udid, "shell", "settings"]
+        r = subprocess.run(adb + ["get", "system", "screen_off_timeout"],
+                           capture_output=True, text=True, timeout=5)
+        if r.stdout.strip() == "86400000":
+            subprocess.run(adb + ["put", "system", "screen_off_timeout", "1800000"],
+                           capture_output=True, timeout=5)
+            print("[stop] screen-timeout backstop: marker found → restored 1800000", flush=True)
+    except Exception:
+        pass
+
+
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     with _lock:
@@ -576,13 +601,16 @@ def api_stop():
         if proc and proc.poll() is None:
             proc.terminate()
             try:
-                proc.wait(timeout=5)
+                # 15s (was 5): the run's finally needs time for the screen-
+                # timeout restore and driver teardown before we hard-kill
+                proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 proc.kill()
         _state["proc"]     = None
         _state["start_ts"] = None
         _state["out_dir"]  = None
     _clear_interval_override()
+    _screen_timeout_backstop()
     return jsonify({"ok": True})
 
 
