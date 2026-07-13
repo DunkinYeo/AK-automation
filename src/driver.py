@@ -23,6 +23,34 @@ from src.reporter import RunReporter
 
 # Substrings in exception messages that indicate the Appium session or ADB
 # connection is gone rather than a normal UI timeout.
+def _read_wifi_cache() -> str | None:
+    """
+    Return the cached WiFi ADB address ('ip:port') written by run.command/
+    run.bat/web, or None. Tries every known layout — the old single
+    cwd-relative path matched NO layout (dev repo, dist zip, web cwd), so
+    the cache fallback had effectively never worked (review #2, issue #2):
+      1. <code root>/runtime/…      (dev repo AND dist automation/ dir)
+      2. <cwd>/runtime/…            (zip root — where run.bat/run.command write)
+      3. <cwd>/automation/runtime/… (legacy path, kept for compatibility)
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    here = _Path(__file__).resolve()
+    for cache in (here.parent.parent / "runtime" / "adb_wifi_device.json",
+                  _Path("runtime/adb_wifi_device.json"),
+                  _Path("automation/runtime/adb_wifi_device.json")):
+        try:
+            if cache.exists():
+                data = _json.loads(cache.read_text(encoding="utf-8"))
+                ip = data.get("wifi_ip", "")
+                port = data.get("tcp_port", 5555)
+                if ip:
+                    return f"{ip}:{port}"
+        except Exception:
+            continue
+    return None
+
+
 _SESSION_ERROR_PHRASES = (
     "invalid session id",
     "session not created",
@@ -64,19 +92,11 @@ class AndroidDriver:
         opts.stay_awake = True
         udid = self.cfg.get("udid", "")
         if not udid:
-            # No UDID in config — try adb_wifi_device.json written by run.command/run.bat
-            import json, os
-            cache = "automation/runtime/adb_wifi_device.json"
-            if os.path.exists(cache):
-                try:
-                    with open(cache) as _f:
-                        _d = json.load(_f)
-                    _ip = _d.get("wifi_ip", "")
-                    _port = _d.get("tcp_port", 5555)
-                    if _ip:
-                        udid = f"{_ip}:{_port}"
-                except Exception:
-                    pass
+            # No UDID in config — try the WiFi cache written by run.command/
+            # run.bat/web (multi-layout resolution, issue #2)
+            cached = _read_wifi_cache()
+            if cached:
+                udid = cached
         if udid:
             opts.udid = udid
         if self.cfg.get("app_package"):
@@ -108,19 +128,11 @@ class AndroidDriver:
         if udid and ":" in udid and not udid.startswith("/"):
             wifi_addr = udid
 
-        # Case 2: read cached address written by run.command / run.bat
+        # Case 2: read cached address written by run.command / run.bat / web
+        # (multi-layout resolution, issue #2 — the old single relative path
+        # matched no layout, so sleep/wake WiFi reconnect never worked)
         if not wifi_addr:
-            cache = "automation/runtime/adb_wifi_device.json"
-            if os.path.exists(cache):
-                try:
-                    with open(cache) as f:
-                        data = json.load(f)
-                    ip = data.get("wifi_ip", "")
-                    port = data.get("tcp_port", 5555)
-                    if ip:
-                        wifi_addr = f"{ip}:{port}"
-                except Exception:
-                    pass
+            wifi_addr = _read_wifi_cache()
 
         if not wifi_addr:
             return
