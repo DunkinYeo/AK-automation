@@ -458,6 +458,10 @@ def main():
                 device_owned = (_airplane_active.is_set() or _bt_active.is_set()
                                 or _inject_active.is_set() or driver._job_busy.is_set())
                 try:
+                    driver.ensure_screen_on()  # ADB-only; Pixel pauses charging → stay_awake lapses
+                except Exception as _e:
+                    log.warning("[screen-watch] error: %s", _e)
+                try:
                     driver.check_app_process(allow_relaunch=not device_owned)
                 except Exception as _e:
                     log.warning("[app-watch] error: %s", _e)
@@ -483,6 +487,12 @@ def main():
         threading.Thread(target=_connectivity_monitor, daemon=True,
                          name="conn-monitor").start()
         log.info("Connectivity monitor started (30s interval; paused during airplane/injection)")
+
+        # Charging-independent screen keep-awake: stay_awake capability lapses
+        # when the device pauses charging (Pixel battery protection) — the
+        # 2026-07-11 soak lost 39h of injections to a locked screen.
+        _orig_screen_timeout = driver.set_screen_timeout(86400000)  # 24h
+        driver.ensure_screen_on()
 
         inject_count = 0
 
@@ -530,6 +540,8 @@ def main():
         scheduler.run(job, driver=driver)
         _stop_loop.set()
         _stop_monitor.set()
+        if _orig_screen_timeout.isdigit():
+            driver.set_screen_timeout(int(_orig_screen_timeout))  # restore tester's setting
 
         reporter.log_event("run_complete", {"status": "ok"})
         log_event("run complete")

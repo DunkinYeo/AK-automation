@@ -420,6 +420,61 @@ class AndroidDriver:
     # Artifact helpers
     # ------------------------------------------------------------------
 
+    # ── Device screen keep-awake ─────────────────────────────────────────
+    # stay_awake=True only holds WHILE CHARGING — Pixel battery protection
+    # paused charging mid-soak (2026-07-11 ~16:59) so the screen timed out
+    # and locked, killing every UI-based job for 39h while ADB-based cycles
+    # kept passing. These helpers are charging-independent.
+
+    def _adb_cmd(self) -> list:
+        udid = self.cfg.get("udid", "")
+        return ["adb"] + (["-s", udid] if udid else [])
+
+    def screen_is_on(self) -> bool:
+        """True if the display is on. Unknown → True (never over-trigger wakes)."""
+        try:
+            r = subprocess.run(self._adb_cmd() + ["shell", "dumpsys", "display"],
+                               capture_output=True, text=True, timeout=10)
+            for line in r.stdout.splitlines():
+                if "mScreenState" in line:
+                    return "ON" in line
+        except Exception:
+            pass
+        return True
+
+    def wake_screen(self):
+        """Wake + dismiss the (swipe) lockscreen. No-op if already on."""
+        try:
+            subprocess.run(self._adb_cmd() + ["shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+                           capture_output=True, timeout=10)
+            time.sleep(1.0)
+            subprocess.run(self._adb_cmd() + ["shell", "wm", "dismiss-keyguard"],
+                           capture_output=True, timeout=10)
+            time.sleep(1.0)
+            self.reporter.log_event("screen_waked", {})
+            log.warning("[screen] display was OFF — waked + keyguard dismissed")
+        except Exception as e:
+            log.warning("[screen] wake failed: %s", e)
+
+    def ensure_screen_on(self):
+        """ADB-only check-and-wake; safe from any thread."""
+        if not self.screen_is_on():
+            self.wake_screen()
+
+    def set_screen_timeout(self, ms: int) -> str:
+        """Set system screen_off_timeout; returns the previous value ('' on error)."""
+        try:
+            r = subprocess.run(self._adb_cmd() + ["shell", "settings", "get", "system", "screen_off_timeout"],
+                               capture_output=True, text=True, timeout=10)
+            old = r.stdout.strip()
+            subprocess.run(self._adb_cmd() + ["shell", "settings", "put", "system", "screen_off_timeout", str(ms)],
+                           capture_output=True, timeout=10)
+            self.reporter.log_event("screen_timeout_set", {"ms": ms, "previous": old})
+            return old
+        except Exception as e:
+            log.warning("[screen] timeout set failed: %s", e)
+            return ""
+
     def check_app_process(self, allow_relaunch: bool = True):
         """
         Detect the AUT process dying mid-run (field reports: app crashes
@@ -627,6 +682,13 @@ class AndroidDriver:
         """
         pkg = self.cfg.get("app_package")
         act = self.cfg.get("app_activity")
+
+        # Screen-off is unrecoverable by back/activate/relaunch — wake first.
+        # (39h of 3-step failures on 2026-07-11..13 were exactly this.)
+        try:
+            self.ensure_screen_on()
+        except Exception:
+            pass
 
         try:
             if step == 1:
