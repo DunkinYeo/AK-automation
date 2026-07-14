@@ -63,19 +63,47 @@ def _ratio_tap(drv, x_ratio: float, y_ratio: float, label: str = ""):
     Works across all iPhone screen sizes since no absolute pixel values are used.
     Uses mobile: tap (XCUITest native) which is more reliable than the deprecated tap() API.
     """
-    size = drv.drv.get_window_size()
-    x = int(size["width"]  * x_ratio)
-    y = int(size["height"] * y_ratio)
-    log.info("[tap-ios] Coordinate tap%s at (%d, %d) [%.1f%% x, %.1f%% y] on %dx%d screen",
-             f" ({label})" if label else "",
-             x, y, x_ratio * 100, y_ratio * 100, size["width"], size["height"])
-    # mobile: tap uses XCUITest native gesture (more reliable in xcuitest 11+)
-    try:
-        drv.drv.execute_script("mobile: tap", {"x": float(x), "y": float(y)})
-        return
-    except Exception as e:
-        log.debug("[tap-ios] mobile:tap failed (%s) — falling back to tap()", e)
-    drv.drv.tap([(x, y)])
+    def _tap_once():
+        size = drv.drv.get_window_size()
+        x = int(size["width"]  * x_ratio)
+        y = int(size["height"] * y_ratio)
+        log.info("[tap-ios] Coordinate tap%s at (%d, %d) [%.1f%% x, %.1f%% y] on %dx%d screen",
+                 f" ({label})" if label else "",
+                 x, y, x_ratio * 100, y_ratio * 100, size["width"], size["height"])
+        # mobile: tap uses XCUITest native gesture (more reliable in xcuitest 11+)
+        try:
+            drv.drv.execute_script("mobile: tap", {"x": float(x), "y": float(y)})
+            return
+        except Exception as e:
+            log.debug("[tap-ios] mobile:tap failed (%s) — falling back to tap()", e)
+        drv.drv.tap([(x, y)])
+
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            _tap_once()
+            return
+        except Exception as e:
+            last_exc = e
+            if not hasattr(drv, "_is_session_error") or not drv._is_session_error(e):
+                raise
+            log.warning("[tap-ios] session error during coordinate tap%s — reconnecting (%d/3): %s",
+                        f" ({label})" if label else "", attempt, e)
+            try:
+                drv.reporter.log_event("session_lost_ios", {
+                    "reason": "coordinate_tap_failed",
+                    "label": label,
+                    "attempt": attempt,
+                    "error": str(e),
+                })
+            except Exception:
+                pass
+            drv.reconnect()
+            try:
+                drv.wait_idle(2.0)
+            except Exception:
+                time.sleep(2.0)
+    raise last_exc
 
 
 def _try_tap_element(drv, text: str, timeout: int = 3) -> bool:

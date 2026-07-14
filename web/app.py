@@ -577,9 +577,9 @@ def api_start():
 def _screen_timeout_backstop():
     """
     If a hard-killed run left the 24h screen-timeout marker on the device,
-    restore the Android default. Covers the SIGKILL window the run's own
-    finally-restore cannot (review 2026-07-14). Idempotent — only acts on
-    the exact marker value.
+    restore the exact value saved by that run. Covers the SIGKILL window the
+    run's own finally-restore cannot (review 2026-07-14). Idempotent — only
+    acts when both the marker value and runtime evidence are present.
     """
     try:
         cfg = yaml.safe_load((ROOT / "config" / "_web_run.yaml").read_text(encoding="utf-8")) or {}
@@ -588,20 +588,21 @@ def _screen_timeout_backstop():
         udid = (cfg.get("android") or {}).get("udid", "")
         if not udid:
             return
+        orig_file = ROOT / "runtime" / "screen_timeout_orig.json"
+        try:
+            saved = json.loads(orig_file.read_text(encoding="utf-8"))
+            orig = str(saved.get("orig", ""))
+        except Exception:
+            return
+        if not orig.isdigit():
+            return
+
         adb = ["adb", "-s", udid, "shell", "settings"]
         r = subprocess.run(adb + ["get", "system", "screen_off_timeout"],
                            capture_output=True, text=True, timeout=5)
         if r.stdout.strip() == "86400000":
-            # Exact original saved by the run at set-time (runtime file);
-            # fall back to the Android default if it's missing
-            orig = "1800000"
-            orig_file = ROOT / "runtime" / "screen_timeout_orig.json"
-            try:
-                saved = json.loads(orig_file.read_text(encoding="utf-8"))
-                if str(saved.get("orig", "")).isdigit():
-                    orig = str(saved["orig"])
-            except Exception:
-                pass
+            # Exact original saved by the run at set-time. Without this
+            # evidence, do not treat 24h as pollution; it may be tester intent.
             subprocess.run(adb + ["put", "system", "screen_off_timeout", orig],
                            capture_output=True, timeout=5)
             # Verify before deleting the orig file — a silently failed put

@@ -16,10 +16,17 @@ class ArtifactManager:
     def screenshot(self, driver, name: str):
         path = os.path.join(self.ss_dir, f"{self._ts()}_{name}.png")
         try:
-            driver.get_screenshot_as_file(path)
+            ok = driver.get_screenshot_as_file(path)
+            if ok and os.path.exists(path) and os.path.getsize(path) > 0:
+                return path
         except Exception:
             pass
-        return path
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return None
 
     def save_text(self, name: str, content: str) -> str:
         path = os.path.join(self.log_dir, f"{self._ts()}_{name}")

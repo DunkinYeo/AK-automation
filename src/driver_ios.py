@@ -32,8 +32,10 @@ _SESSION_ERROR_PHRASES = (
     "no such session",
     "socket hang up",
     "connection reset",
+    "econnreset",
     "connection refused",
     "broken pipe",
+    "could not proxy command",
 )
 
 
@@ -168,10 +170,10 @@ class IOSDriver:
         # run until manually cleared (observed 2026-07-09 02:00-08:00).
         opts.set_capability("autoDismissAlerts", True)
 
-        # If WDA is already running, connect directly (skips xcodebuild entirely).
-        # If not running, try starting via pymobiledevice3 (userspace RSD, no root).
-        # xcodebuild fallback is last resort only.
-        if self._wda_is_running(wda_port):
+        # Default to a fresh userspace WDA start. A stale-but-answering WDA can
+        # accept session creation and then die with ECONNRESET during the suite.
+        reuse_existing_wda = bool(self.cfg.get("reuse_existing_wda", False))
+        if reuse_existing_wda and self._wda_is_running(wda_port):
             log.info("[driver-iOS] WDA already running on port %d — using webDriverAgentUrl", wda_port)
             opts.set_capability("webDriverAgentUrl", f"http://127.0.0.1:{wda_port}")
             opts.set_capability("usePrebuiltWDA", True)
@@ -208,22 +210,52 @@ class IOSDriver:
 
     def reconnect(self):
         log.warning("[SESSION-iOS] recreating driver")
-        self.reporter.log_event("session_recreating_ios", {})
-        try:
-            self.drv.quit()
-        except Exception:
-            pass
-        self.drv = self._connect()
-        try:
-            self.bring_to_foreground()
-        except Exception:
-            pass
-        log.info("[SESSION-iOS] recovery success")
-        self.reporter.log_event("session_recovery_success_ios", {})
+        last_exc = None
+        for attempt in range(1, 4):
+            self.reporter.log_event("session_recreating_ios", {"attempt": attempt})
+            try:
+                self.drv.quit()
+            except Exception:
+                pass
+            try:
+                self.drv = self._connect()
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    try:
+                        self.drv.get_window_size()
+                        break
+                    except Exception as e:
+                        last_exc = e
+                        time.sleep(1)
+                else:
+                    raise last_exc or RuntimeError("iOS session did not become ready")
+                try:
+                    self._activate_app()
+                    self.wait_idle(1.0)
+                    self.drv.get_window_size()
+                except Exception as e:
+                    if self._is_session_error(e):
+                        last_exc = e
+                        continue
+                    raise
+                log.info("[SESSION-iOS] recovery success")
+                self.reporter.log_event("session_recovery_success_ios", {"attempt": attempt})
+                return
+            except Exception as e:
+                last_exc = e
+                log.warning("[SESSION-iOS] recovery attempt %d failed: %s", attempt, e)
+                self.reporter.log_event("session_recovery_attempt_failed_ios", {
+                    "attempt": attempt,
+                    "error": str(e),
+                })
+                time.sleep(2)
+        raise last_exc or RuntimeError("iOS session recovery failed")
 
     def is_session_alive(self) -> bool:
         try:
-            _ = self.drv.current_package
+            if not getattr(self.drv, "session_id", None):
+                return False
+            self.drv.get_window_size()
             return True
         except Exception:
             return False
@@ -379,15 +411,25 @@ class IOSDriver:
     # State helpers
     # ------------------------------------------------------------------
 
-    def bring_to_foreground(self):
+    def _activate_app(self):
         bundle_id = self.cfg.get("bundle_id", "")
-        if not bundle_id:
-            return
-        self.dismiss_unexpected_popups()
-        try:
+        if bundle_id:
             self.drv.activate_app(bundle_id)
-        except Exception:
-            pass
+
+    def bring_to_foreground(self):
+        try:
+            self._activate_app()
+        except Exception as e:
+            if self._is_session_error(e):
+                log.warning("[SESSION-iOS] driver lost during activate_app — reconnecting: %s", e)
+                self.reporter.log_event("session_lost_ios", {
+                    "action": "activate_app",
+                    "error": str(e),
+                })
+                self.reconnect()
+            else:
+                raise
+        self.dismiss_unexpected_popups()
 
     def dismiss_unexpected_popups(self) -> bool:
         """
@@ -423,6 +465,9 @@ class IOSDriver:
     def recover_session(self, step: int = 1) -> bool:
         bundle_id = self.cfg.get("bundle_id", "")
         try:
+            if not self.is_session_alive():
+                self.reconnect()
+                return True
             if step == 1:
                 # iOS: swipe from left edge as back gesture
                 size = self.drv.get_window_size()
@@ -448,6 +493,11 @@ class IOSDriver:
             return False
         except Exception as e:
             self.reporter.log_event("recovery_failed_ios", {"step": step, "error": str(e)})
+            if self._is_session_error(e):
+                log.warning("[SESSION-iOS] driver lost during recovery step %s — reconnecting: %s",
+                            step, e)
+                self.reconnect()
+                return True
             raise
 
     def wait_for_symptom_success(self, timeout: int = 10) -> str:
@@ -467,8 +517,28 @@ class IOSDriver:
     def assert_ui_health(self):
         indicator = self.sel.get("symptom_add_text", "Add Diary")
         self.reporter.log_event("ui_health_check_ios", {"indicator": indicator})
-        self.dismiss_unexpected_popups()
+        try:
+            self.dismiss_unexpected_popups()
+        except Exception as e:
+            if self._is_session_error(e):
+                self.reconnect()
+            else:
+                raise
         if not self.is_visible_text(indicator):
+            try:
+                from src.regression.helpers_ios import go_to_main
+                log.info("[health-iOS] '%s' not visible — navigating back to main screen", indicator)
+                go_to_main(self)
+                self.wait_idle(2.0)
+                self.dismiss_unexpected_popups()
+            except Exception as e:
+                if self._is_session_error(e):
+                    self.reconnect()
+                else:
+                    log.warning("[health-iOS] main-screen recovery attempt failed: %s", e)
+            if self.is_visible_text(indicator):
+                self.reporter.log_event("ui_health_ok_ios", {"indicator": indicator})
+                return
             try:
                 self.screenshot("ui_health_failed_ios")
             except Exception:

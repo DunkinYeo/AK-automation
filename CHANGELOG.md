@@ -1,5 +1,56 @@
 # Changelog — S-Patch AccurKardia Automation
 
+## [v1.1.1] — 2026-07-14
+
+### Highlights
+- Improved long-run stability for Android and iOS automation.
+- Added stronger detection and recovery for scheduled Bluetooth disconnects, airplane mode transitions, app crashes, and Appium/WDA session loss during 24h+ soak tests.
+- Improved reports so Android observed Bluetooth disconnects, scheduled BT/airplane tests, failed jobs, and regression-created diary entries are easier to distinguish.
+
+### iOS Stability
+- Changed iOS WDA handling to prefer a fresh WDA start by default, reducing failures caused by reusing stale WDA sessions.
+- Clean up stale `iproxy`, `pymobiledevice3 usbmux forward`, and `pymobiledevice3 xcuitest` processes before starting WDA.
+- Added explicit handling for `ECONNRESET`, `socket hang up`, `Session does not exist`, and proxy-command failures.
+- Made iOS session recovery verify real WDA readiness with `get_window_size()` before reporting recovery success.
+- Added up to 3 reconnect attempts when iOS session recovery is unstable immediately after WDA restart.
+- Added session-aware retry for ratio-based coordinate taps, so iOS menu/navigation taps can recover from WDA session loss.
+- Improved iOS health checks by attempting to navigate back to the main screen when `Log Symptoms` is not visible.
+
+### Android Long-Run Reliability
+- Added 30-second app crash monitoring with logcat evidence collection and automatic app relaunch.
+- Added Android observed Bluetooth disconnect detection during long runs.
+- Separated Android observed BT disconnects from scheduled BT/airplane tests.
+- Removed Appium session contention between the monitor thread and scheduled jobs.
+- Improved WiFi ADB reconnect fallback parsing.
+- Limited USB re-enumeration waits to the cases where they are actually needed, reducing WiFi ADB recovery delays.
+- Improved Bluetooth-off detection on Android 16 using stronger readout and polling logic.
+- Strengthened session/UI recovery after airplane mode ends.
+
+### Screen Timeout Safety
+- Improved Android screen-timeout restoration after long runs.
+- Restores the exact original screen timeout after normal stop, web stop, hard kill, or web-server restart when runtime evidence exists.
+- Avoids treating an intentional 24h tester timeout as pollution.
+- Deletes the saved original timeout file only after restore verification succeeds.
+
+### Reports & Slack
+- Added an Observed BT Disconnections report section with clearer separation between Android observed disconnects and scheduled tests.
+- Records Bluetooth disconnect and reconnect timing more clearly.
+- Shows failed scheduled jobs more clearly in HTML reports and Slack notifications.
+- Records regression-created diary entries in the report.
+- Tracks which symptom was involved when a symptom injection job fails.
+- Improves ECG check diagnostics with clearer failure labels and round polling output.
+- Improves report behavior for skip-regression runs.
+
+### Artifacts & Diagnostics
+- Fixed screenshot artifact handling so failed screenshot saves no longer leave fake paths in reports.
+- Improved failure evidence collection around iOS/Android page source, screenshots, and logcat.
+- Cleaned up runtime artifacts and misplaced screenshots so they do not pollute git state.
+
+### Validation
+- Python compile check passed.
+- `scripts/smoke_test.py` passed.
+- iOS skip-regression run confirmed: main screen reached, first symptom injection succeeded, Bluetooth OFF/ON completed, airplane mode completed, and the app reported `Disconnected` during the BT/airplane checks.
+
 ## [v1.1.0] — 2026-07-09
 
 > v1.0.6으로 발행 준비되었던 릴리즈를 iOS 자동화 추가 규모를 반영해 v1.1.0으로 재버전

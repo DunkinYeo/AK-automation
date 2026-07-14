@@ -540,10 +540,11 @@ def main():
         # must not leave the tester's device polluted).
         _orig = driver.set_screen_timeout(86400000)  # 24h
         # Sanity: if a previous run died without restoring (SIGKILL), the
-        # captured "original" IS our marker — recover the true original from
-        # the runtime file that run saved; Android default as last resort.
+        # captured "original" may be our marker. Only treat it as pollution
+        # when the runtime evidence exists; otherwise respect a tester's
+        # intentional 24h screen timeout.
         if _orig == "86400000":
-            _orig = _read_screen_orig() or "1800000"
+            _orig = _read_screen_orig() or _orig
         _save_screen_orig(_orig)  # lets the web backstop restore the EXACT value
         _screen_restore["driver"] = driver
         _screen_restore["orig"] = _orig
