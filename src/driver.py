@@ -473,6 +473,15 @@ class AndroidDriver:
         if not self.screen_is_on():
             self.wake_screen()
 
+    def get_screen_timeout(self) -> str:
+        """Current system screen_off_timeout as a string ('' on error)."""
+        try:
+            r = subprocess.run(self._adb_cmd() + ["shell", "settings", "get", "system", "screen_off_timeout"],
+                               capture_output=True, text=True, timeout=10)
+            return r.stdout.strip()
+        except Exception:
+            return ""
+
     def set_screen_timeout(self, ms: int) -> str:
         """Set system screen_off_timeout; returns the previous value ('' on error)."""
         try:

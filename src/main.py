@@ -618,8 +618,13 @@ def main():
         # via the handler installed in main()).
         try:
             if _screen_restore.get("driver") and str(_screen_restore.get("orig", "")).isdigit():
-                _screen_restore["driver"].set_screen_timeout(int(_screen_restore["orig"]))
-                _clear_screen_orig()  # restored — the backstop file is no longer needed
+                _drv, _val = _screen_restore["driver"], str(_screen_restore["orig"])
+                _drv.set_screen_timeout(int(_val))
+                # Verify before deleting the backstop file: a silently failed
+                # adb put must leave the file so the web backstop can still
+                # restore the exact value (review 2026-07-14 #7)
+                if _drv.get_screen_timeout() == _val:
+                    _clear_screen_orig()
         except Exception:
             pass
         if dm:
