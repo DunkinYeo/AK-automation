@@ -604,11 +604,19 @@ def _screen_timeout_backstop():
                 pass
             subprocess.run(adb + ["put", "system", "screen_off_timeout", orig],
                            capture_output=True, timeout=5)
-            try:
-                orig_file.unlink()
-            except Exception:
-                pass
-            print(f"[stop] screen-timeout backstop: marker found → restored {orig}", flush=True)
+            # Verify before deleting the orig file — a silently failed put
+            # must keep it for the next backstop attempt (review parity
+            # with the run-side fix)
+            chk = subprocess.run(adb + ["get", "system", "screen_off_timeout"],
+                                 capture_output=True, text=True, timeout=5)
+            if chk.stdout.strip() == orig:
+                try:
+                    orig_file.unlink()
+                except Exception:
+                    pass
+                print(f"[stop] screen-timeout backstop: marker found → restored {orig}", flush=True)
+            else:
+                print(f"[stop] screen-timeout backstop: restore to {orig} NOT confirmed — keeping orig file", flush=True)
     except Exception:
         pass
 
