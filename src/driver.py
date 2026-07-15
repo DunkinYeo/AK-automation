@@ -1135,37 +1135,59 @@ class AndroidDriver:
                 self.reporter.log_event("bt_reconnect_ecg_result",
                                         {"result": "patch link still down — ECG check skipped"})
                 return
+            # The current app main screen opens on the Device Status tab,
+            # which has no View button at all (2026-07-15 screenshot: BT
+            # Connected / Battery Good, still no View) — the ECG lives on
+            # the Real-time ECG tab. Switch tabs before looking for it.
+            switched = False
+            if self.is_visible_text("Real-time ECG", timeout=3):
+                try:
+                    self.tap_text("Real-time ECG", timeout=3)
+                    _time.sleep(2.0)
+                    switched = True
+                except Exception:
+                    pass
             # Poll in rounds instead of one long wait: right after BT toggles
             # a transient session error makes a single wait raise instantly
             # (→ returned False in 0s despite timeout=20, seen 16:11:20).
-            # 3 rounds × 7s tolerate one-off hiccups; early-exits when found.
-            found = False
+            # Rounds tolerate one-off hiccups; early-exit when found.
+            result = None
+            viewed = False
             for _ in range(3):
-                if self.is_visible_text("View", timeout=7):
-                    found = True
+                if self.is_visible_text("Live ECG Signal", timeout=4):
+                    result = "ECG signal visible"
+                    break
+                # Legacy layout: signal is behind a View button
+                if self.is_visible_text("View", timeout=3):
+                    try:
+                        self.tap_text("View", timeout=5)
+                        viewed = True
+                        _time.sleep(2.0)
+                    except Exception:
+                        pass
+                    result = ("ECG signal visible"
+                              if self.is_visible_text("Live ECG Signal", timeout=5)
+                              else "ECG signal not visible")
                     break
                 _time.sleep(1)
-            if not found:
-                # Inconclusive, not a failed ECG — leave evidence so the
-                # report can tell a render delay from a wrong screen.
-                self.screenshot("connectivity_bt_reconnect_no_view")
+            self.screenshot("connectivity_bt_reconnect_ecg")
+            if result is None:
                 on_main = self.is_visible_text(
                     self.sel.get("symptom_add_text", "Log Symptoms"), timeout=3)
                 self.reporter.log_event("bt_reconnect_ecg_result", {
-                    "result": "View button not found",
+                    "result": "ECG view not found",
                     "on_main_screen": on_main,
+                    "tab_switched": switched,
                 })
-                return
-            self.tap_text("View", timeout=5)
-            _time.sleep(2.0)
-            self.screenshot("connectivity_bt_reconnect_ecg")
-            ecg_ok = self.is_visible_text("Live ECG Signal", timeout=5)
-            self.reporter.log_event("bt_reconnect_ecg_result", {
-                "result": "ECG signal visible" if ecg_ok else "ECG signal not visible"
-            })
-            # Back to main screen
+            else:
+                self.reporter.log_event("bt_reconnect_ecg_result", {"result": result})
+            # Restore: leave the View screen, then back to Device Status tab
             try:
-                self.drv.press_keycode(4)
+                if viewed:
+                    self.drv.press_keycode(4)
+                    _time.sleep(0.8)
+                if switched and self.is_visible_text("Device Status", timeout=2):
+                    self.tap_text("Device Status", timeout=2)
             except Exception:
                 pass
         except Exception as e:
