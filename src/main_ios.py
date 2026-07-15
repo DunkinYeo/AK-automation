@@ -5,7 +5,8 @@ NEW FILE — does not modify src/main.py (Android) in any way.
 Differences from main.py:
   - Uses IOSDriver / DeviceManagerIOS instead of AndroidDriver / DeviceManager
   - Uses helpers_ios.go_to_main / reset_to_step1 instead of Android versions
-  - No bt_disconnect / airplane_mode (ADB-dependent, not available on iOS)
+  - bt_disconnect / airplane_mode use Control Center UI automation
+    (connectivity_ios) instead of ADB
   - Reads config from ios: section instead of android:
 """
 import argparse
