@@ -676,6 +676,20 @@ function updateSuiteCard(suite, state, passed, total, failures) {
 }
 
 function processSuiteEvents(events) {
+  const hasSuiteResult = (events || []).some(ev => ev.event === 'regression_suite_result');
+  const longRunStarted = (events || []).some(ev =>
+    ev.event === 'main_screen_confirmed' ||
+    ev.event === 'scheduler_started' ||
+    ev.event === 'job_start' ||
+    ev.event === 'inject_start'
+  );
+  if (!hasSuiteResult && longRunStarted) {
+    SUITE_ORDER.forEach(s => {
+      if (['pending','running'].includes(suiteStates[s]?.state)) updateSuiteCard(s, 'skip', 0, 0, []);
+    });
+    return;
+  }
+
   const done = new Set(Object.entries(suiteStates).filter(([,v]) => v.state !== 'pending').map(([k]) => k));
   for (const ev of (events || [])) {
     if (ev.event !== 'regression_suite_result') continue;
@@ -923,12 +937,21 @@ async function detectWifi() {
     const r = await fetch('/api/detect-wifi', { method: 'POST' }).then(r => r.json());
     if (r.error) { alert('WiFi detect failed: ' + r.error); return; }
     applyWifiAutoMode(r.wifi_addr);
-    // Refresh device list and auto-select the WiFi device
+    // Refresh device list (now includes every detected WiFi device) and
+    // auto-select the primary one
     const init = await fetch('/api/init').then(r => r.json());
     populateDevices(init.devices);
     const sel = document.getElementById('device-select');
     if ([...sel.options].some(o => o.value === r.wifi_addr)) {
       sel.value = r.wifi_addr;
+    }
+    const addrs = r.wifi_addrs || [r.wifi_addr];
+    if (addrs.length > 1) {
+      alert('WiFi ADB connected: ' + addrs.join(', ') + '\nSelect the target device from the list.');
+    }
+    if (r.errors) {
+      const msg = Object.entries(r.errors).map(([k, v]) => k + ': ' + v).join('\n');
+      alert('Some devices could not be detected:\n' + msg);
     }
   } catch(e) { alert('WiFi detect error: ' + e); }
   finally { btn.textContent = 'Auto Detect'; btn.disabled = false; }

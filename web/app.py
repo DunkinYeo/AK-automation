@@ -383,35 +383,50 @@ def api_init():
 
 @app.route("/api/detect-wifi", methods=["POST"])
 def api_detect_wifi():
-    """Detect WiFi IP from first USB-connected ADB device, save cache, return address."""
+    """Detect WiFi IPs from every USB-connected ADB device, save cache, return addresses."""
+    import re
     devices = get_devices()
-    usb_serial = next((d for d in devices if ":" not in d), None)
-    if not usb_serial:
+    usb_serials = [d for d in devices if ":" not in d]
+    if not usb_serials:
         return jsonify({"error": "No USB device connected"}), 400
-    try:
-        r = subprocess.run(
-            ["adb", "-s", usb_serial, "shell", "ip", "route"],
-            capture_output=True, text=True, timeout=10,
-        )
-        import re
-        m = re.search(r"src (\d+\.\d+\.\d+\.\d+)", r.stdout)
-        if not m:
-            return jsonify({"error": "Could not determine WiFi IP from device"}), 400
-        wifi_ip = m.group(1)
-        subprocess.run(["adb", "-s", usb_serial, "tcpip", "5555"], capture_output=True, timeout=10)
-        time.sleep(1)
-        subprocess.run(["adb", "connect", f"{wifi_ip}:5555"], capture_output=True, timeout=10)
-        cache = ROOT / "runtime" / "adb_wifi_device.json"
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps({
-            "device_id": usb_serial,
-            "wifi_ip": wifi_ip,
-            "tcp_port": 5555,
-            "updated_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }))
-        return jsonify({"wifi_addr": f"{wifi_ip}:5555"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    detected: list[dict] = []
+    errors: dict[str, str] = {}
+    for usb_serial in usb_serials:
+        try:
+            r = subprocess.run(
+                ["adb", "-s", usb_serial, "shell", "ip", "route"],
+                capture_output=True, text=True, timeout=10,
+            )
+            m = re.search(r"src (\d+\.\d+\.\d+\.\d+)", r.stdout)
+            if not m:
+                errors[usb_serial] = "Could not determine WiFi IP from device"
+                continue
+            wifi_ip = m.group(1)
+            subprocess.run(["adb", "-s", usb_serial, "tcpip", "5555"], capture_output=True, timeout=10)
+            time.sleep(1)
+            subprocess.run(["adb", "connect", f"{wifi_ip}:5555"], capture_output=True, timeout=10)
+            detected.append({"device_id": usb_serial, "wifi_ip": wifi_ip, "tcp_port": 5555})
+        except Exception as e:
+            errors[usb_serial] = str(e)
+    if not detected:
+        return jsonify({"error": "; ".join(f"{k}: {v}" for k, v in errors.items())}), 400
+    cache = ROOT / "runtime" / "adb_wifi_device.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    primary = detected[0]
+    cache.write_text(json.dumps({
+        # Top-level single-device keys are the legacy format read by
+        # src/driver.py _read_wifi_cache() and get_cached_wifi() — keep them.
+        "device_id": primary["device_id"],
+        "wifi_ip": primary["wifi_ip"],
+        "tcp_port": primary["tcp_port"],
+        "devices": detected,
+        "updated_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }))
+    return jsonify({
+        "wifi_addr": f"{primary['wifi_ip']}:{primary['tcp_port']}",
+        "wifi_addrs": [f"{d['wifi_ip']}:{d['tcp_port']}" for d in detected],
+        "errors": errors or None,
+    })
 
 
 @app.route("/api/local-ip")
