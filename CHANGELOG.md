@@ -1,6 +1,13 @@
 # Changelog — S-Patch AccurKardia Automation
 
-## [v1.1.1] — 2026-07-14
+## [v1.1.1] — 2026-07-14 (updated 2026-07-15)
+
+### Post-release update (2026-07-15)
+- **BT-reconnect ECG check fixed for the current app layout**: the app main screen now uses Device Status / Real-time ECG tabs and has no `View` button on the default tab, so every check reported a misleading `View button not found`. The check now switches to the Real-time ECG tab and verifies `Live ECG Signal` directly (legacy View-button layout kept as fallback). Verified on Pixel 7 after both a scheduled BT test and a manual disconnect.
+- **ECG Check web card no longer misleading**: only a real failure (`ECG signal not visible`) shows as `✗ No ECG`; skipped checks show `— Skipped` and inconclusive ones `~ Unverified`, with the reason and screenshot evidence (`on_main_screen`, `tab_switched`) recorded.
+- **WiFi ADB Auto Detect finds every USB device**: previously only the first USB-connected device was detected/connected; now all are, with per-device errors reported. Cache file keeps the legacy single-device keys plus a new `devices` list.
+- **Android menu-navigation robustness**: `Start Study` bottom-button coordinate fallback with warning logs (was silently swallowed), `open_menu` skips when already open, `close_menu` retries up to 4 times via the top-right close icon before falling back to Back. Verified with a 44/44 regression pass on Pixel 7.
+- **iOS entrypoint docstring corrected**: it claimed BT/airplane tests were unavailable on iOS; they run via Control Center UI automation (`connectivity_ios`).
 
 ### Highlights
 - Improved long-run stability for Android and iOS automation.
