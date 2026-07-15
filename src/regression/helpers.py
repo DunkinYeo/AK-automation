@@ -60,6 +60,20 @@ def close_sheet(drv):
     time.sleep(0.8)
 
 
+def _tap_bottom_button(drv, label: str, timeout: int = 5) -> None:
+    """Tap a full-width bottom action button by text, then coordinate fallback."""
+    try:
+        drv.tap_text(label, timeout=timeout, contains=False)
+        return
+    except Exception as e:
+        log.warning("[go_to_main] '%s' locator tap failed; using bottom-button fallback: %s", label, e)
+
+    size = drv.drv.get_window_size()
+    x = int(size["width"] * 0.5)
+    y = int(size["height"] * 0.895)
+    drv.drv.tap([(x, y)])
+
+
 def reset_to_step1(drv, hard: bool = True):
     """
     Navigate to the Step 1 (Connect Your S-Patch) screen.
@@ -211,10 +225,10 @@ def go_to_main(drv, wait_ble: int = 120):
         # ── START STUDY ───────────────────────────────────────────────────────
         elif screen_id == "start_study":
             try:
-                drv.tap_text("Start Study", timeout=5, contains=False)
+                _tap_bottom_button(drv, "Start Study", timeout=5)
                 time.sleep(2)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("[go_to_main] Start Study tap failed: %s", e)
 
         # ── STEP 3: Review Study Setting ──────────────────────────────────────
         elif screen_id == "review_setting":
@@ -386,6 +400,10 @@ def open_menu(drv, wait: float = 2.0):
     except Exception:
         pass
 
+    if _is_menu_open(drv, timeout=1):
+        log.info("[open_menu] Menu already open")
+        return
+
     # Capture screen state before first attempt for diagnostics
     try:
         drv.screenshot("open_menu_before")
@@ -493,5 +511,28 @@ def open_menu(drv, wait: float = 2.0):
 
 
 def close_menu(drv):
-    drv.drv.press_keycode(4)
-    time.sleep(0.5)
+    for attempt in range(4):
+        if drv.is_visible_text("Connect Your S-Patch", timeout=1):
+            return
+
+        if _is_menu_open(drv, timeout=1):
+            # Current Android app shows a home/close icon at the top-right of
+            # the menu screen. Back can be swallowed on some sub-states, so tap
+            # the visible close affordance first, then fall back to Back.
+            try:
+                size = drv.drv.get_window_size()
+                drv.drv.tap([(int(size["width"] * 0.91), int(size["height"] * 0.105))])
+                time.sleep(0.8)
+                if drv.is_visible_text("Connect Your S-Patch", timeout=1):
+                    return
+            except Exception:
+                pass
+
+        try:
+            drv.drv.press_keycode(4)
+        except Exception:
+            pass
+        time.sleep(0.8)
+
+    if _is_menu_open(drv, timeout=1):
+        log.warning("[close_menu] Menu still open after close attempts")
