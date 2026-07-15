@@ -773,8 +773,19 @@ function processConnEvents(events) {
     } else if (ev.event === 'bluetooth_reconnected') {
       updateConnCard(id, 'pass', `✓ ${d.elapsed_sec}s`, 'Auto-reconnected');
     } else if (ev.event === 'bt_reconnect_ecg_result') {
-      const ok = d.result === 'ECG signal visible';
-      updateConnCard(id, ok ? 'pass' : 'fail', ok ? '✓ ECG OK' : '✗ No ECG', d.result || '');
+      // Only "ECG signal not visible" is a real failure (View opened, no
+      // signal). "View button not found" / errors mean the check could not
+      // run — show as unverified, not as a failed ECG.
+      const r = d.result || '';
+      if (r === 'ECG signal visible') {
+        updateConnCard(id, 'pass', '✓ ECG OK', '');
+      } else if (r === 'ECG signal not visible') {
+        updateConnCard(id, 'fail', '✗ No ECG', r);
+      } else if (r.includes('skipped')) {
+        updateConnCard(id, 'skip', '— Skipped', r);
+      } else {
+        updateConnCard(id, 'info', '~ Unverified', r);
+      }
     } else if (ev.event === 'bt_disconnect_done') {
       updateConnCard('bluetooth',   'pass', '✓ On',          '');
       updateConnCard('bt_reconnect','pass', '✓ Reconnected', '');

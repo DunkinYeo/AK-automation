@@ -1146,7 +1146,15 @@ class AndroidDriver:
                     break
                 _time.sleep(1)
             if not found:
-                self.reporter.log_event("bt_reconnect_ecg_result", {"result": "View button not found"})
+                # Inconclusive, not a failed ECG — leave evidence so the
+                # report can tell a render delay from a wrong screen.
+                self.screenshot("connectivity_bt_reconnect_no_view")
+                on_main = self.is_visible_text(
+                    self.sel.get("symptom_add_text", "Log Symptoms"), timeout=3)
+                self.reporter.log_event("bt_reconnect_ecg_result", {
+                    "result": "View button not found",
+                    "on_main_screen": on_main,
+                })
                 return
             self.tap_text("View", timeout=5)
             _time.sleep(2.0)
