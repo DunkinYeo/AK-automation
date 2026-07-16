@@ -1338,8 +1338,10 @@ class AndroidDriver:
                 pct = int(m.group(1))
             else:
                 # Split rendering ("99" + "%"): standalone number right after
-                # the progress-card label
-                m = _re.search(r'text="My Study Progress".{0,400}?text="(\d{1,3})"',
+                # the progress-card label. Node XML runs ~600 chars per
+                # element, so the window must span past a full node
+                # (2026-07-16 live: 400 was too short — 0% never emitted)
+                m = _re.search(r'text="My Study Progress".{0,1500}?text="(\d{1,3})"',
                                src, _re.S)
                 if m:
                     pct = int(m.group(1))
