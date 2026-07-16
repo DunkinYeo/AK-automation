@@ -377,6 +377,17 @@ def _run_with_health_check_inner(job_callable, driver, at_hour, payload, reporte
         try:
             driver.assert_ui_health()
         except Exception as e:
+            if getattr(driver, "_study_completed", False):
+                # App study finished (Study Overview screen, issue #11) —
+                # remaining jobs are meaningless, and recovery would navigate
+                # away from the Upload/Skip screen the tester may still need.
+                # Skip without recording a failure.
+                result.success = True
+                result.reason = "skipped — study ended (app on Study Overview)"
+                result.end_ts = datetime.datetime.now().isoformat(timespec="seconds")
+                reporter.log_event("job_skipped_study_ended", {"at_hour": at_hour})
+                reporter.log_event("job_result", dataclasses.asdict(result))
+                return result
             reporter.log_event("ui_health_check_failed", {"error": str(e)})
             try:
                 _attempt_recovery(driver, reporter, cooldown_seconds)

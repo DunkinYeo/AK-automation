@@ -648,6 +648,11 @@ function fmtEvent(ev) {
     return { text: `App study progress: ${ev.data?.percent ?? '?'}%`, color: 'gray' };
   } else if (ev.event === 'study_end_warning') {
     return { text: `⚠ App study at ${ev.data?.percent ?? '?'}% — it will finish before this run; later injections may fail`, color: 'orange' };
+  } else if (ev.event === 'study_completed') {
+    const d = ev.data || {};
+    return { text: `App study COMPLETED — upload ${d.upload_percent ?? '?'}% (${d.study_start ?? '?'} ~ ${d.study_end ?? '?'}) · remaining jobs will be skipped`, color: 'orange' };
+  } else if (ev.event === 'job_skipped_study_ended') {
+    return { text: 'Scheduled job skipped — study already ended', color: 'gray' };
   }
   if (text === null) return null;
   return { text: text || ev.event, color: info.color };
@@ -1251,19 +1256,37 @@ function renderLog(events, reset = false) {
 }
 
 function updateProgress(events) {
-  let startTs = null, durationH = null, studyPct = null, studyWarned = false;
+  let startTs = null, durationH = null, studyWarned = false, studyDone = null;
+  const studySamples = [];
   for (const e of (events || [])) {
     if (e.event === 'run_start') { startTs = e.ts; durationH = e.data?.duration_hours; }
-    else if (e.event === 'study_progress') studyPct = e.data?.percent;
+    else if (e.event === 'study_progress') studySamples.push({ t: new Date(e.ts).getTime(), p: e.data?.percent });
     else if (e.event === 'study_end_warning') studyWarned = true;
+    else if (e.event === 'study_completed') studyDone = e.data || {};
   }
-  // App study runs on its own schedule (issue #10) — show it beside run progress
+  // App study runs on its own schedule (issues #10/#11) — show it beside
+  // run progress, with a linear ETA once two samples exist
   const studyEl = document.getElementById('study-progress');
-  if (studyPct != null) {
+  if (studyDone) {
     studyEl.style.display = '';
-    studyEl.textContent = `· App Study: ${studyPct}%`;
+    const up = studyDone.upload_percent;
+    studyEl.textContent = `· App Study: ✓ Completed${up != null ? ` (Upload ${up}%)` : ''}`;
+    studyEl.style.color = '#16a34a';
+  } else if (studySamples.length) {
+    const last = studySamples[studySamples.length - 1];
+    studyEl.style.display = '';
+    let text = `· App Study: ${last.p}%`;
+    // ETA: extrapolate from first/last distinct samples
+    const first = studySamples.find(s => s.p !== last.p);
+    if (first && last.p < 100 && last.p > first.p) {
+      const rate = (last.p - first.p) / (last.t - first.t);   // %/ms
+      const etaTs = last.t + (100 - last.p) / rate;
+      text += ` · ends ~${new Date(etaTs).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;
+      if (startTs && durationH && etaTs < new Date(startTs).getTime() + durationH * 3600 * 1000) studyWarned = true;
+    }
+    if (studyWarned) text += ' ⚠ ends before run';
+    studyEl.textContent = text;
     studyEl.style.color = studyWarned ? '#d97706' : '#6b7280';
-    if (studyWarned) studyEl.textContent += ' ⚠ ends before run';
   } else {
     studyEl.style.display = 'none';
   }

@@ -1261,6 +1261,12 @@ class AndroidDriver:
             pass
 
         if not self.is_visible_text(indicator):
+            # Study finished? The app replaces the main screen with the
+            # Study Overview (Upload/Skip) screen — that's a terminal state,
+            # not a UI failure (issue #11, observed 2026-07-16).
+            if self._detect_study_completed():
+                raise RuntimeError(
+                    "study completed — app is on the Study Overview screen")
             try:
                 self.screenshot("ui_health_failed")
             except Exception:
@@ -1268,6 +1274,49 @@ class AndroidDriver:
             raise RuntimeError(f"UI health check failed: '{indicator}' not visible on screen")
         self.reporter.log_event("ui_health_ok", {"indicator": indicator})
         self._report_study_progress()
+
+    def _detect_study_completed(self) -> bool:
+        """
+        Detect the post-study 'Study Overview' screen and scrape what the
+        tester reports to QA: Data Upload %, study start/end (issue #11).
+        Sets self._study_completed so the scheduler can skip the remaining
+        jobs instead of recording hourly fake failures. Emits the
+        study_completed event once. Never raises.
+        """
+        if getattr(self, "_study_completed", False):
+            return True
+        try:
+            if not self.is_visible_text("Study Overview", contains=True, timeout=2):
+                return False
+            if not (self.is_visible_text("Upload", timeout=2)
+                    or self.is_visible_text("Skip", timeout=2)):
+                return False
+            import re as _re
+            src = self.drv.page_source
+            # Node XML runs ~600 chars per element — window must span to the
+            # next node's text attribute (verified live 2026-07-16)
+            def _grab(pattern):
+                m = _re.search(pattern, src, _re.S)
+                return m.group(1) if m else None
+            info = {
+                "study_percent": _grab(r'text="Study".{0,1500}?text="(\d{1,3})"'),
+                "upload_percent": _grab(r'text="Data Upload".{0,1500}?text="(\d{1,3})"'),
+                "study_start": _grab(r'text="Start Time".{0,1500}?text="(\d{4}-\d{2}-\d{2} [\d:]{8})"'),
+                "study_end": _grab(r'text="End Time".{0,1500}?text="(\d{4}-\d{2}-\d{2} [\d:]{8})"'),
+            }
+            self._study_completed = True
+            try:
+                self.screenshot("study_overview_completed")
+            except Exception:
+                pass
+            self.reporter.log_event("study_completed", info)
+            log.warning("[study] App study completed (upload %s%%, %s ~ %s) — "
+                        "remaining scheduled jobs will be skipped",
+                        info["upload_percent"], info["study_start"], info["study_end"])
+            return True
+        except Exception as e:
+            log.debug("[study] completed-screen check failed: %s", e)
+            return False
 
     def _report_study_progress(self):
         """

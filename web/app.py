@@ -1070,6 +1070,9 @@ def _build_report_html(events: list[dict]) -> str:
     nat_bt: list = []          # app-observed patch<->phone BT disconnections
     crashes: list = []         # app process deaths caught by app-watch
     in_test_window = False     # inside a scheduled BT/airplane test
+    study_last_pct = None      # app study % (issue #10/#11)
+    study_done: dict | None = None
+    study_skipped = 0          # jobs skipped after study completion
 
     for e in events:
         ev   = e.get("event", "")
@@ -1149,6 +1152,13 @@ def _build_report_html(events: list[dict]) -> str:
         elif ev == "bt_not_restored":
             phase = data.get("phase", "workflow")
             bt_warnings.append({"ts": ts, "msg": f"BT not restored after {phase} — tester must manually re-enable Bluetooth"})
+        elif ev == "study_progress":
+            study_last_pct = data.get("percent")
+        elif ev == "study_completed":
+            study_done = dict(data)
+            study_done["ts"] = ts
+        elif ev == "job_skipped_study_ended":
+            study_skipped += 1
 
     elapsed_str = "-"
     if start_ts_str:
@@ -1198,6 +1208,48 @@ def _build_report_html(events: list[dict]) -> str:
     ap_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
                  "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
                 for t in ap_tests]
+
+    # ── App Study Summary (issue #11) ────────────────────────────────────
+    # The app/patch study runs on its own schedule, independent of this run.
+    study_html = ""
+    if study_done or study_last_pct is not None:
+        rows = []
+        if study_done:
+            up = study_done.get("upload_percent")
+            rows.append(["Status", "<span style='color:#059669;font-weight:600'>✓ Completed</span>"])
+            if up is not None:
+                up_color = "#059669" if str(up) == "100" else "#d97706"
+                rows.append(["Data Upload", f"<span style='color:{up_color};font-weight:600'>{up}%</span>"
+                             + ("" if str(up) == "100" else " — not fully uploaded (tester saw Upload/Skip screen)")])
+            if study_done.get("study_start") or study_done.get("study_end"):
+                rows.append(["Study Window (app)", f"{study_done.get('study_start','?')} ~ {study_done.get('study_end','?')}"])
+            end_s = study_done.get("study_end")
+            if end_s:
+                try:
+                    end_dt = datetime.datetime.fromisoformat(end_s)
+                    valid = sum(1 for i in injections if i.get("ok") and i.get("ts")
+                                and datetime.datetime.fromisoformat(i["ts"].split(".")[0]) <= end_dt)
+                    after = inj_ok - valid
+                    label = f"{valid}/{inj_ok} within the study window"
+                    if after:
+                        label += f" · {after} after study end (not in study data)"
+                    rows.append(["Valid Injections", label])
+                except Exception:
+                    pass
+            if study_skipped:
+                rows.append(["Skipped Jobs", f"{study_skipped} scheduled job(s) skipped after study completion"])
+        else:
+            rows.append(["Progress", f"{study_last_pct}% (last read)"])
+        study_html = f"""
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">🩺</span>
+      <span class="card-title">App Study Summary</span>
+      <span class="card-count">{'completed' if study_done else f'{study_last_pct}%'}</span>
+    </div>
+    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">The app/patch study runs on its own schedule, independent of this automation run.</div>
+    {_table(["Item", "Value"], rows)}
+  </div>"""
 
     total_p = sum(d.get("passed", 0) for d in suites.values() if not d.get("skipped"))
     total_t = sum(d.get("total",  0) for d in suites.values() if not d.get("skipped"))
@@ -1364,7 +1416,7 @@ def _build_report_html(events: list[dict]) -> str:
     </div>
     <div class="overall overall-{'pass' if overall_ok else ('na' if total_t==0 else 'fail')}">{overall_icon} Regression {overall_label} — {total_p}/{total_t}</div>
   </div>
-
+{study_html}
   <div class="card">
     <div class="card-header">
       <span class="card-icon">🧪</span>
