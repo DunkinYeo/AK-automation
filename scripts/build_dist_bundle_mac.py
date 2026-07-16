@@ -255,6 +255,57 @@ echo "  Done."
 read -r -p "  Press Enter to close... " _
 """
 
+SMOKE_COMMAND = """\
+#!/bin/bash
+# =============================================================
+#  AccurKardia -- Installation Smoke Check (Mac)
+#  Double-click AFTER extracting the ZIP, BEFORE your first run.
+#  Takes ~30s (first time ~1 min for Python setup), needs NO phone.
+#  Share a screenshot of the result if anything failed.
+# =============================================================
+chmod +x "$0" 2>/dev/null || true
+cd "$(dirname "$0")" || { echo "ERROR: cd failed."; read -r _; exit 1; }
+A="$PWD/automation"
+export PATH="$A/node/bin:$A/runtime/platform-tools:$PATH"
+export PYTHONPATH="$A"
+
+if [ ! -d "$A" ]; then
+    echo "  FAIL: automation/ folder not found."
+    echo "  Did you fully extract the ZIP? Extract it first, then run"
+    echo "  smoke.command from the extracted folder."
+    read -r -p "  Press Enter to close... " _
+    exit 1
+fi
+
+xattr -rd com.apple.quarantine "$A" 2>/dev/null || true
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not found."
+    echo "  Open Terminal, run:  xcode-select --install   then retry."
+    read -r -p "  Press Enter to close... " _
+    exit 1
+fi
+
+# Same first-run setup as run.command (skipped when already done)
+if [ ! -f "$A/.venv/bin/python" ]; then
+    echo "  First run: setting up Python environment (~1 min)..."
+    python3 -m venv "$A/.venv" || {
+        echo "  FAIL: venv creation failed. Run: xcode-select --install  then retry."
+        read -r -p "  Press Enter to close... " _; exit 1; }
+    "$A/.venv/bin/pip" install -r "$A/requirements.txt" -q || {
+        rm -rf "$A/.venv"
+        echo "  FAIL: Python package install failed. Check internet connection."
+        read -r -p "  Press Enter to close... " _; exit 1; }
+    echo "  OK  Python environment ready."
+    echo ""
+fi
+
+"$A/.venv/bin/python" "$A/scripts/smoke_test.py"
+echo ""
+echo "  (Screenshot this window and share it if anything failed.)"
+read -r -p "  Press Enter to close... " _
+"""
+
 
 def _download(url: str, label: str) -> bytes:
     print(f"  Downloading {label}...", end=" ", flush=True)
@@ -354,6 +405,7 @@ def build(out_dir: Path) -> Path:
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
             _add_script(zf, f"{R}/run.command", RUN_COMMAND)
             _add_script(zf, f"{R}/STOP.command", STOP_COMMAND)
+            _add_script(zf, f"{R}/smoke.command", SMOKE_COMMAND)
             for fname in ["README_MAC_KR.txt", "README_MAC_EN.txt"]:
                 if (ROOT / fname).exists():
                     zf.write(ROOT / fname, f"{R}/{fname}")
