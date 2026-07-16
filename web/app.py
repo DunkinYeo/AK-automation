@@ -32,7 +32,61 @@ app = Flask(__name__)
 PORT = 5003
 
 # ── Shared state ─────────────────────────────────────────────────────────────
-_state: dict = {"proc": None, "out_dir": None, "start_ts": None}
+_state: dict = {"proc": None, "out_dir": None, "start_ts": None, "pid": None}
+
+# ── Run-state persistence (survive web-server restart) ───────────────────────
+# The run subprocess outlives a web-server restart; without this the dashboard
+# loses track of it ("ghost run"). Zero impact when the file is absent: every
+# code path behaves exactly as before.
+_RUN_STATE_FILE = Path(__file__).resolve().parent.parent / "runtime" / "web_run_state.json"
+
+
+def _pid_alive(pid) -> bool:
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except Exception:
+        return False
+
+
+def _persist_run_state(pid: int, start_ts: float, out_dir: str | None = None) -> None:
+    try:
+        _RUN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _RUN_STATE_FILE.write_text(json.dumps(
+            {"pid": pid, "start_ts": start_ts, "out_dir": out_dir}))
+    except Exception:
+        pass
+
+
+def _clear_run_state() -> None:
+    try:
+        if _RUN_STATE_FILE.exists():
+            _RUN_STATE_FILE.unlink()
+    except Exception:
+        pass
+
+
+def _load_persisted_run() -> None:
+    """On server boot: re-attach to a run started by a previous server process."""
+    try:
+        if not _RUN_STATE_FILE.exists():
+            return
+        saved = json.loads(_RUN_STATE_FILE.read_text())
+        pid, start_ts = saved.get("pid"), saved.get("start_ts")
+        if pid and start_ts and _pid_alive(pid):
+            _state["pid"] = int(pid)
+            _state["start_ts"] = float(start_ts)
+            out_dir = saved.get("out_dir")
+            if out_dir and Path(out_dir).is_dir():
+                _state["out_dir"] = out_dir
+            print(f"[run-state] Re-attached to running test (pid={pid})", flush=True)
+        else:
+            _clear_run_state()
+    except Exception:
+        pass
+
+
+_load_persisted_run()
 _lock = threading.Lock()
 
 # ── Regression state ──────────────────────────────────────────────────────────
@@ -316,12 +370,33 @@ def _kill_proc():
                 proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        # Re-attached run (pid only, no Popen handle) is NOT killed on server
+        # exit — it keeps running and still owns the device screen timeout.
+        run_alive = bool(_state.get("pid") and _pid_alive(_state["pid"]))
     # Same backstop as /api/stop: web-server restart/shutdown that takes the
-    # run down with it must not leave the 24h marker on the device
-    _screen_timeout_backstop()
+    # run down with it must not leave the 24h marker on the device. Skipped
+    # while a run is still alive — resetting the timeout under a live run
+    # was observed 2026-07-16 when a test import fired this at exit.
+    if not run_alive:
+        _screen_timeout_backstop()
 
-atexit.register(_kill_proc)
-signal.signal(signal.SIGTERM, lambda *_: (_kill_proc(), sys.exit(0)))
+
+_exit_hooks_registered = False
+
+
+def _register_exit_hooks():
+    """
+    Register the shutdown cleanup only in the process that actually starts a
+    run. Registering at import time made ANY importer (smoke_test.py, ad-hoc
+    scripts using the test client) fire the screen-timeout backstop on exit,
+    resetting the timeout under a live run (observed 2026-07-16).
+    """
+    global _exit_hooks_registered
+    if _exit_hooks_registered:
+        return
+    _exit_hooks_registered = True
+    atexit.register(_kill_proc)
+    signal.signal(signal.SIGTERM, lambda *_: (_kill_proc(), sys.exit(0)))
 
 
 def _get_lan_ip() -> str:
@@ -464,11 +539,23 @@ def api_status():
         start_ts = _state["start_ts"]
         running  = bool(proc and proc.poll() is None)
 
+        # Re-attached run (server restarted; no Popen handle, pid only)
+        if not running and not proc and _state.get("pid"):
+            if _pid_alive(_state["pid"]):
+                running = True
+            else:
+                _state["pid"] = None
+                _clear_run_state()
+
         if not out_dir and start_ts:
             found = find_latest_output_dir(start_ts)
             if found:
                 _state["out_dir"] = found
                 out_dir = found
+                # Keep the persisted state exact so a restarted server binds
+                # to this run's real output dir, not a newer unrelated one
+                if _state.get("pid"):
+                    _persist_run_state(_state["pid"], start_ts, found)
 
         events    = read_events(out_dir)
         # If test process isn't tracked but events exist and look active, treat as running
@@ -585,6 +672,9 @@ def api_start():
             cmd,
             cwd=str(ROOT),
         )
+        _state["pid"] = _state["proc"].pid
+        _persist_run_state(_state["proc"].pid, start_ts)
+        _register_exit_hooks()
         _clear_interval_override()
         return jsonify({"ok": True})
 
@@ -649,9 +739,23 @@ def api_stop():
                 proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        elif not proc and _state.get("pid") and _pid_alive(_state["pid"]):
+            # Re-attached run (no Popen handle): same SIGTERM → wait → SIGKILL
+            pid = _state["pid"]
+            try:
+                os.kill(pid, signal.SIGTERM)
+                deadline = time.time() + 15
+                while time.time() < deadline and _pid_alive(pid):
+                    time.sleep(0.5)
+                if _pid_alive(pid):
+                    os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
         _state["proc"]     = None
         _state["start_ts"] = None
         _state["out_dir"]  = None
+        _state["pid"]      = None
+    _clear_run_state()
     _clear_interval_override()
     _screen_timeout_backstop()
     return jsonify({"ok": True})
@@ -685,7 +789,9 @@ def api_set_interval():
 @app.route("/api/inject-now", methods=["POST"])
 def api_inject_now():
     with _lock:
-        if not (_state["proc"] and _state["proc"].poll() is None):
+        proc_alive = _state["proc"] and _state["proc"].poll() is None
+        pid_alive = not _state["proc"] and _state.get("pid") and _pid_alive(_state["pid"])
+        if not (proc_alive or pid_alive):
             return jsonify({"error": "No test running"}), 400
     try:
         _INJECT_NOW_FILE.parent.mkdir(exist_ok=True)
