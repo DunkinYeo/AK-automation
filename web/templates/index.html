@@ -321,6 +321,7 @@
             <input type="text" id="wifi-addr" placeholder="e.g. 192.168.0.50:5555" style="flex:1">
             <button type="button" id="detect-wifi-btn" onclick="detectWifi()" style="white-space:nowrap;padding:6px 10px;font-size:12px;background:#334155;color:#fff;border:none;border-radius:6px;cursor:pointer">Auto Detect</button>
           </div>
+          <div id="wifi-detect-status" style="display:none;margin-top:4px;font-size:.75rem"></div>
         </div>
       </div>
 
@@ -354,6 +355,20 @@
           <option value="2">Every 2 hours</option>
           <option value="4">Every 4 hours</option>
         </select>
+      </div>
+
+      <div class="field">
+        <label>Connectivity Test Duration <span style="color:#9ca3af;font-weight:400">(minutes)</span></label>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:.75rem;color:#9ca3af;margin-bottom:3px">BT Disconnect</div>
+            <input type="number" id="bt-minutes" value="10" min="1" max="120" step="1" style="width:100%">
+          </div>
+          <div style="flex:1">
+            <div style="font-size:.75rem;color:#9ca3af;margin-bottom:3px">Airplane Mode</div>
+            <input type="number" id="airplane-minutes" value="5" min="1" max="120" step="1" style="width:100%">
+          </div>
+        </div>
       </div>
 
       <div class="field">
@@ -867,7 +882,7 @@ function downloadReport() {
 let pollTimer = null, seenEvents = 0, runStartTs = null, nextInjectTs = null, countdownTimer = null;
 
 // ── Field persistence ─────────────────────────────────────────────────────
-const PERSIST_FIELDS = ['serial-input', 'slack-webhook'];
+const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes'];
 
 function saveFields() {
   PERSIST_FIELDS.forEach(id => {
@@ -940,31 +955,43 @@ function applyWifiAutoMode(wifiAddr) {
   document.getElementById('wifi-addr').value = wifiAddr;
 }
 
+let _newWifiAddrs = new Set();
+
+function _wifiDetectStatus(html, color) {
+  const el = document.getElementById('wifi-detect-status');
+  el.style.display = html ? 'block' : 'none';
+  el.style.color = color || '#9ca3af';
+  el.innerHTML = html || '';
+}
+
 async function detectWifi() {
   const btn = document.getElementById('detect-wifi-btn');
   btn.textContent = 'Detecting...';
   btn.disabled = true;
   try {
     const r = await fetch('/api/detect-wifi', { method: 'POST' }).then(r => r.json());
-    if (r.error) { alert('WiFi detect failed: ' + r.error); return; }
+    if (r.error) { _wifiDetectStatus('✗ ' + r.error, '#dc2626'); return; }
     applyWifiAutoMode(r.wifi_addr);
+    const addrs = r.wifi_addrs || [r.wifi_addr];
+    _newWifiAddrs = new Set(addrs);
     // Refresh device list (now includes every detected WiFi device) and
-    // auto-select the primary one
+    // auto-select the primary one; new devices are highlighted in the list
     const init = await fetch('/api/init').then(r => r.json());
     populateDevices(init.devices);
     const sel = document.getElementById('device-select');
     if ([...sel.options].some(o => o.value === r.wifi_addr)) {
       sel.value = r.wifi_addr;
     }
-    const addrs = r.wifi_addrs || [r.wifi_addr];
-    if (addrs.length > 1) {
-      alert('WiFi ADB connected: ' + addrs.join(', ') + '\nSelect the target device from the list.');
-    }
+    let msg = `✓ ${addrs.length} device${addrs.length > 1 ? 's' : ''} on WiFi ADB`;
+    if (addrs.length > 1) msg += ' — select the target from the device list';
+    let color = '#16a34a';
     if (r.errors) {
-      const msg = Object.entries(r.errors).map(([k, v]) => k + ': ' + v).join('\n');
-      alert('Some devices could not be detected:\n' + msg);
+      const failed = Object.entries(r.errors).map(([k, v]) => `${k} (${v})`).join(', ');
+      msg += `<br>⚠ not detected: ${failed}`;
+      color = '#d97706';
     }
-  } catch(e) { alert('WiFi detect error: ' + e); }
+    _wifiDetectStatus(msg, color);
+  } catch(e) { _wifiDetectStatus('✗ WiFi detect error: ' + e, '#dc2626'); }
   finally { btn.textContent = 'Auto Detect'; btn.disabled = false; }
 }
 
@@ -992,7 +1019,14 @@ function _filterDevices() {
   const isWifi = document.getElementById('adb-wifi').checked;
   const filtered = _allDevices.filter(d => isWifi ? d.includes(':') : !d.includes(':'));
   if (!filtered.length) sel.innerHTML = `<option value="">No ${isWifi ? 'WiFi' : 'USB'} device connected</option>`;
-  else filtered.forEach(d => { const o = document.createElement('option'); o.value = o.textContent = d; sel.appendChild(o); });
+  else filtered.forEach(d => {
+    const o = document.createElement('option');
+    o.value = d;
+    // Highlight devices that the last Auto Detect just connected
+    if (_newWifiAddrs.has(d)) { o.textContent = d + '  ● just detected'; o.style.color = '#16a34a'; }
+    else o.textContent = d;
+    sel.appendChild(o);
+  });
 }
 
 document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', () => {
@@ -1060,6 +1094,8 @@ document.getElementById('start-btn').addEventListener('click', async () => {
     run_name:        document.getElementById('run-name').value || 'ak_run',
     duration_hours:  parseInt(document.getElementById('duration-val').value),
     interval_hours:  parseFloat(document.getElementById('interval-select').value),
+    bt_disconnect_minutes:  Math.max(1, parseFloat(document.getElementById('bt-minutes').value) || 10),
+    airplane_mode_minutes:  Math.max(1, parseFloat(document.getElementById('airplane-minutes').value) || 5),
     symptoms,
     wifi_mode:       wifiMode,
     wifi_addr:       wifiMode ? wifiAddr : '',
