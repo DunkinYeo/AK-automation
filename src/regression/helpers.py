@@ -60,14 +60,60 @@ def close_sheet(drv):
     time.sleep(0.8)
 
 
+def _click_clickable_in_region(drv, x_min: float, x_max: float,
+                               y_min: float, y_max: float,
+                               classes: tuple = ("android.widget.Button",
+                                                 "android.widget.ImageButton",
+                                                 "android.widget.ImageView",
+                                                 "android.view.View",
+                                                 "android.view.ViewGroup")) -> bool:
+    """
+    Bounds-based fallback (same pattern as open_menu Strategy 2): find a
+    clickable element whose center lies inside the given screen-ratio region
+    and click it. Clicking the found element — not a blind coordinate — keeps
+    this device/aspect-ratio independent. Returns True when something was
+    clicked.
+    """
+    try:
+        size = drv.drv.get_window_size()
+        w, h = size["width"], size["height"]
+        for cls in classes:
+            els = drv.drv.find_elements(
+                AppiumBy.ANDROID_UIAUTOMATOR,
+                f'new UiSelector().className("{cls}").clickable(true)')
+            for el in els:
+                try:
+                    loc = el.location
+                    sz = el.size
+                    cx = loc["x"] + sz["width"] / 2
+                    cy = loc["y"] + sz["height"] / 2
+                    if x_min * w <= cx <= x_max * w and y_min * h <= cy <= y_max * h:
+                        el.click()
+                        log.info("[bounds-fallback] %s center=(%d,%d) clicked",
+                                 cls, cx, cy)
+                        return True
+                except Exception:
+                    pass
+    except Exception as e:
+        log.debug("[bounds-fallback] region search failed: %s", e)
+    return False
+
+
 def _tap_bottom_button(drv, label: str, timeout: int = 5) -> None:
-    """Tap a full-width bottom action button by text, then coordinate fallback."""
+    """Tap a full-width bottom action button: text locator → bounds search in
+    the bottom band → ratio coordinate as last resort."""
     try:
         drv.tap_text(label, timeout=timeout, contains=False)
         return
     except Exception as e:
         log.warning("[go_to_main] '%s' locator tap failed; using bottom-button fallback: %s", label, e)
 
+    # Bounds fallback: clickable element centered in the bottom band
+    # (works on any aspect ratio / nav-bar configuration)
+    if _click_clickable_in_region(drv, x_min=0.2, x_max=0.8, y_min=0.78, y_max=0.97):
+        return
+
+    # Last resort: ratio coordinate observed on Pixel 7
     size = drv.drv.get_window_size()
     x = int(size["width"] * 0.5)
     y = int(size["height"] * 0.895)
@@ -520,8 +566,12 @@ def close_menu(drv):
             # the menu screen. Back can be swallowed on some sub-states, so tap
             # the visible close affordance first, then fall back to Back.
             try:
-                size = drv.drv.get_window_size()
-                drv.drv.tap([(int(size["width"] * 0.91), int(size["height"] * 0.105))])
+                # Bounds fallback first: clickable icon in the top-right zone
+                if not _click_clickable_in_region(drv, x_min=0.78, x_max=1.0,
+                                                  y_min=0.02, y_max=0.18):
+                    # Last resort: ratio coordinate observed on Pixel 7
+                    size = drv.drv.get_window_size()
+                    drv.drv.tap([(int(size["width"] * 0.91), int(size["height"] * 0.105))])
                 time.sleep(0.8)
                 if drv.is_visible_text("Connect Your S-Patch", timeout=1):
                     return
