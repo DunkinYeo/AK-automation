@@ -512,6 +512,7 @@
         </div>
         <div class="progress-meta">
           <span id="progress-pct">0%</span>
+          <span id="study-progress" style="display:none"></span>
           <span id="run-name-display" style="color:#9ca3af"></span>
         </div>
       </div>
@@ -643,6 +644,10 @@ function fmtEvent(ev) {
     const ok = d.passed === d.total;
     text = `[Regression] ${d.suite}: ${ok ? '✓' : '✗'} ${d.passed}/${d.total}`;
     return { text, color: ok ? 'green' : 'red' };
+  } else if (ev.event === 'study_progress') {
+    return { text: `App study progress: ${ev.data?.percent ?? '?'}%`, color: 'gray' };
+  } else if (ev.event === 'study_end_warning') {
+    return { text: `⚠ App study at ${ev.data?.percent ?? '?'}% — it will finish before this run; later injections may fail`, color: 'orange' };
   }
   if (text === null) return null;
   return { text: text || ev.event, color: info.color };
@@ -1246,9 +1251,21 @@ function renderLog(events, reset = false) {
 }
 
 function updateProgress(events) {
-  let startTs = null, durationH = null;
+  let startTs = null, durationH = null, studyPct = null, studyWarned = false;
   for (const e of (events || [])) {
     if (e.event === 'run_start') { startTs = e.ts; durationH = e.data?.duration_hours; }
+    else if (e.event === 'study_progress') studyPct = e.data?.percent;
+    else if (e.event === 'study_end_warning') studyWarned = true;
+  }
+  // App study runs on its own schedule (issue #10) — show it beside run progress
+  const studyEl = document.getElementById('study-progress');
+  if (studyPct != null) {
+    studyEl.style.display = '';
+    studyEl.textContent = `· App Study: ${studyPct}%`;
+    studyEl.style.color = studyWarned ? '#d97706' : '#6b7280';
+    if (studyWarned) studyEl.textContent += ' ⚠ ends before run';
+  } else {
+    studyEl.style.display = 'none';
   }
   if (!startTs || !durationH) return;
   const elapsed = (Date.now() - new Date(startTs).getTime()) / 1000;

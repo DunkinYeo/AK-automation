@@ -1267,6 +1267,47 @@ class AndroidDriver:
                 pass
             raise RuntimeError(f"UI health check failed: '{indicator}' not visible on screen")
         self.reporter.log_event("ui_health_ok", {"indicator": indicator})
+        self._report_study_progress()
+
+    def _report_study_progress(self):
+        """
+        Read 'My Study Progress N%' from the main screen (issue #10).
+        The app/patch study runs on its own schedule, independent of the web
+        run duration — surface its percent so the dashboard can show both,
+        and flag once at >=95% so the run owner knows remaining injections
+        will hit a completed study. Best-effort: never raises, and emits
+        nothing when the text can't be read.
+        """
+        try:
+            if not self.is_visible_text("My Study Progress", contains=True, timeout=2):
+                return
+            import re as _re
+            src = self.drv.page_source
+            pct = None
+            m = _re.search(r'text="(\d{1,3})\s*%"', src)
+            if m:
+                pct = int(m.group(1))
+            else:
+                # Split rendering ("99" + "%"): standalone number right after
+                # the progress-card label
+                m = _re.search(r'text="My Study Progress".{0,400}?text="(\d{1,3})"',
+                               src, _re.S)
+                if m:
+                    pct = int(m.group(1))
+            if pct is None or not (0 <= pct <= 100):
+                return
+            if pct != getattr(self, "_last_study_pct", None):
+                self._last_study_pct = pct
+                self.reporter.log_event("study_progress", {"percent": pct})
+                log.info("[study] App study progress: %d%%", pct)
+            if pct >= 95 and not getattr(self, "_study_warned", False):
+                self._study_warned = True
+                self._study_warn_pending = pct  # consumed by main.py → Slack
+                self.reporter.log_event("study_end_warning", {"percent": pct})
+                log.warning("[study] App study at %d%% — it will finish before "
+                            "the automation run; later injections may fail", pct)
+        except Exception as e:
+            log.debug("[study] progress read skipped: %s", e)
 
     def wait_idle(self, seconds: float = 1.0):
         time.sleep(seconds)

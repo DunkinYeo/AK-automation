@@ -34,7 +34,7 @@ from src.scheduler import LongRunScheduler
 from src.artifacts import ArtifactManager
 from src.slack import (
     slack_run_start, slack_injection_notify,
-    slack_run_complete, slack_run_failed,
+    slack_run_complete, slack_run_failed, slack_notify,
 )
 from src.timeline import log_event
 from src.regression.helpers import go_to_main
@@ -572,6 +572,16 @@ def main():
                 if _slack_on:
                     slack_injection_notify(_webhook, count=inject_count, symptom=symptom,
                                            elapsed_sec=elapsed, success=True, mention=_mention)
+                # Study nearing completion (issue #10) — one-time Slack heads-up
+                warn_pct = getattr(driver, "_study_warn_pending", None)
+                if warn_pct is not None:
+                    driver._study_warn_pending = None
+                    if _slack_on:
+                        slack_notify(_webhook,
+                                     f"⚠️ App study is at {warn_pct}% — it will finish "
+                                     f"before this automation run ends; injections after "
+                                     f"study completion will fail. Consider stopping early.",
+                                     mention=_mention)
             except Exception as e:
                 if _slack_on:
                     slack_injection_notify(_webhook, count=inject_count, symptom=symptom,
