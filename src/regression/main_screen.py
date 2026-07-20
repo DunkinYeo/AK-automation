@@ -70,6 +70,16 @@ def test_main_004_realtime_ecg_tab(drv, runner):
     drv.tap_text("Real-time ECG", timeout=5)
     time.sleep(1.5)
     visible = drv.is_visible_text("Live ECG Signal", timeout=5)
+    if not visible:
+        # One retry — the first render right after study start can lag
+        # (tester report 2026-07-16, SM-S156V: single fail here while all
+        # 19 later hourly ECG checks passed). Real breakage fails twice.
+        try:
+            drv.tap_text("Real-time ECG", timeout=3)
+        except Exception:
+            pass
+        time.sleep(3.0)
+        visible = drv.is_visible_text("Live ECG Signal", timeout=7)
     # Restore to main screen — popup/BLE loss may have navigated away
     try:
         drv.tap_text("Device Status", timeout=3)

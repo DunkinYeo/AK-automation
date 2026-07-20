@@ -1221,6 +1221,10 @@ def _build_report_html(events: list[dict]) -> str:
                 up_color = "#059669" if str(up) == "100" else "#d97706"
                 rows.append(["Data Upload", f"<span style='color:{up_color};font-weight:600'>{up}%</span>"
                              + ("" if str(up) == "100" else " — not fully uploaded (tester saw Upload/Skip screen)")])
+                if str(up) != "100":
+                    rows.append(["<span style='color:#b45309;font-weight:700'>⚠ Action Required</span>",
+                                 "<span style='color:#b45309;font-weight:600'>Tap the 'Upload' button in the app "
+                                 "to finish uploading the study data.</span>"])
             if study_done.get("study_start") or study_done.get("study_end"):
                 rows.append(["Study Window (app)", f"{study_done.get('study_start','?')} ~ {study_done.get('study_end','?')}"])
             end_s = study_done.get("study_end")
@@ -1274,6 +1278,13 @@ def _build_report_html(events: list[dict]) -> str:
         fail_html = ""
         if fails and not d.get("skipped") and d.get("passed") != d.get("total"):
             items = "".join(f"<li>{f[:80]}</li>" for f in fails[:5])
+            # Evidence filenames so the tester/QA can open the screenshot
+            # without digging through the artifacts folder (issue #13)
+            shots = d.get("failure_screenshots") or {}
+            if shots:
+                items += "".join(
+                    f"<li style='color:#9ca3af;list-style:none'>evidence: {tc} → {fn} (screenshots folder)</li>"
+                    for tc, fn in list(shots.items())[:5])
             fail_html = f"<ul class='fail-list'>{items}</ul>"
         skip_html = ""
         if skips:

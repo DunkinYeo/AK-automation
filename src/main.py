@@ -326,6 +326,9 @@ def main():
         ensure_uiautomator2(reporter)
         dm = DeviceManager(a_cfg, sel, artifacts=artifacts, reporter=reporter)
         driver = dm.driver
+        # Study-completed Slack heads-up is sent from the driver, which has
+        # no config access — hand it the webhook (issue #13)
+        driver._slack_webhook = _webhook if _slack_on else ""
         reporter.log_event("device_info", driver.get_device_info())
 
         # ── Regression suites ─────────────────────────────────────────────────
@@ -368,9 +371,14 @@ def main():
             passed   = sum(1 for r in active if r.passed)
             failures = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in active if not r.passed]
             skip_notes = [f"{r.name.split('|')[0].strip()}: {r.message}" for r in skipped]
+            # Evidence screenshots for failed TCs — report shows the filename
+            # so the tester/QA can open it without digging (issue #13)
+            failure_shots = {r.name.split("|")[0].strip(): os.path.basename(r.screenshot)
+                             for r in active if not r.passed and r.screenshot}
             reporter.log_event("regression_suite_result", {
                 "suite": name, "passed": passed, "total": len(active), "failures": failures,
                 "skipped_tests": skip_notes,
+                "failure_screenshots": failure_shots,
             })
             if _slack_on:
                 try:

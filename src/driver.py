@@ -1313,6 +1313,19 @@ class AndroidDriver:
             log.warning("[study] App study completed (upload %s%%, %s ~ %s) — "
                         "remaining scheduled jobs will be skipped",
                         info["upload_percent"], info["study_start"], info["study_end"])
+            # Upload incomplete → tester must tap Upload in the app; Slack
+            # heads-up so they know without watching the phone (issue #13)
+            up = info["upload_percent"]
+            webhook = getattr(self, "_slack_webhook", "")
+            if webhook and up is not None and up != "100":
+                try:
+                    from src.slack import slack_notify
+                    slack_notify(webhook,
+                                 f"🩺 App study completed — Data Upload {up}%. "
+                                 f"ACTION REQUIRED: tap 'Upload' in the app to "
+                                 f"finish uploading the study data.")
+                except Exception:
+                    pass
             return True
         except Exception as e:
             log.debug("[study] completed-screen check failed: %s", e)
