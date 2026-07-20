@@ -479,7 +479,24 @@ def api_detect_wifi():
             wifi_ip = m.group(1)
             subprocess.run(["adb", "-s", usb_serial, "tcpip", "5555"], capture_output=True, timeout=10)
             time.sleep(1)
-            subprocess.run(["adb", "connect", f"{wifi_ip}:5555"], capture_output=True, timeout=10)
+            # A dozing phone's WiFi rejects the first TCP attempts ("No route
+            # to host", observed 2026-07-20) — ping to wake the radio, retry,
+            # and only report devices whose connect actually succeeded.
+            ping_cmd = (["ping", "-n", "1", "-w", "2000", wifi_ip]
+                        if os.name == "nt" else ["ping", "-c", "1", wifi_ip])
+            connected, out = False, ""
+            for _attempt in range(3):
+                subprocess.run(ping_cmd, capture_output=True, timeout=6)
+                r2 = subprocess.run(["adb", "connect", f"{wifi_ip}:5555"],
+                                    capture_output=True, text=True, timeout=10)
+                out = (r2.stdout + r2.stderr).strip()
+                if "connected" in out.lower():
+                    connected = True
+                    break
+                time.sleep(2)
+            if not connected:
+                errors[usb_serial] = f"adb connect failed: {out[:80]}"
+                continue
             detected.append({"device_id": usb_serial, "wifi_ip": wifi_ip, "tcp_port": 5555})
         except Exception as e:
             errors[usb_serial] = str(e)
