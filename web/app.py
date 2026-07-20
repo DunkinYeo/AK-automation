@@ -560,8 +560,19 @@ def api_status():
         events    = read_events(out_dir)
         # If test process isn't tracked but events exist and look active, treat as running
         if not running and events and (proc or start_ts):
-            last_ev = events[-1].get("event", "")
-            if last_ev not in ("run_complete", "run_failed"):
+            # The terminal event may not be the very last one — restore
+            # events (screen_timeout_set) land after run_complete, which
+            # left finished runs stuck showing "running" (2026-07-20).
+            # Scan back to the last run_start looking for a terminal event.
+            terminal = False
+            for e in reversed(events):
+                n = e.get("event", "")
+                if n in ("run_complete", "run_failed"):
+                    terminal = True
+                    break
+                if n == "run_start":
+                    break
+            if not terminal:
                 running = True
         exit_code = proc.poll() if proc else None
 
