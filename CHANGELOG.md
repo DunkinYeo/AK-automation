@@ -1,5 +1,45 @@
 # Changelog — S-Patch AccurKardia Automation
 
+## [v1.1.2] — 2026-07-21
+
+### Highlights
+- The web run's schedule and the app/patch study's own schedule are now tracked separately — the dashboard and report show app study progress alongside run progress, and the tool no longer records fake failures once a study finishes early.
+- Android UI navigation (menu open/close, Start Study) now finds elements by their on-screen bounds before falling back to fixed ratio coordinates, so it degrades more gracefully across device models and aspect ratios.
+- WiFi ADB Auto Detect now finds and connects every USB-attached device, not just the first one, and verifies each `adb connect` actually succeeded instead of assuming success.
+- The web server can now restart (crash, redeploy) without losing track of a run in progress — it re-attaches to the running process instead of leaving a stale "ghost" state.
+
+### App Study Tracking (new)
+- Added `study_progress` tracking: after each hourly health check, the tool reads the app's own `My Study Progress N%` and records it — independent of the web run's configured duration, since the two schedules are unrelated.
+- The dashboard now shows `App Study: N%` next to run progress, with a linear ETA (`ends ~HH:MM`) once two samples exist, and a warning if the study will finish before the configured run duration.
+- Added detection of the post-study "Study Overview" screen (Upload/Skip). Once detected, remaining scheduled jobs are marked `skipped — study ended` instead of failing every hour, and the run's HTML report gets a new **App Study Summary** card: Data Upload %, the app's own recorded study window, and how many injections landed inside vs. after that window.
+- If Data Upload is below 100% when the study completes, both the report and Slack now show an explicit **⚠ Action Required: tap 'Upload' in the app** notice.
+- Added a **"Until study ends" run mode** (now the default in the web UI): instead of always running for a fixed duration, the run closes out normally as soon as the app study completes — the configured duration still acts as a safety cap (default 168h) if study-completion detection doesn't fire.
+
+### Android Reliability
+- Menu/navigation coordinate fallbacks (`Start Study`, `close_menu`) now search for a clickable element within the expected screen region before falling back to a fixed ratio coordinate — verified on both Pixel 7 and a Samsung device with a different aspect ratio.
+- Fixed the BT-reconnect ECG check occasionally reporting "View button not found" right after a new study starts — it now retries once, since this was a one-time rendering lag rather than an actual problem (all later hourly checks in the same run had passed).
+- Fixed the `study_progress` percent not being read at all in some cases due to too narrow a text-matching window in the app's UI tree.
+
+### Web UI
+- Start form: added BT Disconnect / Airplane Mode duration fields (minutes) — the scheduler already supported custom durations, only the UI was missing.
+- WiFi Auto Detect: replaced blocking alert popups with an inline status line, highlights newly-detected devices in the device dropdown, and now retries with a wake-ping before giving up on a dozing device.
+- Progress bar shows the run's actual end time and time remaining (e.g. `ends 7/23 14:00 (18h left)`), or `until study ends` in auto mode.
+- Regression failures in the report now show the evidence screenshot filename next to the failure reason.
+- Added a Mac-side `smoke.command` self-check (mirrors the existing Windows `smoke.bat`) so testers can verify a fresh install before their first real run.
+
+### Fixed
+- Web dashboard no longer shows a completed run as still "running" — the restore step that runs after `run_complete` was throwing off the running-state check.
+- Fixed a latent bug where simply importing `web.app` (e.g. from an unrelated script) could trigger the process-exit cleanup and reset a *live* run's screen-timeout override — the cleanup hook is now only registered by the process that actually starts a run.
+
+### Validation
+- Python compile checks passed across all changed files.
+- Android bounds-fallback navigation verified end-to-end on a Samsung SM-A325N (Android 11, different aspect ratio from the primary Pixel 7 test device) — 9/9 menu suite pass, fallback path confirmed to fire and succeed.
+- Full regression suite (44 TCs) passed on Samsung hardware with the new navigation code.
+- App study tracking verified live: a 24h study completing mid-run showed zero fake failures across 40 subsequent hourly skips, and a report correctly split injections into "within study window" vs. "after study end."
+- `study_progress` verified across a full 0% → 100% study lifecycle overnight (16 samples).
+- Web-server crash recovery verified by killing the server process mid-run and confirming the restarted server re-attached to the live run with full event history intact.
+- Tester feedback from a completed 24h run informed three of the fixes above (ECG-check retry, Upload action notice, failure evidence filenames).
+
 ## [v1.1.1] — 2026-07-14 (updated 2026-07-15)
 
 ### Post-release update (2026-07-15)
