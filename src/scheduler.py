@@ -83,6 +83,7 @@ class LongRunScheduler:
         jitter_seconds: float = 0,
         quiet_hours: dict = None,
         recovery_cfg: dict = None,
+        until_study_end: bool = False,
     ):
         self.duration_hours = duration_hours
         self.interval_hours = interval_hours
@@ -93,6 +94,9 @@ class LongRunScheduler:
         self.jitter_seconds = float(jitter_seconds or 0)
         self.quiet_hours = quiet_hours or {}
         self.recovery_cfg = recovery_cfg or {}
+        # Issue #12: duration acts as a max cap; the run closes out with a
+        # normal completion as soon as the app study finishes
+        self.until_study_end = bool(until_study_end)
 
     def run(self, job_callable, driver=None):
         """
@@ -297,6 +301,15 @@ class LongRunScheduler:
 
         while datetime.datetime.now() < end:
             time.sleep(10)
+            # Until-study-ends mode (issue #12): once the app study finishes
+            # every remaining job would be a skip — close out early with a
+            # normal completion (report + run_complete) instead of idling.
+            # 2026-07-16~19 soak: 40 hourly skips over 2 idle days.
+            if self.until_study_end and getattr(driver, "_study_completed", False):
+                self.reporter.log_event("run_ended_study_complete", {
+                    "duration_cap_hours": self.duration_hours,
+                })
+                break
 
         sched.shutdown(wait=True)
 

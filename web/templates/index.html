@@ -338,14 +338,16 @@
       <div class="field">
         <label>Test Duration</label>
         <div class="btn-group" id="duration-group">
+          <button class="btn-toggle active" data-val="auto">Auto<span class="sublabel">study end</span></button>
           <button class="btn-toggle" data-val="1">1h<span class="sublabel">test</span></button>
           <button class="btn-toggle" data-val="24">24h<span class="sublabel">1 day</span></button>
           <button class="btn-toggle" data-val="48">48h<span class="sublabel">2 days</span></button>
-          <button class="btn-toggle active" data-val="72">72h<span class="sublabel">3 days</span></button>
+          <button class="btn-toggle" data-val="72">72h<span class="sublabel">3 days</span></button>
           <button class="btn-toggle" data-val="144">144h<span class="sublabel">6 days</span></button>
           <button class="btn-toggle" data-val="168">168h<span class="sublabel">1 week</span></button>
         </div>
-        <input type="hidden" id="duration-val" value="72">
+        <input type="hidden" id="duration-val" value="auto">
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:4px">Auto: runs until the app study completes (max 168h). Pick hours to stop earlier.</div>
       </div>
 
       <div class="field">
@@ -653,6 +655,8 @@ function fmtEvent(ev) {
     return { text: `App study COMPLETED — upload ${d.upload_percent ?? '?'}% (${d.study_start ?? '?'} ~ ${d.study_end ?? '?'}) · remaining jobs will be skipped`, color: 'orange' };
   } else if (ev.event === 'job_skipped_study_ended') {
     return { text: 'Scheduled job skipped — study already ended', color: 'gray' };
+  } else if (ev.event === 'run_ended_study_complete') {
+    return { text: 'Run closing early — app study completed (auto mode)', color: 'green' };
   }
   if (text === null) return null;
   return { text: text || ev.event, color: info.color };
@@ -1102,7 +1106,10 @@ document.getElementById('start-btn').addEventListener('click', async () => {
     device,
     serial:          (document.getElementById('serial-input').value || '').trim(),
     run_name:        document.getElementById('run-name').value || 'ak_run',
-    duration_hours:  parseInt(document.getElementById('duration-val').value),
+    // "auto" = until the app study completes; 168h acts as the max cap (issue #12)
+    duration_hours:  document.getElementById('duration-val').value === 'auto'
+                       ? 168 : parseInt(document.getElementById('duration-val').value),
+    until_study_end: document.getElementById('duration-val').value === 'auto',
     interval_hours:  parseFloat(document.getElementById('interval-select').value),
     bt_disconnect_minutes:  Math.max(1, parseFloat(document.getElementById('bt-minutes').value) || 10),
     airplane_mode_minutes:  Math.max(1, parseFloat(document.getElementById('airplane-minutes').value) || 5),
@@ -1256,10 +1263,10 @@ function renderLog(events, reset = false) {
 }
 
 function updateProgress(events) {
-  let startTs = null, durationH = null, studyWarned = false, studyDone = null;
+  let startTs = null, durationH = null, studyWarned = false, studyDone = null, untilStudy = false;
   const studySamples = [];
   for (const e of (events || [])) {
-    if (e.event === 'run_start') { startTs = e.ts; durationH = e.data?.duration_hours; }
+    if (e.event === 'run_start') { startTs = e.ts; durationH = e.data?.duration_hours; untilStudy = !!e.data?.until_study_end; }
     else if (e.event === 'study_progress') studySamples.push({ t: new Date(e.ts).getTime(), p: e.data?.percent });
     else if (e.event === 'study_end_warning') studyWarned = true;
     else if (e.event === 'study_completed') studyDone = e.data || {};
@@ -1295,7 +1302,15 @@ function updateProgress(events) {
   const pct = Math.min(100, Math.round(elapsed / (durationH * 3600) * 100));
   const elH = Math.floor(elapsed / 3600), elM = Math.floor((elapsed % 3600) / 60);
   document.getElementById('elapsed-text').textContent = `${elH}h ${elM}m`;
-  document.getElementById('total-text').textContent   = `${durationH}h`;
+  // End time / time left (issue #12): auto mode ends at study completion,
+  // manual mode at the configured duration
+  const endTs = new Date(startTs).getTime() + durationH * 3600 * 1000;
+  const leftMs = Math.max(0, endTs - Date.now());
+  const lh = Math.floor(leftMs / 3600000), lm = Math.floor((leftMs % 3600000) / 60000);
+  const endStr = new Date(endTs).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  document.getElementById('total-text').textContent = untilStudy
+    ? `until study ends (max ${durationH}h)`
+    : `${durationH}h · ends ${endStr} (${lh}h ${lm}m left)`;
   document.getElementById('progress-fill').style.width = pct + '%';
   document.getElementById('progress-pct').textContent  = pct + '%';
   document.getElementById('progress-section').style.display = '';

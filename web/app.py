@@ -617,6 +617,7 @@ def api_start():
         run_section = {
             "name":                          data.get("run_name") or "ak_run",
             "duration_hours":                int(data.get("duration_hours", 72)),
+            "until_study_end":               bool(data.get("until_study_end")),
             "symptom_interval_hours":        float(data.get("interval_hours", 1)),
             "start_immediately":             True,
             "jitter_seconds":                0,

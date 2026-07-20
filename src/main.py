@@ -270,6 +270,7 @@ def main():
     _mention  = slack_cfg.get("mention", "")
     _slack_on = bool(slack_cfg.get("enabled") and _webhook)
 
+    until_study_end = bool(run_cfg.get("until_study_end", False))
     reporter.log_event(
         "run_start",
         {
@@ -279,6 +280,7 @@ def main():
             "jitter_seconds": jitter_seconds,
             "quiet_hours": quiet_hours,
             "once": args.once,
+            "until_study_end": until_study_end,
         },
     )
     log_event(f"run started: {run_cfg.get('name', 'run')} ({duration_hours}h)")
@@ -610,6 +612,7 @@ def main():
             jitter_seconds=jitter_seconds,
             quiet_hours=quiet_hours,
             recovery_cfg=recovery_cfg,
+            until_study_end=until_study_end,
         )
         scheduler.run(job, driver=driver)
         _stop_loop.set()
