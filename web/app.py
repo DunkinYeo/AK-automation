@@ -1201,24 +1201,6 @@ def _build_report_html(events: list[dict]) -> str:
 
     def _t(ts): return ts.split("T")[1][:8] if "T" in ts else ts
 
-    def _table(headers, rows, empty="No data yet."):
-        if not rows:
-            return f"<p style='color:#9ca3af;font-style:italic'>{empty}</p>"
-        ths = "".join(f"<th>{h}</th>" for h in headers)
-        trs = "".join(f"<tr>{''.join(f'<td>{c}</td>' for c in row)}</tr>" for row in rows)
-        return f"<table>{ths}{trs}</table>"
-
-    suite_rows = []
-    for name, d in suites.items():
-        if d.get("skipped"):
-            status = "<span style='color:#d97706'>SKIP</span>"
-        elif d.get("passed") == d.get("total"):
-            status = f"<span style='color:#059669'>✓ {d['passed']}/{d['total']}</span>"
-        else:
-            fails_txt = "<br><small>" + "  ".join(d.get("failures", [])[:3]) + "</small>"
-            status = f"<span style='color:#dc2626'>✗ {d['passed']}/{d['total']}{fails_txt}</span>"
-        suite_rows.append([name, status])
-
     inj_ok    = sum(1 for i in injections if i.get("ok"))
     inj_total = len(injections)
     inj_rate  = f"{inj_ok}/{inj_total}" if inj_total else "-"
@@ -1229,14 +1211,6 @@ def _build_report_html(events: list[dict]) -> str:
         bt_rate += f" ({bt_skip} skipped — ADB BT not supported)"
     ap_ok     = sum(1 for t in ap_tests if t["ok"])
     ap_rate   = f"{ap_ok}/{len(ap_tests)}" if ap_tests else "-"
-    bt_rows  = [[_t(t["ts"]), f"{t['minutes']} min" if t.get("minutes") else "-",
-                 "<span style='color:#059669'>✓</span>" if t["ok"] is True
-                 else ("<span style='color:#d97706'>⚠ skipped — ADB BT not supported on this device/OS</span>" if t["ok"] is None
-                 else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>")]
-                for t in bt_tests]
-    ap_rows  = [[_t(t["ts"]), f"{t['minutes']} min",
-                 "<span style='color:#059669'>✓</span>" if t["ok"] else f"<span style='color:#dc2626'>✗ {t.get('error','')}</span>"]
-                for t in ap_tests]
 
     # ── App Study Summary (issue #11) ────────────────────────────────────
     # The app/patch study runs on its own schedule, independent of this run.
@@ -1286,7 +1260,7 @@ def _build_report_html(events: list[dict]) -> str:
                     label = f"{valid}/{inj_ok} within the study window"
                     if after:
                         label += f" · {after} after study end (not in study data)"
-                    items.append(("Valid Injections", label, True))
+                    items.append(("Injections (in study window)", label, True))
                 except Exception:
                     pass
             if study_skipped:
@@ -1315,7 +1289,6 @@ def _build_report_html(events: list[dict]) -> str:
     overall_ok = total_t > 0 and total_p == total_t
     overall_icon = "✅" if overall_ok else ("⚠️" if total_t == 0 else "❌")
     overall_label = "PASS" if overall_ok else ("N/A" if total_t == 0 else "FAIL")
-    overall_color = "#059669" if overall_ok else ("#d97706" if total_t == 0 else "#dc2626")
 
     def _suite_badge(d):
         if d.get("skipped"):
@@ -1487,7 +1460,7 @@ def _build_report_html(events: list[dict]) -> str:
     <div class="meta-grid">
       <div class="meta-item"><div class="meta-label">Device</div><div class="meta-val">{device or '-'}</div></div>
       <div class="meta-item"><div class="meta-label">Elapsed</div><div class="meta-val">{elapsed_str} / {duration_h}h</div></div>
-      <div class="meta-item"><div class="meta-label">Injections</div><div class="meta-val">{inj_rate}</div></div>
+      <div class="meta-item"><div class="meta-label">Injections (all)</div><div class="meta-val">{inj_rate}</div></div>
       <div class="meta-item"><div class="meta-label">Interval</div><div class="meta-val">every {interval_h}h</div></div>
     </div>
     <div class="overall overall-{'pass' if overall_ok else ('na' if total_t==0 else 'fail')}">{overall_icon} Regression {overall_label} — {total_p}/{total_t}</div>
