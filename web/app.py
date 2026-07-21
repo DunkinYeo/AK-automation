@@ -1261,12 +1261,25 @@ def _build_report_html(events: list[dict]) -> str:
       <div class="callout-body">Tap the 'Upload' button in the app to finish uploading the study data.</div>
     </div>"""
             if study_done.get("study_start") or study_done.get("study_end"):
-                items.append(("Study Window (app)",
+                # As-shown-on-phone timestamps — the phone's timezone may
+                # differ from this report's (tester feedback 2026-07-21:
+                # a device set to America/Chicago made the app's times look
+                # ~14h off from the rest of the report, which uses this
+                # server's local time). Label it so readers don't compare
+                # the two ranges as if they share a timezone.
+                items.append(("Study Window (device local time)",
                              f"{study_done.get('study_start','?')} ~ {study_done.get('study_end','?')}", True))
             end_s = study_done.get("study_end")
             if end_s:
                 try:
                     end_dt = datetime.datetime.fromisoformat(end_s)
+                    # Correct for device/host timezone mismatch (2026-07-21:
+                    # a device on America/Chicago made this comparison
+                    # naive-vs-naive across a 14h gap, wrongly bucketing
+                    # half the injections as "after study end").
+                    tz_offset = study_done.get("device_tz_offset_seconds")
+                    if tz_offset is not None:
+                        end_dt += datetime.timedelta(seconds=tz_offset)
                     valid = sum(1 for i in injections if i.get("ok") and i.get("ts")
                                 and datetime.datetime.fromisoformat(i["ts"].split(".")[0]) <= end_dt)
                     after = inj_ok - valid

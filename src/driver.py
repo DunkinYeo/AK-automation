@@ -1,3 +1,4 @@
+import datetime
 import logging
 import subprocess
 import threading
@@ -1304,6 +1305,22 @@ class AndroidDriver:
                 "study_start": _grab(r'text="Start Time".{0,1500}?text="(\d{4}-\d{2}-\d{2} [\d:]{8})"'),
                 "study_end": _grab(r'text="End Time".{0,1500}?text="(\d{4}-\d{2}-\d{2} [\d:]{8})"'),
             }
+            # Study Start/End are shown in the DEVICE's local timezone, which
+            # can differ from this host's (tester feedback 2026-07-21: a
+            # phone set to America/Chicago made study_end look ~14h off from
+            # the report's own timestamps, which silently corrupted the
+            # "Valid Injections" split — half the injections were miscounted
+            # as "after study end" when they weren't). Capture device-vs-host
+            # offset here so the report can correct for it.
+            try:
+                udid = self.cfg.get("udid", "")
+                cmd = ["adb"] + (["-s", udid] if udid else []) + ["shell", "date", "+%Y-%m-%dT%H:%M:%S"]
+                device_local = datetime.datetime.fromisoformat(
+                    subprocess.check_output(cmd, timeout=5).decode().strip())
+                info["device_tz_offset_seconds"] = (datetime.datetime.now() - device_local).total_seconds()
+            except Exception as e:
+                log.debug("[study] device tz offset read failed: %s", e)
+                info["device_tz_offset_seconds"] = None
             self._study_completed = True
             try:
                 self.screenshot("study_overview_completed")
