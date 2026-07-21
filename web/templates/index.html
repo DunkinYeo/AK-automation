@@ -1289,17 +1289,36 @@ function updateProgress(events) {
       const rate = (last.p - first.p) / (last.t - first.t);   // %/ms
       const etaTs = last.t + (100 - last.p) / rate;
       text += ` · ends ~${new Date(etaTs).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;
-      if (startTs && durationH && etaTs < new Date(startTs).getTime() + durationH * 3600 * 1000) studyWarned = true;
+      // In auto mode the study finishing before the safety-cap duration is
+      // the expected, desired outcome (issue #12) — only warn in manual
+      // mode, where the tester picked a specific duration to test.
+      if (!untilStudy && startTs && durationH
+          && etaTs < new Date(startTs).getTime() + durationH * 3600 * 1000) studyWarned = true;
     }
-    if (studyWarned) text += ' ⚠ ends before run';
+    // study_end_warning (95%+) is meaningful heads-up in manual mode only —
+    // in auto mode the study finishing early is the intended trigger, not a problem
+    const showWarning = studyWarned && !untilStudy;
+    if (showWarning) text += ' ⚠ ends before run';
     studyEl.textContent = text;
-    studyEl.style.color = studyWarned ? '#d97706' : '#6b7280';
+    studyEl.style.color = showWarning ? '#d97706' : '#6b7280';
   } else {
     studyEl.style.display = 'none';
   }
   if (!startTs || !durationH) return;
   const elapsed = (Date.now() - new Date(startTs).getTime()) / 1000;
-  const pct = Math.min(100, Math.round(elapsed / (durationH * 3600) * 100));
+  // Auto mode (issue #12): duration_hours is a safety cap (168h), not the
+  // real target — elapsed/cap made the bar look barely-moved right before
+  // completion (e.g. 24h/168h = 14% while the app study itself was at
+  // 96%). Drive the primary bar off study progress once a sample exists.
+  const lastStudySample = studySamples.length ? studySamples[studySamples.length - 1] : null;
+  let pct;
+  if (untilStudy && studyDone) {
+    pct = 100;
+  } else if (untilStudy && lastStudySample) {
+    pct = Math.min(100, Math.round(lastStudySample.p));
+  } else {
+    pct = Math.min(100, Math.round(elapsed / (durationH * 3600) * 100));
+  }
   const elH = Math.floor(elapsed / 3600), elM = Math.floor((elapsed % 3600) / 60);
   document.getElementById('elapsed-text').textContent = `${elH}h ${elM}m`;
   // End time / time left (issue #12): auto mode ends at study completion,
