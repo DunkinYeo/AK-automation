@@ -1241,6 +1241,7 @@ def _build_report_html(events: list[dict]) -> str:
     # ── App Study Summary (issue #11) ────────────────────────────────────
     # The app/patch study runs on its own schedule, independent of this run.
     study_html = ""
+    study_action_html = ""
     if study_done or study_last_pct is not None:
         rows = []
         if study_done:
@@ -1248,12 +1249,17 @@ def _build_report_html(events: list[dict]) -> str:
             rows.append(["Status", "<span style='color:#059669;font-weight:600'>✓ Completed</span>"])
             if up is not None:
                 up_color = "#059669" if str(up) == "100" else "#d97706"
-                rows.append(["Data Upload", f"<span style='color:{up_color};font-weight:600'>{up}%</span>"
-                             + ("" if str(up) == "100" else " — not fully uploaded (tester saw Upload/Skip screen)")])
+                rows.append(["Data Upload", f"<span style='color:{up_color};font-weight:600'>{up}%</span>"])
                 if str(up) != "100":
-                    rows.append(["<span style='color:#b45309;font-weight:700'>⚠ Action Required</span>",
-                                 "<span style='color:#b45309;font-weight:600'>Tap the 'Upload' button in the app "
-                                 "to finish uploading the study data.</span>"])
+                    # Same callout style as the BT-not-restored warning below,
+                    # rather than a table row — this is an alert, not a field
+                    # (tester feedback 2026-07-21: table row looked cluttered)
+                    study_action_html = (
+                        "<div class='list-row' style='background:#fef3c7;border-left:3px solid #d97706;"
+                        "padding:6px 10px;margin-top:8px'>"
+                        f"<span style='color:#b45309;font-weight:600'>⚠ ACTION REQUIRED: Data upload is at {up}% "
+                        "— tap 'Upload' in the app to finish uploading the study data.</span></div>"
+                    )
             if study_done.get("study_start") or study_done.get("study_end"):
                 rows.append(["Study Window (app)", f"{study_done.get('study_start','?')} ~ {study_done.get('study_end','?')}"])
             end_s = study_done.get("study_end")
@@ -1282,6 +1288,7 @@ def _build_report_html(events: list[dict]) -> str:
     </div>
     <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">The app/patch study runs on its own schedule, independent of this automation run.</div>
     {_table(["Item", "Value"], rows)}
+    {study_action_html}
   </div>"""
 
     total_p = sum(d.get("passed", 0) for d in suites.values() if not d.get("skipped"))
