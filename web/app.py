@@ -1243,25 +1243,26 @@ def _build_report_html(events: list[dict]) -> str:
     study_html = ""
     study_action_html = ""
     if study_done or study_last_pct is not None:
-        rows = []
+        # (label, value_html, full_width) — full_width for items whose value
+        # is a long sentence rather than a short fact (tester feedback
+        # 2026-07-21: plain Item/Value table looked cluttered; switched to
+        # the same boxed key/value grid as the header meta info).
+        items: list[tuple[str, str, bool]] = []
         if study_done:
             up = study_done.get("upload_percent")
-            rows.append(["Status", "<span style='color:#059669;font-weight:600'>✓ Completed</span>"])
+            items.append(("Status", "<span style='color:#059669'>✓ Completed</span>", False))
             if up is not None:
                 up_color = "#059669" if str(up) == "100" else "#d97706"
-                rows.append(["Data Upload", f"<span style='color:{up_color};font-weight:600'>{up}%</span>"])
+                items.append(("Data Upload", f"<span style='color:{up_color}'>{up}%</span>", False))
                 if str(up) != "100":
-                    # Same callout style as the BT-not-restored warning below,
-                    # rather than a table row — this is an alert, not a field
-                    # (tester feedback 2026-07-21: table row looked cluttered)
-                    study_action_html = (
-                        "<div class='list-row' style='background:#fef3c7;border-left:3px solid #d97706;"
-                        "padding:6px 10px;margin-top:8px'>"
-                        f"<span style='color:#b45309;font-weight:600'>⚠ ACTION REQUIRED: Data upload is at {up}% "
-                        "— tap 'Upload' in the app to finish uploading the study data.</span></div>"
-                    )
+                    study_action_html = f"""
+    <div class="callout callout-warn">
+      <div class="callout-title">⚠ ACTION REQUIRED: Data upload is at {up}%</div>
+      <div class="callout-body">Tap the 'Upload' button in the app to finish uploading the study data.</div>
+    </div>"""
             if study_done.get("study_start") or study_done.get("study_end"):
-                rows.append(["Study Window (app)", f"{study_done.get('study_start','?')} ~ {study_done.get('study_end','?')}"])
+                items.append(("Study Window (app)",
+                             f"{study_done.get('study_start','?')} ~ {study_done.get('study_end','?')}", True))
             end_s = study_done.get("study_end")
             if end_s:
                 try:
@@ -1272,13 +1273,18 @@ def _build_report_html(events: list[dict]) -> str:
                     label = f"{valid}/{inj_ok} within the study window"
                     if after:
                         label += f" · {after} after study end (not in study data)"
-                    rows.append(["Valid Injections", label])
+                    items.append(("Valid Injections", label, True))
                 except Exception:
                     pass
             if study_skipped:
-                rows.append(["Skipped Jobs", f"{study_skipped} scheduled job(s) skipped after study completion"])
+                items.append(("Skipped Jobs", f"{study_skipped} scheduled job(s) skipped after study completion", True))
         else:
-            rows.append(["Progress", f"{study_last_pct}% (last read)"])
+            items.append(("Progress", f"{study_last_pct}% (last read)", False))
+        items_html = "".join(
+            f"<div class='kv-item{' full' if full else ''}'>"
+            f"<div class='kv-label'>{label}</div><div class='kv-val'>{val}</div></div>"
+            for label, val, full in items
+        )
         study_html = f"""
   <div class="card">
     <div class="card-header">
@@ -1286,8 +1292,8 @@ def _build_report_html(events: list[dict]) -> str:
       <span class="card-title">App Study Summary</span>
       <span class="card-count">{'completed' if study_done else f'{study_last_pct}%'}</span>
     </div>
-    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">The app/patch study runs on its own schedule, independent of this automation run.</div>
-    {_table(["Item", "Value"], rows)}
+    <div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">The app/patch study runs on its own schedule, independent of this automation run.</div>
+    <div class="kv-grid">{items_html}</div>
     {study_action_html}
   </div>"""
 
@@ -1423,6 +1429,16 @@ def _build_report_html(events: list[dict]) -> str:
   .card-icon{{font-size:1.05rem}}
   .card-title{{font-size:.88rem;font-weight:700;color:#111827}}
   .card-count{{margin-left:auto;font-size:.75rem;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px}}
+  /* Key/value grid — same visual language as the header meta-grid, for light cards */
+  .kv-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}}
+  .kv-item{{background:#f9fafb;border-radius:8px;padding:8px 12px}}
+  .kv-item.full{{grid-column:1 / -1}}
+  .kv-label{{font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}}
+  .kv-val{{font-size:.83rem;font-weight:600;color:#1f2937}}
+  .callout{{border-radius:8px;padding:9px 12px;margin-top:10px}}
+  .callout-warn{{background:#fef3c7;border-left:3px solid #d97706}}
+  .callout-title{{color:#b45309;font-weight:700;font-size:.82rem}}
+  .callout-body{{color:#92400e;font-size:.8rem;margin-top:3px}}
   /* Suite rows */
   .suite-row{{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid #f9fafb;flex-wrap:wrap}}
   .suite-row:last-child{{border-bottom:none}}
