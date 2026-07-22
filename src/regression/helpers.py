@@ -556,9 +556,24 @@ def open_menu(drv, wait: float = 2.0):
     )
 
 
+def _menu_closed_ok(drv) -> bool:
+    """
+    True once the menu is closed onto a legitimate main screen — Step 1
+    ("Connect Your S-Patch", pre-BLE) OR the active-study main screen. Before
+    this, close_menu() only recognized Step 1, so a study-in-progress caller
+    (menu_study.py) never saw success and kept pressing Back for all 4
+    attempts, risking navigating further than intended (code review
+    2026-07-22). Only widens the existing Step 1 check — doesn't change it.
+    """
+    if drv.is_visible_text("Connect Your S-Patch", timeout=1):
+        return True
+    active_indicator = drv.sel.get("symptom_add_text", "Log Symptoms")
+    return drv.is_visible_text(active_indicator, timeout=1)
+
+
 def close_menu(drv):
     for attempt in range(4):
-        if drv.is_visible_text("Connect Your S-Patch", timeout=1):
+        if _menu_closed_ok(drv):
             return
 
         if _is_menu_open(drv, timeout=1):
@@ -573,7 +588,7 @@ def close_menu(drv):
                     size = drv.drv.get_window_size()
                     drv.drv.tap([(int(size["width"] * 0.91), int(size["height"] * 0.105))])
                 time.sleep(0.8)
-                if drv.is_visible_text("Connect Your S-Patch", timeout=1):
+                if _menu_closed_ok(drv):
                     return
             except Exception:
                 pass
