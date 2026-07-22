@@ -453,8 +453,13 @@ def open_menu(drv, wait: float = 2.0):
     # Capture screen state before first attempt for diagnostics
     try:
         drv.screenshot("open_menu_before")
-    except Exception:
-        pass
+    except Exception as e:
+        # Silently-swallowed screenshot failures previously left zero
+        # evidence when open_menu failed (code review 2026-07-22 incident:
+        # 3 TCs failed with none of the expected diagnostic screenshots on
+        # disk, so root cause — likely a brief Appium/UiAutomator2 session
+        # hiccup — couldn't be confirmed after the fact). Log it instead.
+        log.warning("[open_menu] screenshot 'open_menu_before' failed: %s", e)
 
     # All tap strategies to try per attempt
     def _try_tap() -> bool:
@@ -517,23 +522,38 @@ def open_menu(drv, wait: float = 2.0):
         time.sleep(wait)
         try:
             drv.screenshot(f"open_menu_after_tap_{attempt + 1}")
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("[open_menu] screenshot 'open_menu_after_tap_%d' failed: %s", attempt + 1, e)
         if _is_menu_open(drv, timeout=2):
             log.info("[open_menu] Menu opened on attempt %d", attempt + 1)
             return
         log.warning("[open_menu] Menu did not open (attempt %d/3)", attempt + 1)
         try:
             drv.screenshot(f"open_menu_fail_{attempt + 1}")
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("[open_menu] screenshot 'open_menu_fail_%d' failed: %s", attempt + 1, e)
         time.sleep(0.5)
+
+    # Last resort before declaring failure: the 3 tap attempts above assume
+    # the Appium session itself was healthy throughout. If it briefly
+    # dropped (2026-07-22 incident: menu was actually open on screen but
+    # every is_visible_text check still returned False, with screenshot
+    # capture also silently failing — a classic dead-session signature),
+    # recover it and give the check one more chance instead of failing a
+    # suite over a transient hiccup unrelated to real app behavior.
+    try:
+        drv.ensure_session()
+        if _is_menu_open(drv, timeout=2):
+            log.info("[open_menu] Menu was open after session recovery — treating as success")
+            return
+    except Exception as e:
+        log.warning("[open_menu] session recovery check failed: %s", e)
 
     # Final diagnostic before raising
     try:
         drv.screenshot("open_menu_failed_final")
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[open_menu] screenshot 'open_menu_failed_final' failed: %s", e)
     device_info = ""
     try:
         info = drv.get_device_info()
