@@ -4,6 +4,7 @@ Run:  python web/app.py   (from project root)
 """
 import atexit
 import datetime
+import html as _html
 import json
 import logging
 import os
@@ -240,6 +241,24 @@ def read_events(out_dir: str | None) -> list[dict]:
     return events
 
 
+def _terminal_event(events: list[dict]) -> str | None:
+    """
+    Scan back to the most recent run_start looking for a terminal event.
+    Returns 'run_complete', 'run_failed', or None (still running / unknown).
+    A terminal event isn't always the very last line — restore events
+    (e.g. screen_timeout_set) land after run_complete, which left finished
+    runs stuck showing "running" in both /api/status and the team dashboard
+    mirror (2026-07-20, 2026-07-22 — same bug, two call sites).
+    """
+    for e in reversed(events):
+        n = e.get("event", "")
+        if n in ("run_complete", "run_failed"):
+            return n
+        if n == "run_start":
+            break
+    return None
+
+
 def find_latest_output_dir(since: float) -> str | None:
     out = ROOT / "output"
     if not out.exists():
@@ -300,8 +319,8 @@ def _sync_localhost_session():
                     interval_hours = interval_hours or data.get("interval_hours")
                 last_ts = e.get("ts", last_ts)
 
-            names = {e["event"] for e in events}
-            status = "done" if "run_complete" in names else "failed" if "run_failed" in names else "running"
+            terminal = _terminal_event(events)
+            status = "done" if terminal == "run_complete" else "failed" if terminal == "run_failed" else "running"
 
             # Auto-save report when test completes
             if status in ("done", "failed") and out_dir:
@@ -577,19 +596,7 @@ def api_status():
         events    = read_events(out_dir)
         # If test process isn't tracked but events exist and look active, treat as running
         if not running and events and (proc or start_ts):
-            # The terminal event may not be the very last one — restore
-            # events (screen_timeout_set) land after run_complete, which
-            # left finished runs stuck showing "running" (2026-07-20).
-            # Scan back to the last run_start looking for a terminal event.
-            terminal = False
-            for e in reversed(events):
-                n = e.get("event", "")
-                if n in ("run_complete", "run_failed"):
-                    terminal = True
-                    break
-                if n == "run_start":
-                    break
-            if not terminal:
+            if _terminal_event(events) is None:
                 running = True
         exit_code = proc.poll() if proc else None
 
@@ -1201,6 +1208,14 @@ def _build_report_html(events: list[dict]) -> str:
 
     def _t(ts): return ts.split("T")[1][:8] if "T" in ts else ts
 
+    def _esc(v) -> str:
+        """Escape app/tester/error-sourced free text before it lands in the
+        f-string HTML below — Appium exceptions occasionally contain raw
+        XML-ish fragments (e.g. '<hierarchy>...') that would otherwise break
+        the report's layout (code review 2026-07-22). Only wrap leaf text
+        values with this, never the surrounding HTML we build ourselves."""
+        return _html.escape(str(v)) if v is not None else ""
+
     inj_ok    = sum(1 for i in injections if i.get("ok"))
     inj_total = len(injections)
     inj_rate  = f"{inj_ok}/{inj_total}" if inj_total else "-"
@@ -1305,20 +1320,20 @@ def _build_report_html(events: list[dict]) -> str:
         skips = d.get("skipped_tests", [])
         fail_html = ""
         if fails and not d.get("skipped") and d.get("passed") != d.get("total"):
-            items = "".join(f"<li>{f[:80]}</li>" for f in fails[:5])
+            items = "".join(f"<li>{_esc(f[:80])}</li>" for f in fails[:5])
             # Evidence filenames so the tester/QA can open the screenshot
             # without digging through the artifacts folder (issue #13)
             shots = d.get("failure_screenshots") or {}
             if shots:
                 items += "".join(
-                    f"<li style='color:#9ca3af;list-style:none'>evidence: {tc} → {fn} (screenshots folder)</li>"
+                    f"<li style='color:#9ca3af;list-style:none'>evidence: {_esc(tc)} → {_esc(fn)} (screenshots folder)</li>"
                     for tc, fn in list(shots.items())[:5])
             fail_html = f"<ul class='fail-list'>{items}</ul>"
         skip_html = ""
         if skips:
-            items = "".join(f"<li style='color:#d97706'>{s[:100]}</li>" for s in skips[:5])
+            items = "".join(f"<li style='color:#d97706'>{_esc(s[:100])}</li>" for s in skips[:5])
             skip_html = f"<ul class='fail-list'>{items}</ul>"
-        suite_html += f"<div class='suite-row'><span class='suite-name'>{name}</span>{_suite_badge(d)}{fail_html}{skip_html}</div>"
+        suite_html += f"<div class='suite-row'><span class='suite-name'>{_esc(name)}</span>{_suite_badge(d)}{fail_html}{skip_html}</div>"
 
     def _dur(sec):
         if sec is None:
@@ -1353,22 +1368,22 @@ def _build_report_html(events: list[dict]) -> str:
         else:
             state = "<span class='err'>✗ relaunch failed</span>"
         crash_html += (f"<div class='list-row'><span class='ts'>{_t(c['ts'])}</span>"
-                       f"<span class='symptom' style='color:#dc2626'>{kind}</span>"
-                       f"<span class='dur'>{ev_name}</span>{state}</div>")
+                       f"<span class='symptom' style='color:#dc2626'>{_esc(kind)}</span>"
+                       f"<span class='dur'>{_esc(ev_name)}</span>{state}</div>")
 
     reg_diary_html = ""
     for r in reg_diary:
         reg_diary_html += (f"<div class='list-row'><span class='ts'>{_t(r['ts'])}</span>"
-                           f"<span class='symptom'>{r['symptom']}</span>"
-                           f"<span class='dur'>{r['source']}</span></div>")
+                           f"<span class='symptom'>{_esc(r['symptom'])}</span>"
+                           f"<span class='dur'>{_esc(r['source'])}</span></div>")
 
     inj_html = ""
     for i in injections:
         if i.get("ok"):
-            inj_html += f"<div class='list-row'><span class='ts'>{_t(i['ts'])}</span><span class='symptom'>{i.get('symptom') or '-'}</span><span class='dur'>{i['elapsed']}s</span></div>"
+            inj_html += f"<div class='list-row'><span class='ts'>{_t(i['ts'])}</span><span class='symptom'>{_esc(i.get('symptom')) or '-'}</span><span class='dur'>{i['elapsed']}s</span></div>"
         else:
             err = (i.get('error') or '')[:80]
-            inj_html += f"<div class='list-row' style='opacity:.7'><span class='ts'>{_t(i['ts'])}</span><span class='symptom' style='color:#dc2626'>{i.get('symptom') or '-'} ✗</span><span class='dur' style='color:#dc2626;font-size:11px'>{err}</span></div>"
+            inj_html += f"<div class='list-row' style='opacity:.7'><span class='ts'>{_t(i['ts'])}</span><span class='symptom' style='color:#dc2626'>{_esc(i.get('symptom')) or '-'} ✗</span><span class='dur' style='color:#dc2626;font-size:11px'>{_esc(err)}</span></div>"
 
     bt_html = ""
     for t in bt_tests:
@@ -1458,7 +1473,7 @@ def _build_report_html(events: list[dict]) -> str:
       </div>
     </div>
     <div class="meta-grid">
-      <div class="meta-item"><div class="meta-label">Device</div><div class="meta-val">{device or '-'}</div></div>
+      <div class="meta-item"><div class="meta-label">Device</div><div class="meta-val">{_esc(device) or '-'}</div></div>
       <div class="meta-item"><div class="meta-label">Elapsed</div><div class="meta-val">{elapsed_str} / {duration_h}h</div></div>
       <div class="meta-item"><div class="meta-label">Injections (all)</div><div class="meta-val">{inj_rate}</div></div>
       <div class="meta-item"><div class="meta-label">Interval</div><div class="meta-val">every {interval_h}h</div></div>
@@ -1501,7 +1516,7 @@ def _build_report_html(events: list[dict]) -> str:
       <span class="card-count">{bt_rate} succeeded</span>
     </div>
     {bt_html if bt_html else "<div class='empty'>No BT tests yet.</div>"}
-    {"".join(f"<div class='list-row' style='background:#fef3c7;border-left:3px solid #d97706;padding:6px 10px;margin-top:4px'><span class='ts'>{_t(w['ts'])}</span><span style='color:#b45309;font-weight:600'>⚠ ACTION REQUIRED: {w['msg']}</span></div>" for w in bt_warnings)}
+    {"".join(f"<div class='list-row' style='background:#fef3c7;border-left:3px solid #d97706;padding:6px 10px;margin-top:4px'><span class='ts'>{_t(w['ts'])}</span><span style='color:#b45309;font-weight:600'>⚠ ACTION REQUIRED: {_esc(w['msg'])}</span></div>" for w in bt_warnings)}
   </div>
 
   <div class="card">
@@ -1541,6 +1556,12 @@ def _build_report_html(events: list[dict]) -> str:
 def api_report():
     with _lock:
         out_dir = _state["out_dir"]
+    if not out_dir:
+        # Server restart clears in-memory state even for a run that already
+        # finished — fall back to the most recent output dir so the report
+        # for a just-completed run doesn't come back empty (code review
+        # 2026-07-22; same fallback /api/status already uses).
+        out_dir = _find_latest_output_dir()
     events = read_events(out_dir) if out_dir else []
     html   = _build_report_html(events)
     ts     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
