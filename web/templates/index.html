@@ -1083,6 +1083,18 @@ async function startAppium() {
 }
 
 document.getElementById('start-btn').addEventListener('click', async () => {
+  const startBtn = document.getElementById('start-btn');
+  // Guard against re-entrant clicks: /api/init below can take a few seconds
+  // on a cold adb server with no visible feedback otherwise, so an
+  // impatient second click used to fire a second /api/start before the
+  // first had finished, surfacing a confusing "already running" error even
+  // though the first click had actually started the run fine (2026-07-22).
+  if (startBtn.disabled) return;
+  startBtn.disabled = true;
+  const startBtnLabel = startBtn.innerHTML;
+  startBtn.innerHTML = 'Starting…';
+  let started = false;
+  try {
   let pre = null;
   try { pre = await fetch('/api/init').then(r => r.json()); } catch {}
   const platform = selectedPlatform();
@@ -1135,7 +1147,13 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   initConnGrid();
   if (body.skip_regression) SUITE_ORDER.forEach(s => updateSuiteCard(s, 'skip', 0, 0, []));
 
+  started = true;
   setUIRunning(true); startPolling();
+  } finally {
+    // setUIRunning(true) already disables the button on success — only
+    // restore it here for the validation-error / early-return paths above.
+    if (!started) { startBtn.disabled = false; startBtn.innerHTML = startBtnLabel; }
+  }
 });
 
 async function stopTest() {
