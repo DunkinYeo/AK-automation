@@ -37,6 +37,7 @@ def save_failure_artifacts(
     exception: Exception,
     label: str = "runtime_failure",
     step: str = "",
+    platform: str | None = None,
 ) -> Path:
     """
     Collect failure evidence into a new timestamped folder.
@@ -47,6 +48,10 @@ def save_failure_artifacts(
         exception: The exception that caused the test to fail.
         label:     Short name embedded in the folder name for easy identification.
         step:      Last known automation step (recorded in meta.json).
+        platform:  "android" or "ios", recorded in meta.json. Pass this
+                   explicitly from the caller when known (issue #27) — driver
+                   can be None on a very early failure, so auto-detecting
+                   from it alone can't always tell the platform apart.
 
     Returns:
         Path to the created artifact folder.
@@ -59,7 +64,7 @@ def save_failure_artifacts(
     _save_logcat(driver, out / "logcat.txt")
     _save_page_source(driver, out / "page_source.xml")
     _save_error(exception, out / "error.txt")
-    _save_meta(driver, exception, step, ts, out / "meta.json")
+    _save_meta(driver, exception, step, ts, out / "meta.json", platform)
 
     return out
 
@@ -113,7 +118,16 @@ def _save_error(exception: Exception, path: Path) -> None:
         _write_note(path, f"error capture failed: {e}")
 
 
-def _save_meta(driver, exception: Exception, step: str, ts: str, path: Path) -> None:
+def _detect_platform(driver) -> str:
+    """Best-effort platform guess from the driver's class name — avoids
+    importing AndroidDriver/IOSDriver directly (this module is shared by
+    both entrypoints). Only used when the caller didn't pass `platform`
+    explicitly (issue #27)."""
+    return "ios" if type(driver).__name__ == "IOSDriver" else "android"
+
+
+def _save_meta(driver, exception: Exception, step: str, ts: str, path: Path,
+               platform: str | None = None) -> None:
     try:
         udid = _get_udid(driver)
         meta = {
@@ -121,7 +135,7 @@ def _save_meta(driver, exception: Exception, step: str, ts: str, path: Path) -> 
             "device": udid,
             "step": step,
             "exception": f"{type(exception).__name__}: {exception}",
-            "platform": "android",
+            "platform": platform or _detect_platform(driver),
         }
         path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:

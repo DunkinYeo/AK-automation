@@ -359,7 +359,7 @@ def main():
     except Exception as e:
         reporter.log_event("run_failed_ios", {"error": str(e)})
         log_event(f"iOS run failed: {e}")
-        save_failure_artifacts(dm.driver if dm else None, e, label=f"ios_{run_id}")
+        save_failure_artifacts(dm.driver if dm else None, e, label=f"ios_{run_id}", platform="ios")
         if _slack_on:
             slack_run_failed(_webhook, run_id=run_id, error=str(e), mention=_mention)
         raise
