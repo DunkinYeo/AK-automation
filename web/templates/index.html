@@ -595,8 +595,6 @@ const EVENT_INFO = {
   schedule_add:           { text: null,                       color: 'gray'   },
   run_complete:           { text: 'Test complete!',           color: 'green'  },
   run_failed:             { text: null,                       color: 'red'    },
-  run_complete_ios:       { text: 'Test complete!',           color: 'green'  },
-  run_failed_ios:         { text: null,                       color: 'red'    },
   regression_suite_result:{ text: null,                       color: 'green'  },
   popup_cannot_find_patch:{ text: '⚠ Popup: Cannot find S-Patch (950)', color: 'red' },
   popup_reset_patch:      { text: '⚠ Popup: Reset S-Patch (963)',       color: 'red' },
@@ -623,7 +621,7 @@ function fmtEvent(ev) {
   } else if (ev.event === 'schedule_add') {
     const t = ev.data?.run_at ? new Date(ev.data.run_at).toLocaleTimeString() : '-';
     text = `Next injection scheduled → ${t}`;
-  } else if (ev.event === 'run_failed' || ev.event === 'run_failed_ios') {
+  } else if (ev.event === 'run_failed') {
     text = `Test failed — ${ev.data?.error || ''}`;
   } else if (ev.event === 'bt_disconnect_start') {
     text = `BT disconnect — off for ${ev.data?.minutes ?? '?'} min`;
@@ -1289,8 +1287,8 @@ function renderLog(events, reset = false) {
     wrap.appendChild(div); seenEvents++; added++;
     if (!reset) {
       if (ev.event === 'job_failed') notify('⚠️ Injection 실패', ev.data?.error?.slice(0,80) || '');
-      else if (ev.event === 'run_complete' || ev.event === 'run_complete_ios') notify('✅ 테스트 완료', `총 ${ev.data?.injection_count ?? '?'}회 injection`);
-      else if (ev.event === 'run_failed' || ev.event === 'run_failed_ios') notify('❌ 테스트 실패', ev.data?.error?.slice(0,80) || '');
+      else if (ev.event === 'run_complete') notify('✅ 테스트 완료', `총 ${ev.data?.injection_count ?? '?'}회 injection`);
+      else if (ev.event === 'run_failed') notify('❌ 테스트 실패', ev.data?.error?.slice(0,80) || '');
       else if (ev.event === 'session_recovery_failed') notify('⚠️ Session Recovery 실패', '앱 상태를 확인하세요');
     }
   }
