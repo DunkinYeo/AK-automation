@@ -610,7 +610,10 @@ def _setup_python(tmp: Path) -> Path:
     site_pkg = python_dir / "Lib" / "site-packages"
     site_pkg.mkdir(parents=True, exist_ok=True)
 
-    # Build runtime requirements without version pins for bundle compatibility
+    # Build runtime requirements — keep the same version pins as
+    # requirements.txt (issue #25: stripping them meant Windows testers got
+    # whatever was latest at build time, different from Mac's pinned
+    # install and not reproducible build-to-build for the same release).
     reqs = ROOT / "requirements.txt"
     runtime_lines = []
     for ln in reqs.read_text().splitlines():
@@ -619,9 +622,7 @@ def _setup_python(tmp: Path) -> Path:
             continue
         if any(skip in stripped for skip in SKIP_PACKAGES):
             continue
-        # Strip version pin — use latest compatible for bundle
-        pkg = stripped.split("==")[0].split(">=")[0].split("<=")[0].strip()
-        runtime_lines.append(pkg)
+        runtime_lines.append(stripped)
     tmp_req = tmp / "requirements_runtime.txt"
     tmp_req.write_text("\n".join(runtime_lines))
 
