@@ -50,6 +50,24 @@ def _pid_alive(pid) -> bool:
         return False
 
 
+def _pid_is_our_run(pid) -> bool:
+    """More than just alive — issue #20: a persisted pid can go stale (the
+    process it named exited without the state file being cleared yet), and
+    the OS can reuse that same pid number for a completely unrelated
+    process. Confirm the pid is still actually running one of our entrypoints
+    before trusting it enough to re-attach to it or send it a kill signal."""
+    if not _pid_alive(pid):
+        return False
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                              capture_output=True, text=True, timeout=5).stdout
+        return ("src/main.py" in out) or ("src/main_ios.py" in out)
+    except Exception:
+        # Couldn't verify — fall back to the plain alive-check rather than
+        # refusing to re-attach a genuinely-good run over a `ps` hiccup.
+        return True
+
+
 def _run_already_active() -> bool:
     """True if a test process is currently running — either tracked via
     Popen (started by this server process) or re-attached after a web
@@ -88,7 +106,7 @@ def _load_persisted_run() -> None:
             return
         saved = json.loads(_RUN_STATE_FILE.read_text())
         pid, start_ts = saved.get("pid"), saved.get("start_ts")
-        if pid and start_ts and _pid_alive(pid):
+        if pid and start_ts and _pid_is_our_run(pid):
             _state["pid"] = int(pid)
             _state["start_ts"] = float(start_ts)
             out_dir = saved.get("out_dir")
@@ -599,7 +617,7 @@ def api_status():
 
         # Re-attached run (server restarted; no Popen handle, pid only)
         if not running and not proc and _state.get("pid"):
-            if _pid_alive(_state["pid"]):
+            if _pid_is_our_run(_state["pid"]):
                 running = True
             else:
                 _state["pid"] = None
@@ -622,11 +640,12 @@ def api_status():
         # both run_complete and run_failed, so _terminal_event() alone
         # can't tell "still running" from "died without a trace").
         proc_confirmed_dead = bool(proc and proc.poll() is not None)
+        terminal = _terminal_event(events) if events else None
         # If test process isn't tracked but events exist and look active, treat as running
         if not running and not proc_confirmed_dead and events and (proc or start_ts):
-            if _terminal_event(events) is None:
+            if terminal is None:
                 running = True
-        elif proc_confirmed_dead and out_dir and _terminal_event(events) is None:
+        elif proc_confirmed_dead and terminal is None and out_dir:
             # Record the abnormal exit so it shows up in the report/log
             # instead of silently vanishing with no trace.
             synthetic = {
@@ -640,6 +659,13 @@ def api_status():
                 events.append(synthetic)
             except Exception:
                 pass
+        elif proc_confirmed_dead and terminal is not None:
+            # issue #20: this tracked run genuinely finished (naturally or
+            # crashed-then-logged) — clear the persisted pid pointer now
+            # instead of leaving it stale until the next server restart
+            # happens to notice the pid is dead. Narrows the window where a
+            # reused pid could be mistaken for this run.
+            _clear_run_state()
         exit_code = proc.poll() if proc else None
 
         return jsonify({
@@ -816,8 +842,10 @@ def api_stop():
                 proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 proc.kill()
-        elif not proc and _state.get("pid") and _pid_alive(_state["pid"]):
-            # Re-attached run (no Popen handle): same SIGTERM → wait → SIGKILL
+        elif not proc and _state.get("pid") and _pid_is_our_run(_state["pid"]):
+            # Re-attached run (no Popen handle): same SIGTERM → wait → SIGKILL.
+            # Identity-checked (not just alive) — issue #20: a stale pid must
+            # never get a kill signal meant for a run that already ended.
             pid = _state["pid"]
             try:
                 os.kill(pid, signal.SIGTERM)
