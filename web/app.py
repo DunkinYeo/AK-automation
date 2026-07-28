@@ -1122,6 +1122,7 @@ def _build_report_html(events: list[dict]) -> str:
     crashes: list = []         # app process deaths caught by app-watch
     in_test_window = False     # inside a scheduled BT/airplane test
     study_last_pct = None      # app study % (issue #10/#11)
+    study_samples: list = []   # (ts, percent) history — mid-study ETA (issue #14 follow-up)
     study_done: dict | None = None
     study_skipped = 0          # jobs skipped after study completion
 
@@ -1205,6 +1206,8 @@ def _build_report_html(events: list[dict]) -> str:
             bt_warnings.append({"ts": ts, "msg": f"BT not restored after {phase} — tester must manually re-enable Bluetooth"})
         elif ev == "study_progress":
             study_last_pct = data.get("percent")
+            if study_last_pct is not None:
+                study_samples.append((ts, study_last_pct))
         elif ev == "study_completed":
             study_done = dict(data)
             study_done["ts"] = ts
@@ -1315,7 +1318,28 @@ def _build_report_html(events: list[dict]) -> str:
             if study_skipped:
                 items.append(("Skipped Jobs", f"{study_skipped} scheduled job(s) skipped after study completion", True))
         else:
-            items.append(("Progress", f"{study_last_pct}% (last read)", False))
+            # Study still in progress — tester feedback 2026-07-28: a report
+            # pulled at 98% showed nothing but the bare percent, which read
+            # as broken. Add the same linear ETA the live dashboard already
+            # shows (updateProgress() in index.html) plus what's known so
+            # far, so a mid-study report isn't this sparse.
+            last_ts, last_pct = study_samples[-1]
+            progress_val = f"{last_pct}%"
+            first_distinct = next((s for s in study_samples if s[1] != last_pct), None)
+            if first_distinct and last_pct < 100 and last_pct > first_distinct[1]:
+                try:
+                    t0 = datetime.datetime.fromisoformat(first_distinct[0])
+                    t1 = datetime.datetime.fromisoformat(last_ts)
+                    rate = (last_pct - first_distinct[1]) / (t1 - t0).total_seconds()  # %/sec
+                    if rate > 0:
+                        eta_dt = t1 + datetime.timedelta(seconds=(100 - last_pct) / rate)
+                        progress_val += f" · est. ends ~{eta_dt.strftime('%m/%d %H:%M')}"
+                except Exception:
+                    pass
+            items.append(("Progress", progress_val, False))
+            items.append(("Last Read", _t(last_ts), False))
+            if inj_total:
+                items.append(("Injections so far", f"{inj_ok}/{inj_total}", False))
         items_html = "".join(
             f"<div class='kv-item{' full' if full else ''}'>"
             f"<div class='kv-label'>{label}</div><div class='kv-val'>{val}</div></div>"
