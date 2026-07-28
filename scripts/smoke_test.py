@@ -7,7 +7,11 @@ bundle's own Python so what's tested is what testers run:
 
   CI (Windows runner):  automation\\python\\python.exe automation\\scripts\\smoke_test.py
   Tester (smoke.bat):   double-click smoke.bat in the ZIP root
-  Dev Mac:              python3 scripts/smoke_test.py
+  Dev Mac:              .venv/bin/python scripts/smoke_test.py
+
+Must run with .venv/bin/python (or the bundle's own python) — the plain
+`python3` on PATH has none of requirements.txt installed and fails on
+[1/6] (Python version) and every import check (issue #19).
 
 Exit code 0 = all checks passed.
 """

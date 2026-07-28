@@ -4,6 +4,7 @@
 - main push 시(`src/`,`web/`,`scripts/`,`requirements.txt` 변경 한정) 자동 트리거
 - `windows-latest` 클라우드 VM에서 실제 배포용 zip을 빌드 → 압축 해제 → 번들 Python으로 `smoke_test.py` 실행
 - 목적: "테스터 PC에서 시작하자마자 죽는" 클래스의 버그(임포트 에러, tzdata 누락, 스케줄러/웹 부팅 실패)를 배포 전에 자동으로 잡는 것
+- **주의(issue #19)**: `scripts/smoke_test.py`는 반드시 `.venv/bin/python` 또는 번들 자체 python으로 실행해야 함. 시스템 PATH의 맨 `python3`는 `requirements.txt`가 설치돼 있지 않아 [1/6](파이썬 버전)부터 모든 임포트 체크까지 실패한다.
 
 ## 없는 것 — CD, 게이팅, 하드웨어 테스트 자동화
 - **배포 자동화 없음**: 태깅, Mac/Windows zip 빌드, GitHub Release 업로드/노트 작성이 전부 수동 (v1.1.1/v1.1.2 전부 사람이 터미널에서 `gh release create/upload/edit` 실행)
