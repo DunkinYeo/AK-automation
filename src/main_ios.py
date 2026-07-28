@@ -348,7 +348,7 @@ def main():
         scheduler.run(job, driver=driver)
         _stop_loop.set()
 
-        reporter.log_event("run_complete_ios", {"status": "ok"})
+        reporter.log_event("run_complete_ios", {"status": "ok", "injection_count": inject_count})
         log_event("iOS run complete")
         if _slack_on:
             slack_run_complete(_webhook, run_id=run_id,

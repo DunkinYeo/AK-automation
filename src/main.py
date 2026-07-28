@@ -618,7 +618,7 @@ def main():
         _stop_loop.set()
         _stop_monitor.set()
 
-        reporter.log_event("run_complete", {"status": "ok"})
+        reporter.log_event("run_complete", {"status": "ok", "injection_count": inject_count})
         log_event("run complete")
         if _slack_on:
             slack_run_complete(_webhook, run_id=run_id, injection_count=inject_count,
