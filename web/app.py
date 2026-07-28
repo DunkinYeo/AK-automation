@@ -50,6 +50,20 @@ def _pid_alive(pid) -> bool:
         return False
 
 
+def _run_already_active() -> bool:
+    """True if a test process is currently running — either tracked via
+    Popen (started by this server process) or re-attached after a web
+    server restart, where `_state["proc"]` is None but `_state["pid"]`
+    is still a live process (issue #16: /api/start's guard previously
+    only checked `proc`, so Start could spawn a second automation
+    process onto the same device after a server restart)."""
+    proc = _state["proc"]
+    if proc and proc.poll() is None:
+        return True
+    pid = _state.get("pid")
+    return bool(pid and _pid_alive(pid))
+
+
 def _persist_run_state(pid: int, start_ts: float, out_dir: str | None = None) -> None:
     try:
         _RUN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -405,10 +419,18 @@ _exit_hooks_registered = False
 
 def _register_exit_hooks():
     """
-    Register the shutdown cleanup only in the process that actually starts a
-    run. Registering at import time made ANY importer (smoke_test.py, ad-hoc
-    scripts using the test client) fire the screen-timeout backstop on exit,
-    resetting the timeout under a live run (observed 2026-07-16).
+    Register the shutdown cleanup only in the process actually running the
+    server — called once from `if __name__ == "__main__"`, not at plain
+    import time, so an importer (smoke_test.py, ad-hoc scripts using the
+    test client) never fires the screen-timeout backstop on exit and resets
+    the timeout under a live run (observed 2026-07-16). Must be called from
+    the main thread: `signal.signal` raises ValueError anywhere else, and
+    calling this from inside a request handler (Flask runs each request in
+    its own thread under `threaded=True`) crashed every single /api/start
+    call with a 500 — the run still started (Popen already ran by that
+    point), but the exit-hook registration silently never happened, so the
+    web server dying never cleaned up its child run (found 2026-07-28
+    while validating issue #16).
     """
     global _exit_hooks_registered
     if _exit_hooks_registered:
@@ -611,7 +633,7 @@ def api_status():
 @app.route("/api/start", methods=["POST"])
 def api_start():
     with _lock:
-        if _state["proc"] and _state["proc"].poll() is None:
+        if _run_already_active():
             return jsonify({"error": "Already running."}), 400
 
         data     = request.json or {}
@@ -710,7 +732,6 @@ def api_start():
         )
         _state["pid"] = _state["proc"].pid
         _persist_run_state(_state["proc"].pid, start_ts)
-        _register_exit_hooks()
         _clear_interval_override()
         return jsonify({"ok": True})
 
@@ -1646,4 +1667,8 @@ if __name__ == "__main__":
         threading.Timer(1.2, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
     print(f"\n  S-Patch Accurkardia Test UI   -> http://localhost:{PORT}")
     print(f"  Share on local network        -> http://{local_ip}:{PORT}\n")
+    # Main thread only — signal.signal requires it, and Flask's threaded
+    # request handling below means api_start() itself can no longer be
+    # the one to call this (see _register_exit_hooks docstring).
+    _register_exit_hooks()
     app.run(host="::", port=PORT, debug=False, threaded=True)
