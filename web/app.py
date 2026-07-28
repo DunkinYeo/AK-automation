@@ -616,10 +616,30 @@ def api_status():
                     _persist_run_state(_state["pid"], start_ts, found)
 
         events    = read_events(out_dir)
+        # A tracked proc that has actually exited is authoritative — never
+        # let it get papered over as "running" below just because no
+        # terminal event was logged (issue #21: a SIGKILL/segfault skips
+        # both run_complete and run_failed, so _terminal_event() alone
+        # can't tell "still running" from "died without a trace").
+        proc_confirmed_dead = bool(proc and proc.poll() is not None)
         # If test process isn't tracked but events exist and look active, treat as running
-        if not running and events and (proc or start_ts):
+        if not running and not proc_confirmed_dead and events and (proc or start_ts):
             if _terminal_event(events) is None:
                 running = True
+        elif proc_confirmed_dead and out_dir and _terminal_event(events) is None:
+            # Record the abnormal exit so it shows up in the report/log
+            # instead of silently vanishing with no trace.
+            synthetic = {
+                "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+                "event": "run_failed",
+                "data": {"error": f"process exited unexpectedly (code {proc.poll()})"},
+            }
+            try:
+                with open(Path(out_dir) / "events.jsonl", "a", encoding="utf-8") as f:
+                    f.write(json.dumps(synthetic, ensure_ascii=False) + "\n")
+                events.append(synthetic)
+            except Exception:
+                pass
         exit_code = proc.poll() if proc else None
 
         return jsonify({
