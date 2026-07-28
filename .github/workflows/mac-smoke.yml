@@ -1,0 +1,43 @@
+name: Mac Smoke
+
+# Builds the Mac standalone ZIP and smoke-tests it after a real first-run
+# venv setup (mirrors what smoke.command/run.command do on a tester's Mac)
+# — catches import/tzdata/scheduler/web-boot bugs without needing a real
+# Mac, Node/Appium install, or a device. Mirrors windows-smoke.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'requirements.txt'
+      - '.github/workflows/mac-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Mac standalone ZIP
+        run: python3 scripts/build_dist_bundle_mac.py --out ci_dist
+
+      - name: Extract ZIP
+        run: |
+          cd ci_dist
+          unzip -q "$(ls *.zip | head -1)" -d extracted
+          echo "PKG=$PWD/extracted/$(ls extracted)" >> "$GITHUB_ENV"
+
+      - name: First-run setup (venv + deps, same as run.command)
+        run: |
+          A="$PKG/automation"
+          python3 -m venv "$A/.venv"
+          "$A/.venv/bin/pip" install -r "$A/requirements.txt" -q
+
+      - name: Smoke test with the bundle's own venv Python
+        run: |
+          "$PKG/automation/.venv/bin/python" "$PKG/automation/scripts/smoke_test.py"

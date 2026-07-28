@@ -1,0 +1,118 @@
+name: Release
+
+# Triggered by pushing a version tag (git tag v1.1.3 && git push origin v1.1.3).
+# Builds both standalone ZIPs, smoke-tests each with its own bundled/venv
+# Python, then publishes a GitHub Release with both ZIPs attached and
+# release notes pulled straight from CHANGELOG.md. This is the piece that
+# was previously all manual (`gh release create/upload/edit` by hand).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches VERSION file
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          FILE_VER="$(tr -d '[:space:]' < VERSION)"
+          if [ "$TAG_VER" != "$FILE_VER" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match VERSION file ($FILE_VER)"
+            exit 1
+          fi
+
+  build-windows:
+    needs: check-version
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build Windows standalone ZIP
+        run: python scripts/build_dist_bundle.py --out dist_out
+
+      - name: Extract & smoke test
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist_out/*.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath extracted
+          $pkg = Get-ChildItem extracted -Directory | Select-Object -First 1
+          & "$($pkg.FullName)\automation\python\python.exe" "$($pkg.FullName)\automation\scripts\smoke_test.py"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist_out/*.zip
+
+  build-mac:
+    needs: check-version
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Mac standalone ZIP
+        run: python3 scripts/build_dist_bundle_mac.py --out dist_out
+
+      - name: Extract & smoke test
+        run: |
+          cd dist_out
+          unzip -q "$(ls *.zip | head -1)" -d extracted
+          cd ..
+          PKG="dist_out/extracted/$(ls dist_out/extracted)"
+          A="$PKG/automation"
+          python3 -m venv "$A/.venv"
+          "$A/.venv/bin/pip" install -r "$A/requirements.txt" -q
+          "$A/.venv/bin/python" "$A/scripts/smoke_test.py"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-zip
+          path: dist_out/*.zip
+
+  publish-release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract release notes for this tag from CHANGELOG.md
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          python3 - "$VER" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          ver = sys.argv[1]
+          text = Path("CHANGELOG.md").read_text()
+          pattern = rf"## \[v{re.escape(ver)}\][^\n]*\n(.*?)(?=\n## \[|\Z)"
+          m = re.search(pattern, text, re.S)
+          body = m.group(1).strip() if m else "_(no CHANGELOG.md entry found for this version)_"
+          Path("release_notes.md").write_text(f"## v{ver}\n\n{body}\n")
+          PY
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            artifacts/windows-zip/*.zip \
+            artifacts/mac-zip/*.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release_notes.md
