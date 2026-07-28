@@ -1092,6 +1092,21 @@ def api_screenshots():
 
 # ── Report (HTML download) ─────────────────────────────────────────────────────
 
+# TC ↔ periodic-check correlation (issue #14): some regression TCs assert the
+# exact same screen/state that a scheduled hourly check re-verifies for the
+# rest of the run. A TC that failed once at startup but whose periodic twin
+# then passes repeatedly afterward is very likely a one-off timing glitch
+# rather than a real regression (e.g. TC-MAIN-004 failed once on SM-S156V
+# while the next 19 hourly bt_reconnect_ecg_result checks all came back
+# clean — tester report 2026-07-16, see src/regression/main_screen.py).
+_TC_PERIODIC_TWIN = {
+    "TC-MAIN-004": ("bt_reconnect_ecg_result", lambda d: d.get("result") == "ECG signal visible"),
+    "TC-CONN-001": ("bluetooth_off",           lambda d: True),
+    "TC-CONN-004": ("bluetooth_reconnected",   lambda d: True),
+}
+_TC_PERIODIC_MIN_PASSES = 3  # fewer later passes isn't enough to call it "probably transient"
+
+
 def _build_report_html(events: list[dict]) -> str:
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     device = start_ts_str = ""
@@ -1156,7 +1171,7 @@ def _build_report_html(events: list[dict]) -> str:
                         else f" Android {android}" if android else "")
             device = f"{model}{os_label} ({data.get('udid','')})"
         elif ev == "regression_suite_result":
-            suites[data.get("suite", "")] = data
+            suites[data.get("suite", "")] = {**data, "_ts": ts}
         elif ev == "inject_start":
             pending_symptom = data.get("symptom")  # for job_failed attribution
         elif ev == "inject_done":
@@ -1215,6 +1230,25 @@ def _build_report_html(events: list[dict]) -> str:
         the report's layout (code review 2026-07-22). Only wrap leaf text
         values with this, never the surrounding HTML we build ourselves."""
         return _html.escape(str(v)) if v is not None else ""
+
+    def _periodic_footnote(tc_code: str, since_ts: str) -> str:
+        """issue #14: if `tc_code`'s periodic twin (see _TC_PERIODIC_TWIN)
+        passed enough times after this suite ran, note it next to the
+        failure — a same-screen check passing repeatedly afterward points
+        to a one-off timing glitch rather than a real regression."""
+        twin = _TC_PERIODIC_TWIN.get(tc_code)
+        if not twin or not since_ts:
+            return ""
+        event_type, is_pass = twin
+        passes = sum(
+            1 for e in events
+            if e.get("event") == event_type and e.get("ts", "") > since_ts
+            and is_pass(e.get("data", {}))
+        )
+        if passes < _TC_PERIODIC_MIN_PASSES:
+            return ""
+        return (f" <span style='color:#6b7280;font-style:italic'>"
+                f"— 동일 화면 검증이 이후 {passes}회 통과 (일시적 문제일 가능성)</span>")
 
     inj_ok    = sum(1 for i in injections if i.get("ok"))
     inj_total = len(injections)
@@ -1320,7 +1354,10 @@ def _build_report_html(events: list[dict]) -> str:
         skips = d.get("skipped_tests", [])
         fail_html = ""
         if fails and not d.get("skipped") and d.get("passed") != d.get("total"):
-            items = "".join(f"<li>{_esc(f[:80])}</li>" for f in fails[:5])
+            suite_ts = d.get("_ts", "")
+            items = "".join(
+                f"<li>{_esc(f[:80])}{_periodic_footnote(f.split(':', 1)[0].strip(), suite_ts)}</li>"
+                for f in fails[:5])
             # Evidence filenames so the tester/QA can open the screenshot
             # without digging through the artifacts folder (issue #13)
             shots = d.get("failure_screenshots") or {}
