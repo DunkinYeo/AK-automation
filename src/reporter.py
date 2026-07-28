@@ -1,4 +1,4 @@
-import os, json, datetime, threading
+import os, json, datetime, threading, html as _html
 from jinja2 import Template
 
 class RunReporter:
@@ -59,7 +59,15 @@ class RunReporter:
             with open(self.events_path, "r", encoding="utf-8") as f:
                 for line in f:
                     try:
-                        events.append(json.loads(line))
+                        e = json.loads(line)
+                        # iOS runs emit "<name>_ios" events — normalize so a
+                        # successful iOS run doesn't show as FAIL and its
+                        # device_info isn't invisible (issue #24; mirrors
+                        # web/app.py's read_events()).
+                        name = e.get("event", "")
+                        if name.endswith("_ios"):
+                            e["event"] = name[:-4]
+                        events.append(e)
                     except Exception:
                         pass
 
@@ -94,6 +102,12 @@ class RunReporter:
             if ev in OK_EVENTS:   return "row-ok"
             return ""
 
+        def data_json(data):
+            # Jinja's tojson() dropped the ensure_ascii kwarg (issue #24) —
+            # do it in Python instead, and HTML-escape the result ourselves
+            # since we're bypassing tojson's own HTML-safe escaping.
+            return _html.escape(json.dumps(data, ensure_ascii=False, indent=2))
+
         tpl = Template(r"""<!doctype html>
 <html lang="en">
 <head>
@@ -126,7 +140,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-all}
   <span><b>Output:</b> <code>{{ out_dir }}</code></span>
   {% if device_info %}<span><b>Device:</b>
     {{ device_info.get('manufacturer','') }} {{ device_info.get('model','') }}
-    (Android {{ device_info.get('android_version','?') }}) — {{ device_info.get('udid','') }}
+    ({{ 'iOS ' ~ device_info.get('ios_version') if device_info.get('ios_version') else 'Android ' ~ device_info.get('android_version','?') }}) — {{ device_info.get('udid','') }}
   </span>{% endif %}
 </div>
 <div class="summary">
@@ -145,7 +159,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-all}
 <tr class="{{ row_class(e) }}">
   <td style="white-space:nowrap">{{ e.ts }}</td>
   <td>{{ e.event }}</td>
-  <td><pre>{{ e.data | tojson(indent=2, ensure_ascii=False) }}</pre></td>
+  <td><pre>{{ data_json(e.data) }}</pre></td>
 </tr>
 {% endfor %}
 </table>
@@ -163,6 +177,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-all}
             injections_fail=injections_fail,
             overall_ok=overall_ok,
             row_class=row_class,
+            data_json=data_json,
         )
         out = os.path.join(self.out_dir, "summary.html")
         with open(out, "w", encoding="utf-8") as f:
