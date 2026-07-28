@@ -101,6 +101,12 @@ def main():
     bt_minutes     = float(run_cfg.get("bt_disconnect_minutes", 10))
     ap_interval_h  = float(run_cfg.get("airplane_mode_interval_hours", 0))
     ap_minutes     = float(run_cfg.get("airplane_mode_minutes", 5))
+    # Wired through for parity with Android (src/main.py:273) — currently a
+    # no-op here, since IOSDriver has no study-completion detection at all
+    # (unlike driver.py's _detect_study_completed), so _study_completed is
+    # never set and LongRunScheduler's until_study_end check never fires.
+    # Real fix needs an iOS port of that detection (issue #18).
+    until_study_end = bool(run_cfg.get("until_study_end", False))
     recovery_cfg   = cfg.get("recovery") or {}
     ios_cfg        = cfg.get("ios") or {}
     sel            = (cfg.get("selectors") or {}).get("ios") or {}
@@ -150,6 +156,7 @@ def main():
         "interval_hours": interval_hours,
         "bundle_id": ios_cfg.get("bundle_id"),
         "udid": ios_cfg.get("udid"),
+        "until_study_end": until_study_end,
     })
     log_event(f"iOS run started: {run_cfg.get('name', 'ios_run')} ({duration_hours}h)")
 
@@ -336,6 +343,7 @@ def main():
             jitter_seconds=jitter_seconds,
             quiet_hours=quiet_hours,
             recovery_cfg=recovery_cfg,
+            until_study_end=until_study_end,
         )
         scheduler.run(job, driver=driver)
         _stop_loop.set()
