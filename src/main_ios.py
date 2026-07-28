@@ -153,6 +153,15 @@ def main():
     })
     log_event(f"iOS run started: {run_cfg.get('name', 'ios_run')} ({duration_hours}h)")
 
+    # Web Stop sends SIGTERM, which by default kills the process WITHOUT
+    # running finally — dm.close() and the final HTML report render below
+    # would be skipped. Convert to SystemExit so finally executes; the web
+    # side still SIGKILLs after 15s if cleanup hangs, so worst case is
+    # today's behavior. Mirrors src/main.py's existing Android handling —
+    # iOS never had this (issue #17).
+    import signal as _signal
+    _signal.signal(_signal.SIGTERM, lambda *_: sys.exit(143))
+
     dm = None
     try:
         _ensure_xcuitest(reporter)
