@@ -456,6 +456,15 @@ def _make_auto_open_watcher():
     to know it ended unless they're actively watching the dashboard tab
     (2026-07-29).
 
+    Controlled by AK_NO_AUTO_REPORT_OPEN, deliberately NOT AK_NO_BROWSER
+    (review 2026-07-29): run.command/run.bat/the dist-bundle build scripts
+    all export AK_NO_BROWSER=1 unconditionally before starting the server
+    — they suppress the built-in startup-open timer because they run their
+    own healthcheck-polled browser open instead, not because testers don't
+    want a browser opened at all. Reusing that same variable here would
+    have silently disabled this feature for every real distributed build,
+    only ever firing when a developer runs `python web/app.py` directly.
+
     Returns (step, loop): `step()` runs one poll iteration synchronously
     (returns True if it just opened the browser) so the transition logic
     can be unit-tested without waiting on the real 5s loop; `loop()` is
@@ -479,7 +488,7 @@ def _make_auto_open_watcher():
                 return False
             if _terminal_event(read_events(out_dir)) is not None:
                 state["was_terminal"] = True
-                if not os.environ.get("AK_NO_BROWSER"):
+                if not os.environ.get("AK_NO_AUTO_REPORT_OPEN"):
                     webbrowser.open(f"http://localhost:{PORT}/api/report")
                 return True
         except Exception:
