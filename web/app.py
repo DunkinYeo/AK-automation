@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -441,6 +442,57 @@ def _appium_watchdog():
 
 
 threading.Thread(target=_appium_watchdog, daemon=True).start()
+
+
+def _make_auto_open_watcher():
+    """Auto-open the web report when the current run reaches a terminal
+    state (run_complete / run_failed — the until-study-ends auto mode
+    always logs run_complete right after its own run_ended_study_complete,
+    so this covers a clean finish, a crash, and auto-mode completion
+    alike). A tester watching an unattended long run otherwise has no way
+    to know it ended unless they're actively watching the dashboard tab
+    (2026-07-29).
+
+    Returns (step, loop): `step()` runs one poll iteration synchronously
+    (returns True if it just opened the browser) so the transition logic
+    can be unit-tested without waiting on the real 5s loop; `loop()` is
+    what actually runs forever in the background thread.
+    """
+    state = {"known_out_dir": None, "was_terminal": True}  # True: don't
+    # fire for whatever's already there the first time this notices an
+    # out_dir (server boot, or a run already finished) — only a live
+    # non-terminal → terminal transition should open a browser.
+
+    def step() -> bool:
+        try:
+            with _lock:
+                out_dir = _state.get("out_dir")
+            if out_dir != state["known_out_dir"]:
+                state["known_out_dir"] = out_dir
+                events = read_events(out_dir) if out_dir else []
+                state["was_terminal"] = _terminal_event(events) is not None
+                return False
+            if not out_dir or state["was_terminal"]:
+                return False
+            if _terminal_event(read_events(out_dir)) is not None:
+                state["was_terminal"] = True
+                if not os.environ.get("AK_NO_BROWSER"):
+                    webbrowser.open(f"http://localhost:{PORT}/api/report")
+                return True
+        except Exception:
+            pass
+        return False
+
+    def loop():
+        while True:
+            time.sleep(5)
+            step()
+
+    return step, loop
+
+
+_auto_open_step, _auto_open_loop = _make_auto_open_watcher()
+threading.Thread(target=_auto_open_loop, daemon=True).start()
 
 
 def _kill_proc():
@@ -1749,7 +1801,6 @@ def api_report():
 
 if __name__ == "__main__":
     import socket
-    import webbrowser
     try:
         local_ip = socket.gethostbyname(socket.gethostname())
     except Exception:
