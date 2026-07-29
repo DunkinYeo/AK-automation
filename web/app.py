@@ -113,7 +113,10 @@ def _run_already_active() -> bool:
     if proc and proc.poll() is None:
         return True
     pid = _state.get("pid")
-    return bool(pid and _pid_alive(pid))
+    # Identity-checked, not just alive (issue #33 — same reasoning as
+    # #20/#30): a stale/reused pid must not block a legitimate Start by
+    # looking like an already-active run.
+    return bool(pid and _pid_is_our_run(pid))
 
 
 def _persist_run_state(pid: int, start_ts: float, out_dir: str | None = None) -> None:
@@ -983,7 +986,8 @@ def api_set_interval():
 def api_inject_now():
     with _lock:
         proc_alive = _state["proc"] and _state["proc"].poll() is None
-        pid_alive = not _state["proc"] and _state.get("pid") and _pid_alive(_state["pid"])
+        # Identity-checked, not just alive (issue #33).
+        pid_alive = not _state["proc"] and _state.get("pid") and _pid_is_our_run(_state["pid"])
         if not (proc_alive or pid_alive):
             return jsonify({"error": "No test running"}), 400
     try:
