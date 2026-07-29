@@ -545,6 +545,7 @@ class AndroidDriver:
                     self.reporter.log_event("app_crashed", {
                         "kind": "silent_restart", "pid_before": last, "pid_after": pid,
                         "evidence": self._save_crash_evidence(),
+                        "evidence_activity": self._save_activity_manager_evidence(),
                     })
             elif last is None:
                 if expect:
@@ -572,6 +573,7 @@ class AndroidDriver:
         self.reporter.log_event("app_crashed", {
             "kind": "process_gone", "pid_before": last,
             "evidence": self._save_crash_evidence(),
+            "evidence_activity": self._save_activity_manager_evidence(),
             "relaunch": "monitor" if allow_relaunch else "deferred_to_job_recovery",
         })
         self._app_pid_last = None
@@ -635,6 +637,45 @@ class AndroidDriver:
             if keep:
                 out.append(line)
         return "\n".join(out).strip()
+
+    def _save_activity_manager_evidence(self) -> str:
+        """
+        Save the ActivityManager's own account of why the app process died —
+        added 2026-07-29 after a real "silent_restart" crash (pid 12616 →
+        20345) turned out to have NO entry at all in `logcat -b crash`: that
+        buffer only ever catches uncaught Java exceptions (FATAL EXCEPTION),
+        so a process killed by the OS (low memory, frozen-state sync, etc.)
+        or force-stopped leaves no trace there. Confirmed live on the actual
+        device that `logcat -b system`/`-b events` carry exactly this —
+        `ActivityManager: Process <pkg> (pid <n>) has died: <reason>` /
+        `Killing <pid>:<pkg> (adj N): <reason>` / the structured
+        `am_proc_died`/`am_kill` events — which `-b crash` never has.
+
+        Same time-window scoping as _save_crash_evidence(), plus filtered to
+        lines mentioning this app's package so the file doesn't drown in
+        every other app's process churn.
+        """
+        pkg = self.cfg.get("app_package", "")
+        if not pkg:
+            return ""
+        udid = self.cfg.get("udid", "")
+        adb = ["adb"] + (["-s", udid] if udid else [])
+        try:
+            r = subprocess.run(adb + ["logcat", "-b", "system,events", "-d"],
+                               capture_output=True, text=True, timeout=15)
+            full = (r.stdout or "").strip()
+            if not full:
+                return ""
+            since = getattr(self, "_app_alive_device_ts", "")
+            scoped = self._crash_lines_since(full, since) if since else full
+            matched = "\n".join(ln for ln in scoped.splitlines() if pkg in ln).strip()
+            if not matched:
+                return ""
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            return self.artifacts.save_text(f"app_crash_{stamp}_activity.log", matched)
+        except Exception as e:
+            log.warning("[app-watch] ActivityManager evidence capture failed: %s", e)
+            return ""
 
     def screenshot(self, name: str) -> str:
         return self.artifacts.screenshot(self.drv, name)

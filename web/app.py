@@ -1291,7 +1291,9 @@ def _build_report_html(events: list[dict]) -> str:
             reg_diary.append({"ts": ts, "symptom": data.get("symptom", "-"), "source": data.get("source", "")})
         elif ev == "app_crashed":
             crashes.append({"ts": ts, "kind": data.get("kind", ""),
-                            "evidence": data.get("evidence", ""), "relaunched": False,
+                            "evidence": data.get("evidence", ""),
+                            "evidence_activity": data.get("evidence_activity", ""),
+                            "relaunched": False,
                             "deferred": data.get("relaunch") == "deferred_to_job_recovery"})
         elif ev == "app_relaunched_after_crash":
             if crashes:
@@ -1525,6 +1527,11 @@ def _build_report_html(events: list[dict]) -> str:
         kind = {"process_gone": "crashed (process gone)",
                 "silent_restart": "crashed & auto-restarted by OS"}.get(c["kind"], c["kind"])
         ev_name = os.path.basename(c["evidence"]) if c.get("evidence") else "no crash log captured"
+        # ActivityManager evidence (issue: crash root cause) — separate from
+        # the Java-exception crash buffer above, since OS-initiated kills
+        # (low memory, frozen-state, force-stop) never appear there.
+        ev_activity = (f" + {_esc(os.path.basename(c['evidence_activity']))}"
+                       if c.get("evidence_activity") else "")
         if c["relaunched"]:
             state = "<span class='ok'>✓ relaunched</span>"
         elif c["kind"] == "silent_restart":
@@ -1535,7 +1542,7 @@ def _build_report_html(events: list[dict]) -> str:
             state = "<span class='err'>✗ relaunch failed</span>"
         crash_html += (f"<div class='list-row'><span class='ts'>{_t(c['ts'])}</span>"
                        f"<span class='symptom' style='color:#dc2626'>{_esc(kind)}</span>"
-                       f"<span class='dur'>{_esc(ev_name)}</span>{state}</div>")
+                       f"<span class='dur'>{_esc(ev_name)}{ev_activity}</span>{state}</div>")
 
     reg_diary_html = ""
     for r in reg_diary:
