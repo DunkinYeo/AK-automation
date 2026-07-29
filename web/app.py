@@ -114,7 +114,17 @@ def _pid_is_our_run(pid) -> bool:
         # normalize before matching so a real Windows run doesn't fail its
         # own identity check.
         out = out.replace("\\", "/")
-        return ("src/main.py" in out) or ("src/main_ios.py" in out)
+        # Match this installation's actual entrypoint path, not a bare
+        # "src/main.py" substring — that matched ANY project with a
+        # src/main.py anywhere in its path (e.g. an unrelated /tmp/foo/
+        # src/main.py), which is exactly the kind of false-positive #20/#28
+        # exist to prevent. api_start spawns with str(ROOT / "src" / entry),
+        # so comparing against that same construction is the correct match.
+        our_paths = (
+            str(ROOT / "src" / "main.py").replace("\\", "/"),
+            str(ROOT / "src" / "main_ios.py").replace("\\", "/"),
+        )
+        return any(p in out for p in our_paths)
     except BaseException:
         # Deliberately BaseException, not Exception: reproduced live on
         # windows-latest (2026-07-29) — spawning the PowerShell subprocess
