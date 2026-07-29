@@ -20,6 +20,7 @@ import datetime
 import json
 import logging
 import random
+import threading
 import time
 from pathlib import Path
 
@@ -181,6 +182,15 @@ class LongRunScheduler:
         sched = _make_scheduler(BackgroundScheduler)
         counter = [0]
         cooldown = int(self.recovery_cfg.get("cooldown_seconds_between_steps", 30))
+        # APScheduler's default executor runs jobs on a thread pool, so the
+        # regular interval job and an Inject Now one-off job (added below by
+        # _inject_now_watcher) are different jobs that can run concurrently
+        # — nothing serialized them (issue #29: driver._job_busy only pauses
+        # the connectivity monitor, it isn't a mutex between jobs). This lock
+        # makes sure only one _run_with_health_check call touches the
+        # driver/Appium session at a time, regardless of which job it came
+        # from.
+        job_lock = threading.Lock()
         # Grace time = full run duration so that jobs missed during a host sleep/wake
         # cycle are still executed when the machine wakes up, rather than being dropped.
         grace = int(self.duration_hours * 3600)
@@ -236,7 +246,8 @@ class LongRunScheduler:
                             {"index": counter[0], "quiet_hours": self.quiet_hours},
                         )
                     else:
-                        _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
+                        with job_lock:
+                            _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
                 except Exception:
                     pass
                 finally:
@@ -267,7 +278,8 @@ class LongRunScheduler:
 
             def _first_job():
                 try:
-                    _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
+                    with job_lock:
+                        _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
                 except Exception:
                     pass
                 finally:
@@ -279,8 +291,16 @@ class LongRunScheduler:
 
         sched.start()
 
+        def _inject_now_job():
+            # A lambda can't contain a `with` block, so this needs to be a
+            # real function — job_lock has to be acquired when the job
+            # actually runs (APScheduler executes it later, in whatever
+            # executor thread), not when _inject_now_watcher merely
+            # schedules it.
+            with job_lock:
+                _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown)
+
         def _inject_now_watcher():
-            import threading as _t
             while datetime.datetime.now() < end:
                 time.sleep(5)
                 try:
@@ -288,7 +308,7 @@ class LongRunScheduler:
                         _INJECT_NOW_FILE.unlink()
                         self.reporter.log_event("inject_now_triggered", {})
                         sched.add_job(
-                            lambda: _run_with_health_check(job_callable, driver, None, None, self.reporter, cooldown),
+                            _inject_now_job,
                             "date",
                             run_date=datetime.datetime.now() + datetime.timedelta(seconds=1),
                             misfire_grace_time=grace,
@@ -296,8 +316,7 @@ class LongRunScheduler:
                 except Exception:
                     pass
 
-        import threading as _th
-        _th.Thread(target=_inject_now_watcher, daemon=True).start()
+        threading.Thread(target=_inject_now_watcher, daemon=True).start()
 
         while datetime.datetime.now() < end:
             time.sleep(10)
