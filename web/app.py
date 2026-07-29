@@ -76,27 +76,29 @@ def _pid_is_our_run(pid) -> bool:
         # instead of leaking it.
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         out, _ = proc.communicate(timeout=5)
+        # Windows CommandLine comes back with backslashes (issue #31) —
+        # normalize before matching so a real Windows run doesn't fail its
+        # own identity check.
+        out = out.replace("\\", "/")
         return ("src/main.py" in out) or ("src/main_ios.py" in out)
     except BaseException:
         # Deliberately BaseException, not Exception: reproduced live on
         # windows-latest (2026-07-29) — spawning the PowerShell subprocess
         # under GitHub Actions' `pwsh` step wrapper raises a genuine
         # KeyboardInterrupt from inside communicate()'s thread startup,
-        # which `except Exception` does not catch. The query itself did
-        # return correct data when it succeeded (verified live), so this
-        # looks like a runner/WMI-specific quirk rather than a flaw in the
-        # approach — but real testers won't be running under GH Actions'
-        # wrapper, and either way this must degrade safely rather than
-        # crash. Couldn't verify — fall back to the plain alive-check
-        # rather than refusing to re-attach a genuinely-good run over a
-        # ps/PowerShell hiccup.
+        # which `except Exception` does not catch.
         if proc is not None:
             try:
                 proc.kill()
                 proc.wait(timeout=5)
             except Exception:
                 pass
-        return True
+        # Fail closed, not open (issue #32): this function gates destructive
+        # actions (/api/stop sends a kill signal to whatever pid this says
+        # is ours). Couldn't verify == treat it as not ours — worst case is
+        # an inconvenience (re-attach/Stop silently no-ops on a genuinely
+        # good run), never "sent a kill signal to an unrelated process".
+        return False
 
 
 def _run_already_active() -> bool:
