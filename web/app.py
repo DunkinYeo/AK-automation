@@ -495,7 +495,6 @@ def _make_auto_open_watcher():
 
 
 _auto_open_step, _auto_open_loop = _make_auto_open_watcher()
-threading.Thread(target=_auto_open_loop, daemon=True).start()
 
 
 def _kill_proc():
@@ -1817,4 +1816,9 @@ if __name__ == "__main__":
     # request handling below means api_start() itself can no longer be
     # the one to call this (see _register_exit_hooks docstring).
     _register_exit_hooks()
+    # Only start the auto-open-report watcher once the server is actually
+    # running — not on plain `import web.app` (a test/script importing this
+    # module and touching _state["out_dir"] would otherwise risk a real
+    # browser popping open if AK_NO_BROWSER isn't set; review 2026-07-29).
+    threading.Thread(target=_auto_open_loop, daemon=True).start()
     app.run(host="::", port=PORT, debug=False, threaded=True)
