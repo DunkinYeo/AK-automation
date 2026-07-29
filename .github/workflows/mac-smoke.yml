@@ -12,7 +12,9 @@ on:
       - 'src/**'
       - 'web/**'
       - 'scripts/**'
+      - 'tests/**'
       - 'requirements.txt'
+      - 'pytest.ini'
       - '.github/workflows/mac-smoke.yml'
   workflow_dispatch:
 
