@@ -58,13 +58,44 @@ def _pid_is_our_run(pid) -> bool:
     before trusting it enough to re-attach to it or send it a kill signal."""
     if not _pid_alive(pid):
         return False
+    if sys.platform == "win32":
+        # `ps` doesn't exist on Windows (issue #28) — the check silently
+        # degraded to alive-only there, exactly the risk this function
+        # exists to close. Get-CimInstance is the still-supported way to
+        # get a process's full command line (wmic is being phased out —
+        # confirmed absent entirely on windows-latest GH Actions runners,
+        # 2026-07-29).
+        cmd = ["powershell", "-NoProfile", "-Command",
+               f'(Get-CimInstance Win32_Process -Filter "ProcessId={pid}").CommandLine']
+    else:
+        cmd = ["ps", "-p", str(pid), "-o", "command="]
+    proc = None
     try:
-        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
-                              capture_output=True, text=True, timeout=5).stdout
+        # Popen (not subprocess.run()) so any exception — including the
+        # BaseException below — can still explicitly kill/reap the child
+        # instead of leaking it.
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        out, _ = proc.communicate(timeout=5)
         return ("src/main.py" in out) or ("src/main_ios.py" in out)
-    except Exception:
-        # Couldn't verify — fall back to the plain alive-check rather than
-        # refusing to re-attach a genuinely-good run over a `ps` hiccup.
+    except BaseException:
+        # Deliberately BaseException, not Exception: reproduced live on
+        # windows-latest (2026-07-29) — spawning the PowerShell subprocess
+        # under GitHub Actions' `pwsh` step wrapper raises a genuine
+        # KeyboardInterrupt from inside communicate()'s thread startup,
+        # which `except Exception` does not catch. The query itself did
+        # return correct data when it succeeded (verified live), so this
+        # looks like a runner/WMI-specific quirk rather than a flaw in the
+        # approach — but real testers won't be running under GH Actions'
+        # wrapper, and either way this must degrade safely rather than
+        # crash. Couldn't verify — fall back to the plain alive-check
+        # rather than refusing to re-attach a genuinely-good run over a
+        # ps/PowerShell hiccup.
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
         return True
 
 
