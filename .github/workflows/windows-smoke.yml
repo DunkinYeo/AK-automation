@@ -29,6 +29,12 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests (pytest)
+        run: pytest -q
+
       - name: Build Windows standalone ZIP
         run: python scripts/build_dist_bundle.py --out ci_dist
 

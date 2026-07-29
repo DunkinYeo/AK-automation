@@ -37,6 +37,12 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests (pytest)
+        run: pytest -q
+
       - name: Build Windows standalone ZIP
         run: python scripts/build_dist_bundle.py --out dist_out
 
@@ -59,6 +65,16 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        # macos-latest's system python3 is externally-managed (PEP 668) —
+        # a venv is required, plain `pip3 install` is blocked.
+        run: |
+          python3 -m venv .venv-test
+          .venv-test/bin/pip install -r requirements.txt --quiet
+
+      - name: Run unit tests (pytest)
+        run: .venv-test/bin/pytest -q
 
       - name: Build Mac standalone ZIP
         run: python3 scripts/build_dist_bundle_mac.py --out dist_out
