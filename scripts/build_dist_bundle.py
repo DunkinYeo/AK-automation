@@ -34,7 +34,7 @@ NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-win-x6
 ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
 ADB_FILES = {"platform-tools/adb.exe", "platform-tools/AdbWinApi.dll", "platform-tools/AdbWinUsbApi.dll"}
 
-SKIP_PACKAGES = {"black", "ruff", "pre-commit"}  # dev-only, not needed at runtime
+SKIP_PACKAGES = {"black", "ruff", "pre-commit", "pytest"}  # dev-only, not needed at runtime
 
 RUN_BAT = r"""@echo off
 setlocal EnableDelayedExpansion

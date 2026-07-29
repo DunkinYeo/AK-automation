@@ -18,3 +18,4 @@ Pillow==12.3.0            # pixel-based UI state detection (Connect button, step
 black==24.10.0
 ruff==0.8.6
 pre-commit==4.0.1
+pytest==9.1.1
