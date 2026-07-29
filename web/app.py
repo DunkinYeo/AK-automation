@@ -454,7 +454,10 @@ def _kill_proc():
                 proc.kill()
         # Re-attached run (pid only, no Popen handle) is NOT killed on server
         # exit — it keeps running and still owns the device screen timeout.
-        run_alive = bool(_state.get("pid") and _pid_alive(_state["pid"]))
+        # Identity-checked, not just alive (issue #30 — #20 missed this
+        # 4th call site): a stale/reused pid must not suppress the
+        # screen-timeout backstop below by looking like a live run.
+        run_alive = bool(_state.get("pid") and _pid_is_our_run(_state["pid"]))
     # Same backstop as /api/stop: web-server restart/shutdown that takes the
     # run down with it must not leave the 24h marker on the device. Skipped
     # while a run is still alive — resetting the timeout under a live run
