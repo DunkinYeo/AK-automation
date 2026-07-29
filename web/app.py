@@ -45,7 +45,40 @@ _RUN_STATE_FILE = Path(__file__).resolve().parent.parent / "runtime" / "web_run_
 
 def _pid_alive(pid) -> bool:
     try:
-        os.kill(int(pid), 0)
+        pid = int(pid)
+        if sys.platform == "win32":
+            # os.kill(pid, 0) does NOT mean "just check existence, no
+            # signal" on Windows the way it does on POSIX — CPython's
+            # Windows os.kill() always calls TerminateProcess(handle, sig),
+            # even for sig=0. That means every previous call to this
+            # function could have been silently KILLING a genuinely-alive
+            # process as a side effect. Confirmed via a real Windows CI
+            # failure (2026-07-29): a subprocess this function had just
+            # "checked" turned up dead immediately after. OpenProcess with
+            # only query rights + CloseHandle is the safe, side-effect-free
+            # way to check existence on Windows. OpenProcess alone isn't
+            # enough either, though — a just-exited process can still be
+            # openable while any handle to it (e.g. subprocess.Popen's own)
+            # remains open, confirmed live on windows-latest (2026-07-29):
+            # OpenProcess succeeded for a pid whose Popen.wait() had already
+            # returned. GetExitCodeProcess + STILL_ACTIVE is what actually
+            # distinguishes "running" from "exited but not yet reaped".
+            import ctypes
+            import ctypes.wintypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.wintypes.DWORD()
+                ok = ctypes.windll.kernel32.GetExitCodeProcess(
+                    handle, ctypes.byref(exit_code))
+                return bool(ok) and exit_code.value == STILL_ACTIVE
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        os.kill(pid, 0)
         return True
     except Exception:
         return False
