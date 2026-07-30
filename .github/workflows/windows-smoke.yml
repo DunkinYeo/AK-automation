@@ -16,10 +16,20 @@ on:
       - 'requirements.txt'
       - 'pytest.ini'
       - '.github/workflows/windows-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'pytest.ini'
+      - '.github/workflows/windows-smoke.yml'
   workflow_dispatch:
 
 jobs:
-  smoke:
+  windows-smoke:
     runs-on: windows-latest
     timeout-minutes: 25
     env:

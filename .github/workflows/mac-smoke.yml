@@ -16,10 +16,20 @@ on:
       - 'requirements.txt'
       - 'pytest.ini'
       - '.github/workflows/mac-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'pytest.ini'
+      - '.github/workflows/mac-smoke.yml'
   workflow_dispatch:
 
 jobs:
-  smoke:
+  mac-smoke:
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
