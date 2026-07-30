@@ -119,7 +119,12 @@ jobs:
           text = Path("CHANGELOG.md").read_text()
           pattern = rf"## \[v{re.escape(ver)}\][^\n]*\n(.*?)(?=\n## \[|\Z)"
           m = re.search(pattern, text, re.S)
-          body = m.group(1).strip() if m else "_(no CHANGELOG.md entry found for this version)_"
+          body = m.group(1).strip() if m else ""
+          if not body:
+              print(f"::error::No CHANGELOG.md entry found for v{ver} "
+                    f"(expected a '## [v{ver}]' section with content) — "
+                    "add one before tagging a release.", file=sys.stderr)
+              sys.exit(1)
           Path("release_notes.md").write_text(f"## v{ver}\n\n{body}\n")
           PY
 
