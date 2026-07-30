@@ -75,12 +75,19 @@ class RunReporter:
         job_results     = [e for e in events if e["event"] == "job_result"]
         injections_ok   = sum(1 for e in job_results if e["data"].get("success"))
         injections_fail = len(job_results) - injections_ok
+        # run_ended_study_complete (until_study_end mode's early-exit signal)
+        # counts the same as run_complete here — it's normally followed
+        # immediately by run_complete, but if that never arrives (issue #34:
+        # a scheduler-shutdown deadlock left a real run hung for 21+ hours
+        # with no run_complete ever logged), this event alone still means
+        # the run finished successfully, not that it failed (issue #35).
+        DONE_EVENTS = ("run_complete", "run_ended_study_complete")
         run_start_ts    = next((e["ts"] for e in events if e["event"] == "run_start"), "")
         run_end_ts      = next(
-            (e["ts"] for e in events if e["event"] in ("run_complete", "run_failed")), ""
+            (e["ts"] for e in events if e["event"] in (*DONE_EVENTS, "run_failed")), ""
         )
         device_info  = next((e["data"] for e in events if e["event"] == "device_info"), {})
-        overall_ok   = injections_fail == 0 and any(e["event"] == "run_complete" for e in events)
+        overall_ok   = injections_fail == 0 and any(e["event"] in DONE_EVENTS for e in events)
 
         FAIL_EVENTS = {
             "job_failed", "inject_symptom_failed", "session_recovery_failed",
@@ -92,7 +99,7 @@ class RunReporter:
         }
         OK_EVENTS = {
             "inject_symptom_done", "job_result", "measurement_confirmed_running",
-            "once_inject_done", "run_complete",
+            "once_inject_done", "run_complete", "run_ended_study_complete",
         }
 
         def row_class(e):

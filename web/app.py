@@ -353,18 +353,29 @@ def read_events(out_dir: str | None) -> list[dict]:
     return events
 
 
+_TERMINAL_EVENT_NAMES = ("run_complete", "run_failed", "run_ended_study_complete")
+
+
 def _terminal_event(events: list[dict]) -> str | None:
     """
     Scan back to the most recent run_start looking for a terminal event.
-    Returns 'run_complete', 'run_failed', or None (still running / unknown).
+    Returns one of _TERMINAL_EVENT_NAMES, or None (still running / unknown).
     A terminal event isn't always the very last line — restore events
     (e.g. screen_timeout_set) land after run_complete, which left finished
     runs stuck showing "running" in both /api/status and the team dashboard
     mirror (2026-07-20, 2026-07-22 — same bug, two call sites).
+
+    run_ended_study_complete (until_study_end mode's early-exit signal) is
+    included: it's normally followed immediately by run_complete, but if
+    that never arrives — issue #34, a scheduler-shutdown deadlock left a
+    real run hung for 21+ hours with no run_complete ever logged — this
+    event alone is enough to know the run is over. Callers that map the
+    result to a done/failed/running label must treat this the same as
+    run_complete (issue #35).
     """
     for e in reversed(events):
         n = e.get("event", "")
-        if n in ("run_complete", "run_failed"):
+        if n in _TERMINAL_EVENT_NAMES:
             return n
         if n == "run_start":
             break
@@ -432,7 +443,11 @@ def _sync_localhost_session():
                 last_ts = e.get("ts", last_ts)
 
             terminal = _terminal_event(events)
-            status = "done" if terminal == "run_complete" else "failed" if terminal == "run_failed" else "running"
+            status = (
+                "done" if terminal in ("run_complete", "run_ended_study_complete")
+                else "failed" if terminal == "run_failed"
+                else "running"
+            )
 
             # Auto-save report when test completes
             if status in ("done", "failed") and out_dir:
@@ -1172,7 +1187,7 @@ def api_hub_events():
         session["events"].append({"ts": ts, "event": event, "data": payload})
         if len(session["events"]) > 200:
             session["events"] = session["events"][-200:]
-        if event == "run_complete":
+        if event in ("run_complete", "run_ended_study_complete"):
             session["status"] = "done"
         elif event == "run_failed":
             session["status"] = "failed"
