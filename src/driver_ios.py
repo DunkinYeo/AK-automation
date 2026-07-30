@@ -52,6 +52,12 @@ class IOSDriver:
         self.sel = selectors
         self.artifacts = artifacts
         self.reporter = reporter
+        # #40: track the WDA/iproxy Popen handles this instance itself
+        # started, so a reconnect can kill exactly those processes instead
+        # of relying only on pattern-matched pkill (which left port 8100
+        # occupied by a stale process 41 times in one 19h run).
+        self._wda_proc = None
+        self._iproxy_proc = None
         self.drv = self._connect()
 
     # ------------------------------------------------------------------
@@ -70,6 +76,38 @@ class IOSDriver:
         except Exception:
             return False
 
+    @staticmethod
+    def _port_is_free(port: int) -> bool:
+        """True if nothing accepts a TCP connection on localhost:port."""
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.3)
+        try:
+            s.connect(("127.0.0.1", port))
+            return False  # something answered — occupied
+        except Exception:
+            return True
+        finally:
+            s.close()
+
+    def _kill_tracked_wda_procs(self):
+        """Kill exactly the WDA/iproxy processes *this instance* started
+        (#40) — more reliable than the pattern-matched pkill below, which
+        has no way to tell "a process this instance spawned" apart from
+        an unrelated one, and left port 8100 occupied by a stale process
+        41 times over one 19h run."""
+        for attr in ("_wda_proc", "_iproxy_proc"):
+            proc = getattr(self, attr, None)
+            if proc is None:
+                continue
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=5)
+            except Exception:
+                pass
+            setattr(self, attr, None)
+
     def _start_wda_via_pymobiledevice3(self, wda_port: int = 8100) -> bool:
         """
         Start WDA on the device via pymobiledevice3 (userspace RSD, no root needed).
@@ -78,6 +116,10 @@ class IOSDriver:
         """
         wda_bundle = "com.facebook.WebDriverAgentRunner.xctrunner"
         udid = self.cfg.get("udid", "")
+
+        # Kill this instance's own previous WDA/iproxy first (#40) — exact
+        # and immediate, unlike the pattern-matched pkill below.
+        self._kill_tracked_wda_procs()
 
         # Kill ALL stale tunnel/launcher leftovers before starting fresh.
         # The iproxy-only pkill missed a day-old `pymobiledevice3 … xcuitest`
@@ -90,7 +132,14 @@ class IOSDriver:
                 subprocess.run(["pkill", "-f", _pat], capture_output=True)
             except Exception:
                 pass
-        time.sleep(0.5)
+
+        # #40: a fixed sleep(0.5) didn't reliably confirm the OS had actually
+        # released the port before the next WDA tried to bind it — that's
+        # exactly what caused the repeated "port #8100 is occupied by an
+        # other process" recovery failures. Poll instead, up to 5s.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not self._port_is_free(wda_port):
+            time.sleep(0.2)
 
         # Start port forwarding: iproxy (libimobiledevice) if available,
         # otherwise pymobiledevice3's built-in forwarder (pip-only, no brew)
@@ -102,7 +151,8 @@ class IOSDriver:
                 iproxy_cmd += ["-u", udid]
             iproxy_cmd.append(f"{wda_port}:{wda_port}")
             try:
-                subprocess.Popen(iproxy_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._iproxy_proc = subprocess.Popen(
+                    iproxy_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 log.info("[driver-iOS] iproxy started: localhost:%d → device:%d", wda_port, wda_port)
             except Exception as e:
                 log.warning("[driver-iOS] iproxy start failed: %s", e)
@@ -112,7 +162,8 @@ class IOSDriver:
             if udid:
                 fwd_cmd += ["--udid", udid]
             try:
-                subprocess.Popen(fwd_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._iproxy_proc = subprocess.Popen(
+                    fwd_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 log.info("[driver-iOS] pymobiledevice3 forward started: localhost:%d → device:%d",
                          wda_port, wda_port)
             except Exception as e:
@@ -134,6 +185,7 @@ class IOSDriver:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            self._wda_proc = proc
             log.info("[driver-iOS] WDA started via pymobiledevice3 (PID %d)", proc.pid)
         except Exception as e:
             log.warning("[driver-iOS] WDA pymobiledevice3 start failed: %s", e)
@@ -276,6 +328,11 @@ class IOSDriver:
             self.drv.quit()
         except Exception:
             pass
+        # #40: drv.quit() only ends the Appium session over HTTP — it never
+        # touched the WDA/iproxy subprocesses this instance actually
+        # spawned, which is exactly what caused the *next* run's cold start
+        # to find port 8100 still occupied.
+        self._kill_tracked_wda_procs()
 
     # ------------------------------------------------------------------
     # Locator helpers

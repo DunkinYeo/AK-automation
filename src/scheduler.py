@@ -389,13 +389,34 @@ def _run_with_health_check_inner(job_callable, driver, at_hour, payload, reporte
     )
     reporter.log_event("job_start", {"at_hour": at_hour, "start_ts": start_ts})
 
+    def _recover_or_fail():
+        """Attempt escalating recovery; on failure, fill in and log a
+        failed JobResult (issue #39: without this, a RuntimeError from
+        _attempt_recovery used to propagate all the way past _job()'s
+        outer `except Exception: pass` with no job_failed/job_result ever
+        logged — the job just silently vanished from every count/report).
+        Returns the JobResult if recovery failed (caller should return it
+        immediately), or None if recovery succeeded (caller continues)."""
+        try:
+            _attempt_recovery(driver, reporter, cooldown_seconds)
+            return None
+        except RuntimeError as recovery_exc:
+            result.success = False
+            result.reason = str(recovery_exc)
+            result.end_ts = datetime.datetime.now().isoformat(timespec="seconds")
+            reporter.log_event("job_failed", {"error": str(recovery_exc), "at_hour": at_hour})
+            reporter.log_event("job_result", dataclasses.asdict(result))
+            return result
+
     if driver is not None:
         # 1. Session check
         try:
             driver.ensure_session()
         except Exception as e:
             reporter.log_event("session_check_failed", {"error": str(e)})
-            _attempt_recovery(driver, reporter, cooldown_seconds)
+            failed = _recover_or_fail()
+            if failed is not None:
+                return failed
 
         # 2. Bring app to foreground
         try:
@@ -403,7 +424,9 @@ def _run_with_health_check_inner(job_callable, driver, at_hour, payload, reporte
             driver.wait_idle(1.0)
         except Exception as e:
             reporter.log_event("foreground_failed", {"error": str(e)})
-            _attempt_recovery(driver, reporter, cooldown_seconds)
+            failed = _recover_or_fail()
+            if failed is not None:
+                return failed
 
         # 3. UI health check
         try:
@@ -421,15 +444,9 @@ def _run_with_health_check_inner(job_callable, driver, at_hour, payload, reporte
                 reporter.log_event("job_result", dataclasses.asdict(result))
                 return result
             reporter.log_event("ui_health_check_failed", {"error": str(e)})
-            try:
-                _attempt_recovery(driver, reporter, cooldown_seconds)
-            except RuntimeError as recovery_exc:
-                result.success = False
-                result.reason = str(recovery_exc)
-                result.end_ts = datetime.datetime.now().isoformat(timespec="seconds")
-                reporter.log_event("job_failed", {"error": str(recovery_exc), "at_hour": at_hour})
-                reporter.log_event("job_result", dataclasses.asdict(result))
-                return result
+            failed = _recover_or_fail()
+            if failed is not None:
+                return failed
 
     try:
         job_callable(at_hour=at_hour, payload=payload)
