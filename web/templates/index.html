@@ -950,6 +950,7 @@ async function init() {
     processConnEvents(s.events);
   }
   if (s.running) {
+    syncFormToRunningSession(s.events);
     setUIRunning(true); startPolling();
   } else {
     if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
@@ -1045,7 +1046,7 @@ function _filterDevices() {
   });
 }
 
-document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', () => {
+function applyPlatformUI() {
   // WiFi ADB is Android-only
   const isIOS = selectedPlatform() === 'ios';
   const connField = document.getElementById('adb-usb')?.closest('.field');
@@ -1067,7 +1068,33 @@ document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListe
       if (fallback) fallback.click();
     }
   }
-}));
+}
+document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', applyPlatformUI));
+
+// issue #37: the platform radio defaults to Android in the HTML and never
+// got re-synced to whatever's actually running — loading/reloading the
+// page while an iOS run was active (or re-attaching after a server
+// restart, #20) left the form showing Android's device list while iOS was
+// really running. Sync once, from the real run_start/device_info events,
+// the first time we see an active run.
+let _formSyncedToRun = false;
+
+function syncFormToRunningSession(events) {
+  if (_formSyncedToRun) return;
+  const runStart = events?.find(e => e.event === 'run_start');
+  if (!runStart) return;
+  const isIOS = (runStart.data?.platform || 'android') === 'ios';
+  document.getElementById('platform-ios').checked = isIOS;
+  document.getElementById('platform-android').checked = !isIOS;
+  applyPlatformUI();
+  const deviceInfo = events.find(e => e.event === 'device_info');
+  const udid = deviceInfo?.data?.udid || runStart.data?.udid;
+  if (udid) {
+    const sel = document.getElementById('device-select');
+    if ([...sel.options].some(o => o.value === udid)) sel.value = udid;
+  }
+  _formSyncedToRun = true;
+}
 
 document.getElementById('duration-group').addEventListener('click', e => {
   const btn = e.target.closest('.btn-toggle'); if (!btn) return;
@@ -1268,8 +1295,11 @@ async function poll() {
   updateStats(s.events);
   processConnEvents(s.events);
   if (s.appium !== undefined) updateAppiumUI(s.appium);
-  if (!s.running && pollTimer) {
+  if (s.running) {
+    syncFormToRunningSession(s.events);
+  } else if (pollTimer) {
     stopPolling(); setUIRunning(false); showFinished(s.exit_code ?? -1);
+    _formSyncedToRun = false;
   }
 }
 
