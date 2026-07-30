@@ -10,6 +10,7 @@ from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.remote_connection import RemoteConnection
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import (
@@ -108,6 +109,13 @@ class AndroidDriver:
 
     def _connect(self) -> webdriver.Remote:
         server = self.cfg.get("appium_server_url", "http://127.0.0.1:4723")
+        # #34: without this, a stalled Appium/adb HTTP call blocks forever
+        # (no client-side socket timeout by default) — that can hold
+        # job_lock indefinitely and deadlock the scheduler's shutdown, which
+        # waits on the same stuck worker thread. 120s is generous enough for
+        # legitimate slow operations (cold session creation, screenshots)
+        # while still turning a stall into a recoverable exception.
+        RemoteConnection.set_timeout(self.cfg.get("appium_http_timeout", 120))
         self.reporter.log_event("appium_connect", {"server": server})
         return webdriver.Remote(server, options=self._build_options())
 

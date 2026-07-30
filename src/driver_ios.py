@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
+from selenium.webdriver.remote.remote_connection import RemoteConnection
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import (
@@ -205,6 +206,10 @@ class IOSDriver:
 
     def _connect(self) -> webdriver.Remote:
         server = self.cfg.get("appium_server_url", "http://127.0.0.1:4723")
+        # #34: see driver.py's _connect for the full rationale — without a
+        # client-side timeout, a stalled Appium/WDA call blocks forever and
+        # can deadlock the scheduler's shutdown.
+        RemoteConnection.set_timeout(self.cfg.get("appium_http_timeout", 120))
         self.reporter.log_event("appium_connect_ios", {"server": server})
         return webdriver.Remote(server, options=self._build_options())
 
