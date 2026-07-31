@@ -43,6 +43,8 @@ android:
 
   no_reset: true                # true = keep app data between sessions
   new_command_timeout: 3600     # seconds before Appium drops idle session
+  appium_http_timeout: 120      # seconds before a stalled Appium HTTP call
+                                 # is aborted instead of hanging forever
 
 # ── UI selectors ──────────────────────────────────────────────────────────────
 # Each value can be a string or a list of strings (tried in order).
