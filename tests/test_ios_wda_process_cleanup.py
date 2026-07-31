@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import time
+from unittest import mock
 
 from src.driver_ios import IOSDriver
 
@@ -76,3 +77,20 @@ def test_kill_tracked_wda_procs_noop_when_nothing_tracked():
     drv._kill_tracked_wda_procs()  # must not raise
     assert drv._wda_proc is None
     assert drv._iproxy_proc is None
+
+
+def test_xcodebuild_fallback_cleans_up_pymobiledevice3_leftovers():
+    """Code review finding (2026-07-31): if _start_wda_via_pymobiledevice3
+    starts iproxy/WDA but then fails the 60s readiness poll (returns
+    False), _build_options() falls back to Appium's own xcodebuild-launched
+    WDA — which tries to bind the same wda_port. Without cleaning up first,
+    the still-alive pymobiledevice3 WDA/iproxy would conflict with it."""
+    drv = _make_driver()
+    drv.cfg = {"wda_local_port": 8100, "device_name": "iPhone", "platform_version": "18.6",
+               "udid": "", "bundle_id": "", "no_reset": True, "new_command_timeout": 3600}
+
+    with mock.patch.object(drv, "_wda_is_running", return_value=False), \
+         mock.patch.object(drv, "_start_wda_via_pymobiledevice3", return_value=False), \
+         mock.patch.object(drv, "_kill_tracked_wda_procs") as kill_mock:
+        drv._build_options()
+        kill_mock.assert_called_once()

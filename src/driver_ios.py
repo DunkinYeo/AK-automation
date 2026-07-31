@@ -238,6 +238,12 @@ class IOSDriver:
             opts.set_capability("useNewWDA", False)
         else:
             log.warning("[driver-iOS] pymobiledevice3 WDA start failed — falling back to xcodebuild")
+            # The pymobiledevice3 attempt above may have started iproxy/WDA
+            # and then failed only the 60s readiness poll — those processes
+            # can still be alive and holding wda_port, which would conflict
+            # with Appium's own xcodebuild-launched WDA trying to bind the
+            # same port right below (finding 2, code review 2026-07-31).
+            self._kill_tracked_wda_procs()
             xcode_org_id = self.cfg.get("xcode_org_id", "")
             if xcode_org_id:
                 opts.set_capability("xcodeOrgId", xcode_org_id)
