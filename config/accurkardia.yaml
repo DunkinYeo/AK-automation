@@ -35,6 +35,7 @@ android:
   app_activity: "com.wellysis.accurkardia.accurkardia.mobile.MainActivity"
   no_reset: true
   new_command_timeout: 3600
+  appium_http_timeout: 120   # seconds before a stalled Appium HTTP call aborts
 
 selectors:
   android:

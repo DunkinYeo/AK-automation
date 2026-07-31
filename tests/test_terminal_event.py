@@ -54,6 +54,63 @@ def test_hub_events_marks_study_complete_as_done(tmp_path, monkeypatch):
     assert app_mod._hub_sessions["test-tester"]["status"] == "done"
 
 
+class _FakeAliveProc:
+    """Stands in for a subprocess.Popen handle whose process is still
+    alive at the OS level — e.g. #34's class of scheduler-shutdown hang,
+    where the process can stay alive for hours after logging a terminal
+    event."""
+
+    def poll(self):
+        return None  # still running
+
+
+def test_api_status_reports_not_running_when_terminal_event_seen_even_if_proc_alive(tmp_path, monkeypatch):
+    """Code review finding (2026-07-31): _terminal_event() recognizing
+    run_ended_study_complete wasn't enough on its own — api_status()'s
+    `running` was set to True from proc.poll() is None at the very top of
+    the function and nothing later ever revisited it for a still-alive
+    proc. A hung-but-alive process with a terminal event must report
+    running: false so the dashboard doesn't lock up forever."""
+    out_dir = tmp_path / "run"
+    out_dir.mkdir()
+    with open(out_dir / "events.jsonl", "w", encoding="utf-8") as f:
+        for rec in [
+            {"ts": "2026-01-01T00:00:00", "event": "run_start", "data": {}},
+            {"ts": "2026-01-01T01:00:00", "event": "run_ended_study_complete", "data": {}},
+        ]:
+            f.write(json.dumps(rec) + "\n")
+
+    monkeypatch.setitem(app_mod._state, "proc", _FakeAliveProc())
+    monkeypatch.setitem(app_mod._state, "out_dir", str(out_dir))
+    monkeypatch.setitem(app_mod._state, "start_ts", 0.0)
+    monkeypatch.setitem(app_mod._state, "pid", None)
+
+    client = app_mod.app.test_client()
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    assert resp.get_json()["running"] is False
+
+
+def test_api_status_reports_running_when_proc_alive_and_no_terminal_event(tmp_path, monkeypatch):
+    """Negative-control-adjacent: a genuinely still-running process (no
+    terminal event yet) must still report running: true — confirms the
+    fix didn't just hardcode running to False."""
+    out_dir = tmp_path / "run"
+    out_dir.mkdir()
+    with open(out_dir / "events.jsonl", "w", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": "2026-01-01T00:00:00", "event": "run_start", "data": {}}) + "\n")
+
+    monkeypatch.setitem(app_mod._state, "proc", _FakeAliveProc())
+    monkeypatch.setitem(app_mod._state, "out_dir", str(out_dir))
+    monkeypatch.setitem(app_mod._state, "start_ts", 0.0)
+    monkeypatch.setitem(app_mod._state, "pid", None)
+
+    client = app_mod.app.test_client()
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    assert resp.get_json()["running"] is True
+
+
 def test_summary_report_shows_pass_when_only_study_complete_logged(tmp_path):
     """reporter.py's saved summary.html must not show FAIL for a run whose
     only terminal-ish event is run_ended_study_complete (the exact

@@ -35,6 +35,7 @@ ios:
   test_serial_number: "510131"
   no_reset: true
   new_command_timeout: 3600
+  appium_http_timeout: 120   # seconds before a stalled Appium HTTP call aborts
   xcode_org_id: "9538X2C925"
   xcode_signing_id: "Apple Development"
   wda_local_port: 8100
