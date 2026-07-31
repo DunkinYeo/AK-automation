@@ -593,6 +593,9 @@ class IOSDriver:
             else:
                 raise
         if not self.is_visible_text(indicator):
+            if self._detect_study_completed():
+                raise RuntimeError(
+                    "study completed — app is on the Study Overview screen")
             try:
                 from src.regression.helpers_ios import go_to_main
                 log.info("[health-iOS] '%s' not visible — navigating back to main screen", indicator)
@@ -607,11 +610,76 @@ class IOSDriver:
             if self.is_visible_text(indicator):
                 self.reporter.log_event("ui_health_ok_ios", {"indicator": indicator})
                 return
+            if self._detect_study_completed():
+                raise RuntimeError(
+                    "study completed — app is on the Study Overview screen")
             try:
                 self.screenshot("ui_health_failed_ios")
             except Exception:
                 pass
             raise RuntimeError(f"UI health check failed: '{indicator}' not visible")
+
+    def _detect_study_completed(self) -> bool:
+        """
+        Detect the post-study 'Study Overview' screen (issue #18 — iOS
+        mirror of AndroidDriver._detect_study_completed, issue #11).
+        Sets self._study_completed so LongRunScheduler's until_study_end
+        early-exit (checked directly via getattr(driver, "_study_completed",
+        False)) and the scheduler's job-skip logic both work without any
+        further iOS-specific code. Emits the study_completed event once.
+        Never raises.
+
+        Text/structure captured from a real device (iPhone 13 mini, iOS
+        18.6.2) reaching this screen naturally on 2026-07-31: the XCUITest
+        tree uses `label="..."` (not Android's `text="..."`) on
+        XCUIElementTypeStaticText nodes, with each value in its own
+        adjacent element right after its label — e.g. label="Study" is
+        immediately followed by a separate label="100" node. Matching is
+        by text content and tree adjacency, not screen coordinates, so it
+        should hold across other iPhone screen sizes in principle — but
+        this has only been verified against this one physical device;
+        there was no second iPhone available to confirm across devices
+        the way the Android version was (Pixel 7 + a Samsung device).
+        """
+        if getattr(self, "_study_completed", False):
+            return True
+        try:
+            if not self.is_visible_text("Study Overview", contains=True, timeout=2):
+                return False
+            # "Your study has been completed. Please return the device to
+            # the provider." is the confirmed exact message on this screen —
+            # anchor on "completed" rather than the iOS-specific "Ok" button
+            # label, since an incomplete-upload variant (if one exists on
+            # iOS, mirroring Android's Upload/Skip state) hasn't been
+            # observed yet to confirm its exact wording.
+            if not self.is_visible_text("completed", contains=True, timeout=2):
+                return False
+            import re as _re
+            src = self.drv.page_source
+
+            def _grab(pattern):
+                m = _re.search(pattern, src, _re.S)
+                return m.group(1) if m else None
+
+            info = {
+                "study_percent": _grab(r'label="Study"[^>]*>.{0,1500}?label="(\d{1,3})"'),
+                "upload_percent": _grab(r'label="Data Upload"[^>]*>.{0,1500}?label="(\d{1,3})"'),
+                "study_start": _grab(r'label="Start Time"[^>]*>.{0,1500}?label="(\d{4}-\d{2}-\d{2} [\d:]{8})"'),
+                "study_end": _grab(r'label="End Time"[^>]*>.{0,1500}?label="(\d{4}-\d{2}-\d{2} [\d:]{8})"'),
+            }
+            self._study_completed = True
+            try:
+                self.screenshot("study_overview_completed_ios")
+            except Exception:
+                pass
+            self.reporter.log_event("study_completed_ios", info)
+            log.warning("[study-iOS] App study completed (upload %s%%, %s ~ %s) — "
+                        "remaining scheduled jobs will be skipped",
+                        info["upload_percent"], info["study_start"], info["study_end"])
+            return True
+        except Exception as e:
+            log.debug("[study-iOS] completed-screen check failed: %s", e)
+            return False
         self.reporter.log_event("ui_health_ok_ios", {"indicator": indicator})
 
     def wait_idle(self, seconds: float = 1.0):

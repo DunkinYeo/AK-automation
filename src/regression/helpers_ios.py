@@ -902,6 +902,17 @@ def go_to_main(drv, wait_ble: int = 300):
                 log.info("[go_to_main-iOS] Already on main screen (%s visible)", indicator)
                 return
 
+    # A run can start (or restart, e.g. after a web-server re-attach) when
+    # the study already completed — none of the main-screen indicators
+    # above apply anymore, and this state machine has no other concept of
+    # "Study Overview" (issue #18/#39-adjacent finding, 2026-07-31): without
+    # this check, go_to_main spun in its screen-detection wait loop for the
+    # full wait_ble timeout (up to 5 minutes) never recognizing the screen,
+    # confirmed live against a real device already on Study Overview.
+    if hasattr(drv, "_detect_study_completed") and drv._detect_study_completed():
+        log.info("[go_to_main-iOS] Study already completed (Study Overview screen) — nothing to navigate to")
+        return
+
     # Dismiss lingering popups
     for popup_text, btn in [("Cannot find your S-Patch", ["Ok", "OK"]),
                              ("Reset your S-Patch",       ["Ok", "OK"]),
