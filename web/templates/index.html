@@ -1054,19 +1054,16 @@ function applyPlatformUI() {
   if (isIOS) { document.getElementById('adb-usb').checked = true; document.getElementById('adb-wifi').checked = false; document.getElementById('wifi-addr-row').style.display = 'none'; }
   _filterDevices();
 
-  // Auto ("until study ends") relies on study-completion detection that
-  // only exists on Android (issue #22/#18) — on iOS it's a silent no-op
-  // that just runs to the 168h safety cap, so disable it and force an
-  // explicit duration instead of letting the UI promise something iOS
-  // can't do yet.
+  // Auto ("until study ends") used to be Android-only (issue #22) because
+  // iOS had no study-completion detection engine — it was a silent no-op
+  // that just ran to the 168h safety cap. IOSDriver._detect_study_completed()
+  // (issue #18) now implements this for real (verified live against a
+  // physical device reaching the actual Study Overview screen,
+  // 2026-07-31), so Auto works identically on both platforms.
   const autoBtn = document.querySelector('#duration-group .btn-toggle[data-val="auto"]');
   if (autoBtn) {
-    autoBtn.disabled = isIOS;
-    autoBtn.title = isIOS ? 'iOS는 study 완료 감지를 지원하지 않습니다 — 선택한 duration까지 실행됩니다' : '';
-    if (isIOS && autoBtn.classList.contains('active')) {
-      const fallback = document.querySelector('#duration-group .btn-toggle[data-val="24"]');
-      if (fallback) fallback.click();
-    }
+    autoBtn.disabled = false;
+    autoBtn.title = '';
   }
 }
 document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', applyPlatformUI));
