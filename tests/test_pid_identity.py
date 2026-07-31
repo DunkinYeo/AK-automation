@@ -26,6 +26,7 @@ Run: .venv/bin/pytest tests/test_pid_identity.py -v
 """
 import subprocess
 import sys
+import time
 from pathlib import Path, PureWindowsPath
 from unittest import mock
 
@@ -50,11 +51,27 @@ def _spawn(root: Path, *, as_main_py: bool):
 
 def test_real_process_matching_our_root_is_recognized(tmp_path):
     """A process spawned from this installation's own ROOT/src/main.py must
-    be recognized as ours."""
+    be recognized as ours.
+
+    Flaky on windows-latest CI (observed 3x: 2026-07-29, 2026-07-31 x2) —
+    Get-CimInstance Win32_Process's CommandLine for a *just*-spawned
+    process isn't always immediately queryable under CI runner load, so
+    _pid_is_our_run() can transiently see an empty/incomplete command
+    line right after Popen returns. This never matters in real usage
+    (the function is only ever called against processes that have already
+    been running for a while), so the fix belongs in the test's timing
+    tolerance, not in production code — retry briefly instead of asserting
+    on the very first sample.
+    """
     proc = _spawn(tmp_path, as_main_py=True)
     try:
         with mock.patch.object(app_mod, "ROOT", tmp_path):
-            assert app_mod._pid_is_our_run(proc.pid) is True
+            deadline = time.monotonic() + 5
+            recognized = app_mod._pid_is_our_run(proc.pid)
+            while not recognized and time.monotonic() < deadline:
+                time.sleep(0.3)
+                recognized = app_mod._pid_is_our_run(proc.pid)
+            assert recognized is True
     finally:
         proc.kill()
         proc.wait()
