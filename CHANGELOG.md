@@ -1,5 +1,147 @@
 # Changelog — S-Patch AccurKardia Automation
 
+## [v1.1.3] — 2026-08-05
+
+### Highlights
+This release is overwhelmingly a **reliability pass**, not a feature drop:
+of the ~27 tracked issues, only two were new capabilities (one shipped, one
+still in progress) and the rest were bug fixes uncovered by reviewing real
+long-run logs and hardening the tool's own understanding of "is this run
+actually still alive." A real 19h+ iOS soak run (and a real 21h+ Android
+hang) each surfaced a genuine production bug during this cycle, both fixed
+and verified against the same class of failure.
+
+- **A real Appium HTTP hang could freeze a run forever, invisibly.** No
+  timeout was configured on the Appium webdriver connection, so a single
+  stalled call could block a job indefinitely — and if that happened right
+  as an until-study-ends run tried to close out, the whole process could
+  hang alive for 21+ hours with `run_complete` never logged, so nothing
+  ever alerted. Fixed with a client-side timeout (default 120s); the
+  dashboard and reports now also correctly show a finished run as done
+  even if a future hang of this kind ever recurs.
+- **A silent job-loss bug in the shared Android/iOS scheduler.** If
+  escalating session recovery failed during the "session check" or
+  "bring to foreground" steps, the failure was never logged — the job
+  just vanished from every count and report, with no `job_failed`/
+  `job_result` event at all. Found by comparing `job_start` vs `job_result`
+  counts in a real run's logs; fixed to log consistently across all three
+  health-check steps.
+- **iOS WDA/session recovery hardening.** A 19h iOS soak hit "port #8100
+  occupied by another process" 41 times because WDA/iproxy processes were
+  never tracked or reliably killed between reconnect attempts — including
+  2 full recovery failures tied directly to the job-loss bug above. Now
+  tracked and killed precisely (both on reconnect and on a normal stop),
+  with the port's actual release confirmed before starting a new one.
+- **CI/CD is now real CI/CD.** Tag-push release automation, Mac smoke CI,
+  and (new) branch protection — `main` requires a PR with the Windows/Mac
+  smoke CI (which now runs the new unit test suite) passing before merging.
+- **`until_study_end` mode now behaves consistently.** iOS doesn't have a
+  study-completion detection engine yet (tracked, in progress — see Known
+  Limitations), so the web UI disables "Auto" duration for iOS instead of
+  silently promising something that just runs to the safety-cap duration.
+- A completed-but-hung run's dashboard/report now reads as finished
+  instead of stuck "running" — and the saved summary report correctly
+  shows PASS for a run that finished via study-completion rather than a
+  normal `run_complete`.
+
+### Process identity & "is this run actually still running" (the recurring theme)
+A long chain of fixes across this cycle all trace back to the same class
+of question — does the tool correctly know whether a tracked process is
+really still alive, really still *its own*, and really still doing
+anything — surfaced repeatedly as the web server was restarted, PIDs were
+reused, and Windows-specific process inspection was hardened:
+- `/api/start` now recognizes a re-attached run after a server restart
+  and refuses to start a duplicate on top of it.
+- A stale `web_run_state.json` (PID reuse after a natural exit) can no
+  longer cause a re-attach or Stop to target the wrong process — identity
+  is verified against the actual command line, not just liveness.
+- A hard-crashed child (SIGKILL, segfault) no longer shows as "running"
+  forever in `/api/status`.
+- Windows process-identity verification was hardened through several
+  rounds: `ps` doesn't exist on Windows (moved to `Get-CimInstance`),
+  backslash paths broke the match, a verification failure used to
+  fail *open* (dangerous on the one call site that sends a kill signal)
+  and now fails closed, and `_run_already_active()`/Inject Now were
+  brought in line with the same identity check used elsewhere.
+- **`os.kill(pid, 0)` on Windows does not do what the POSIX idiom implies**
+  — CPython's Windows implementation calls `TerminateProcess` even for
+  signal 0, meaning the existence-check function could have been silently
+  killing genuinely-alive Windows processes on every poll. Replaced with
+  a real `OpenProcess`/`GetExitCodeProcess` check.
+- A loose `"src/main.py" in command_line` substring match could false-
+  positive on an unrelated project at the same relative path — now
+  compared against this installation's exact resolved path.
+- `run_ended_study_complete` (the until-study-ends early-exit signal) is
+  now recognized as a terminal state everywhere it's checked (status API,
+  team dashboard, saved report) — previously only `run_complete`/
+  `run_failed` counted, so a completed-but-not-yet-exited run could show
+  as running or, in the saved report, as failed.
+
+### iOS
+- Web Stop now runs cleanup and saves the final report reliably (SIGTERM
+  is converted to a clean exit instead of skipping `finally` blocks) —
+  verified against a real interrupted run.
+- `until_study_end` is now wired through to the scheduler (parameter
+  plumbing only — see Known Limitations below for what's still missing).
+- WDA/iproxy processes are tracked and killed precisely on reconnect, on
+  a normal stop, and before falling back to Appium's own xcodebuild WDA
+  launch — instead of relying only on pattern-matched `pkill` and a fixed
+  sleep before the next start.
+- Failure artifacts no longer record iOS failures with `platform: android`
+  in their metadata.
+- The web dashboard's platform/device display now actually reflects the
+  running session (it defaulted to Android and never re-synced, even
+  while an iOS run was live) — found by a real user looking at the
+  dashboard mid-run and noticing the mismatch.
+
+### CI/CD & Testing (new)
+- `windows-smoke.yml` / `mac-smoke.yml`: build the real standalone ZIP,
+  run the new unit test suite, then smoke-test the bundle with its own
+  embedded/venv Python.
+- `release.yml`: tag-push (`git tag vX.Y.Z && git push --tags`) now builds
+  both standalone ZIPs and publishes a GitHub Release automatically,
+  pulling notes from this file — and now fails the release instead of
+  publishing empty notes if a tag's CHANGELOG section is missing.
+- **Branch protection**: `main` requires a PR with both smoke-CI checks
+  passing before merging (repo admin can still push directly for
+  emergencies). CI now also runs on the pull request itself, not only
+  on push to `main`.
+- First permanent unit test suite for this project (`pytest`, see
+  `pytest.ini`) — covers process-identity verification, scheduler
+  concurrency, the Appium HTTP timeout, terminal-event recognition, job
+  recovery logging, and iOS WDA process cleanup.
+- Windows standalone builds keep their `requirements.txt` version pins
+  again (a reproducibility regression from an earlier release).
+
+### Reporting
+- Auto-footnotes a failed regression TC when its "periodic twin" (a
+  recurring health check that verifies the same screen/feature) passed
+  repeatedly afterward — e.g. a one-time BT-reconnect ECG check failure
+  gets a note like *"same-screen check passed 19 times since — likely a
+  timing fluke"* instead of just reading as a plain failure.
+- `run_complete` notifications now show the actual injection count instead
+  of always showing "?".
+- `summary.html` was silently failing to generate on every single run
+  (a Jinja `tojson()` incompatibility) — now generates correctly, and
+  also normalizes iOS's `_ios`-suffixed events so a successful iOS run
+  doesn't show as FAIL.
+- The web report auto-opens in the browser when an unattended run reaches
+  any terminal state (success or failure) — previously you only found out
+  by checking the dashboard tab yourself.
+- App crash evidence now also captures the OS-level ActivityManager log
+  (`Process X has died: reason`), not just Java exception traces — the
+  latter alone misses low-memory kills and force-stops, which is most of
+  what actually kills the app in the field.
+
+### Known Limitations (carried forward, not new)
+- iOS still has no study-completion detection engine — `until_study_end`
+  on iOS just runs to its safety-cap duration. Actively being worked on:
+  a real iOS long-run soak is in progress to observe the actual "Study
+  Overview" screen and build the detection logic against it.
+- iOS WDA cleanup's `pkill` pattern still isn't scoped to a specific
+  device UDID — safe for the current single-device setup, a real risk
+  only if multiple iPhones are ever run in parallel.
+
 ## [v1.1.2] — 2026-07-21
 
 ### Highlights
