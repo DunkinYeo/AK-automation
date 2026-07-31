@@ -798,6 +798,18 @@ def api_status():
         # can't tell "still running" from "died without a trace").
         proc_confirmed_dead = bool(proc and proc.poll() is not None)
         terminal = _terminal_event(events) if events else None
+        # A terminal event means the run is functionally done even if the
+        # OS process hasn't exited yet — e.g. #34's class of
+        # scheduler-shutdown deadlock, where the process can hang alive for
+        # hours after run_ended_study_complete. Without this, `running`
+        # above (proc.poll() is None) reports true forever regardless of
+        # any terminal event, since nothing later in this function ever
+        # revisits it for a still-alive proc. This only affects the
+        # dashboard's display — _run_already_active() (gating /api/start)
+        # checks proc.poll() directly and is untouched, so a genuinely
+        # hung process still correctly blocks a second run from starting.
+        if terminal is not None:
+            running = False
         # If test process isn't tracked but events exist and look active, treat as running
         if not running and not proc_confirmed_dead and events and (proc or start_ts):
             if terminal is None:
