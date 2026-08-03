@@ -26,11 +26,19 @@ import src.driver_ios as driver_ios_mod
 
 def _make_driver(cls, module, cfg):
     """Build a driver instance without running the real __init__ (which
-    would try to open a real Appium session) — only _connect() is under test."""
+    would try to open a real Appium session) — only _connect() is under
+    test. _build_options() is also mocked: IOSDriver's real implementation
+    calls _start_wda_via_pymobiledevice3(), which — if a real iPhone
+    happens to be plugged in — spawns real iproxy/WDA subprocesses and
+    waits up to 60s for readiness (discovered when this test suite
+    started taking 2+ minutes locally with a device connected; these are
+    supposed to be hardware-free unit tests, matching every other test in
+    this file and this project's "no device/Appium needed" convention)."""
     inst = cls.__new__(cls)
     inst.cfg = cfg
     inst.reporter = mock.Mock()
-    with mock.patch.object(module, "webdriver") as fake_webdriver:
+    with mock.patch.object(module, "webdriver") as fake_webdriver, \
+         mock.patch.object(cls, "_build_options", return_value=mock.Mock()):
         fake_webdriver.Remote.return_value = mock.Mock()
         inst._connect()
     return fake_webdriver.Remote
