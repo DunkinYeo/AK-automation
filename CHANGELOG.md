@@ -4,12 +4,12 @@
 
 ### Highlights
 This release is overwhelmingly a **reliability pass**, not a feature drop:
-of the ~27 tracked issues, only two were new capabilities (one shipped, one
-still in progress) and the rest were bug fixes uncovered by reviewing real
-long-run logs and hardening the tool's own understanding of "is this run
-actually still alive." A real 19h+ iOS soak run (and a real 21h+ Android
-hang) each surfaced a genuine production bug during this cycle, both fixed
-and verified against the same class of failure.
+of the ~29 tracked issues, only two were new capabilities and the rest were
+bug fixes uncovered by reviewing real long-run logs and hardening the
+tool's own understanding of "is this run actually still alive." A real
+19h+ iOS soak run (and a real 21h+ Android hang) each surfaced a genuine
+production bug during this cycle, both fixed and verified against the same
+class of failure.
 
 - **A real Appium HTTP hang could freeze a run forever, invisibly.** No
   timeout was configured on the Appium webdriver connection, so a single
@@ -35,10 +35,19 @@ and verified against the same class of failure.
 - **CI/CD is now real CI/CD.** Tag-push release automation, Mac smoke CI,
   and (new) branch protection — `main` requires a PR with the Windows/Mac
   smoke CI (which now runs the new unit test suite) passing before merging.
-- **`until_study_end` mode now behaves consistently.** iOS doesn't have a
-  study-completion detection engine yet (tracked, in progress — see Known
-  Limitations), so the web UI disables "Auto" duration for iOS instead of
-  silently promising something that just runs to the safety-cap duration.
+- **iOS now detects study completion, closing the gap with Android.**
+  `until_study_end` mode previously had no way to know an iOS study had
+  actually finished, so it just ran to its safety-cap duration. iOS now
+  recognizes the real "Study Overview" completion screen the same way
+  Android already did, and the web UI's "Auto (until study ends)" toggle
+  is enabled for both platforms again.
+- **A study-completed iOS run no longer reports fake job failures.**
+  Once a study finished, any unrelated hiccup (a slow Appium response, a
+  brief WDA blip) during the next hourly check-in caused the recovery
+  logic to burn through all 3 recovery steps and log a failed job, even
+  though there was nothing left to recover — the run had already ended
+  successfully. It now recognizes "study already completed" up front and
+  skips cleanly instead.
 - A completed-but-hung run's dashboard/report now reads as finished
   instead of stuck "running" — and the saved summary report correctly
   shows PASS for a run that finished via study-completion rather than a
@@ -78,11 +87,15 @@ reused, and Windows-specific process inspection was hardened:
   as running or, in the saved report, as failed.
 
 ### iOS
+- **Study-completion detection engine implemented** — mirrors Android's
+  text/structure-based screen matching (adapted for iOS's `label=`
+  accessibility attributes instead of Android's `text=`), captured and
+  verified against a real device's actual completion screen. `run`
+  startup also no longer gets stuck in a multi-minute wait loop when a
+  run is (re)started against a study that already finished.
 - Web Stop now runs cleanup and saves the final report reliably (SIGTERM
   is converted to a clean exit instead of skipping `finally` blocks) —
   verified against a real interrupted run.
-- `until_study_end` is now wired through to the scheduler (parameter
-  plumbing only — see Known Limitations below for what's still missing).
 - WDA/iproxy processes are tracked and killed precisely on reconnect, on
   a normal stop, and before falling back to Appium's own xcodebuild WDA
   launch — instead of relying only on pattern-matched `pkill` and a fixed
@@ -134,10 +147,11 @@ reused, and Windows-specific process inspection was hardened:
   what actually kills the app in the field.
 
 ### Known Limitations (carried forward, not new)
-- iOS still has no study-completion detection engine — `until_study_end`
-  on iOS just runs to its safety-cap duration. Actively being worked on:
-  a real iOS long-run soak is in progress to observe the actual "Study
-  Overview" screen and build the detection logic against it.
+- iOS's study-completion detection was verified on a single device
+  (iPhone 13 mini) — the matching is text/structure-based, not
+  coordinate-based, so it should hold on other screen sizes, but a second
+  physical iPhone hasn't been available yet to cross-check the way
+  Android's detection was (Pixel 7 + a Samsung device).
 - iOS WDA cleanup's `pkill` pattern still isn't scoped to a specific
   device UDID — safe for the current single-device setup, a real risk
   only if multiple iPhones are ever run in parallel.
