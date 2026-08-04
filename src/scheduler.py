@@ -487,6 +487,19 @@ def _attempt_recovery(driver, reporter, cooldown_seconds=30):
     After each step: wait cooldown_seconds, then re-check UI health.
     Returns as soon as a step results in a healthy UI.
     """
+    if getattr(driver, "_study_completed", False):
+        # Nothing to recover to — the app is on its own Study Overview /
+        # completion screen, not broken. Every recovery step's own
+        # assert_ui_health() call below would raise "study completed"
+        # again each time (that RuntimeError isn't caught specially here,
+        # only by the caller's step-3 handler), burning all 3 steps and
+        # reporting a fake "Session recovery failed after 3 steps" for a
+        # job that should have just skipped cleanly. Discovered via a
+        # real 24h iOS soak (2026-07-31 ~ 08-01): 16 of 17 post-completion
+        # hourly jobs failed this way after step 1 (session check) ever
+        # failed for an unrelated reason (Appium timeout, WDA hiccup).
+        reporter.log_event("recovery_skipped_study_ended", {})
+        return
     for step in [1, 2, 3]:
         reporter.log_event("recovery_step_start", {"step": step})
         try:

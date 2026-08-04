@@ -45,7 +45,16 @@ def _spawn(root: Path, *, as_main_py: bool):
         script = script_dir / "main.py"
     else:
         script = root / "unrelated.py"
-    script.write_text("import time; time.sleep(5)\n")
+    # 30s, not a token few seconds: test_real_process_matching_our_root_is_
+    # recognized retries its check for up to 10s to tolerate a slow
+    # Get-CimInstance query on windows-latest CI — with only a 5s-lived
+    # process, that retry window raced the process's own exit and could
+    # observe a genuinely-dead process instead of a slow-to-query live one
+    # (reproduced on windows-latest, 2026-08-03: the fix "worked" for 5s
+    # then the process died out from under it). No relation to a real
+    # process's actual lifetime — this only needs to outlive the retry
+    # windows below, and every caller kills it in a finally block anyway.
+    script.write_text("import time; time.sleep(30)\n")
     return subprocess.Popen([sys.executable, str(script)])
 
 
@@ -53,20 +62,26 @@ def test_real_process_matching_our_root_is_recognized(tmp_path):
     """A process spawned from this installation's own ROOT/src/main.py must
     be recognized as ours.
 
-    Flaky on windows-latest CI (observed 3x: 2026-07-29, 2026-07-31 x2) —
-    Get-CimInstance Win32_Process's CommandLine for a *just*-spawned
-    process isn't always immediately queryable under CI runner load, so
-    _pid_is_our_run() can transiently see an empty/incomplete command
-    line right after Popen returns. This never matters in real usage
-    (the function is only ever called against processes that have already
-    been running for a while), so the fix belongs in the test's timing
-    tolerance, not in production code — retry briefly instead of asserting
-    on the very first sample.
+    Flaky on windows-latest CI (observed 4x: 2026-07-29, 2026-07-31 x2,
+    2026-08-03) — Get-CimInstance Win32_Process's CommandLine for a
+    *just*-spawned process isn't always immediately queryable under CI
+    runner load, so _pid_is_our_run() can transiently see an empty/
+    incomplete command line right after Popen returns. This never matters
+    in real usage (the function is only ever called against processes
+    that have already been running for a while), so the fix belongs in
+    the test's timing tolerance, not in production code — retry instead
+    of asserting on the very first sample.
+
+    The first retry-loop attempt (5s) still failed once on windows-latest
+    (2026-08-03): _spawn's process only lived 5s, so the retry window
+    raced its own exit and could observe a genuinely-dead process instead
+    of a slow-to-query live one. _spawn now sleeps 30s — comfortably
+    longer than this 10s retry window — so that race can't recur.
     """
     proc = _spawn(tmp_path, as_main_py=True)
     try:
         with mock.patch.object(app_mod, "ROOT", tmp_path):
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + 10
             recognized = app_mod._pid_is_our_run(proc.pid)
             while not recognized and time.monotonic() < deadline:
                 time.sleep(0.3)
