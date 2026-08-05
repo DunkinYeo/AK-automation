@@ -63,3 +63,43 @@ jobs:
       - name: Smoke test with the bundle's own venv Python
         run: |
           "$PKG/automation/.venv/bin/python" "$PKG/automation/scripts/smoke_test.py"
+
+      - name: Appium bootstrap smoke test (the actual run.command first-launch path)
+        timeout-minutes: 10
+        run: |
+          # run.command's npm install / driver install steps were never
+          # exercised by this workflow before — smoke_test.py above only
+          # checks the bundled Python's own boot, bypassing this Node/npm
+          # path entirely. A real external tester hit this exact gap on
+          # Windows (2026-08-05): npm resolving an incompatible "latest"
+          # appium-uiautomator2-driver at first-launch time broke with
+          # "Cannot require() ES Module ... in a cycle". Reproduce the real
+          # install + a real session creation attempt here so a future
+          # version drift fails CI instead of a tester's Mac.
+          A="$PKG/automation"
+          export APPIUM_HOME="$A/appium_home"
+          mkdir -p "$APPIUM_HOME"
+          NODE="$A/node/bin"
+
+          "$NODE/npm" install -g appium@3.5.2 --prefix "$A/appium" --quiet --no-progress
+          APPIUM_CMD="$A/appium/bin/appium"
+          [ -x "$APPIUM_CMD" ] || APPIUM_CMD="$A/appium/node_modules/.bin/appium"
+
+          "$APPIUM_CMD" driver install uiautomator2@4.1.5
+
+          "$APPIUM_CMD" --port 4744 --relaxed-security > appium_test.log 2>&1 &
+          APPIUM_PID=$!
+          sleep 8
+          RESP=$(curl -s -X POST http://127.0.0.1:4744/session -H "Content-Type: application/json" \
+            -d '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}')
+          kill "$APPIUM_PID" 2>/dev/null || true
+          echo "$RESP"
+          if echo "$RESP" | grep -q "Cannot require()" || echo "$RESP" | grep -q "ES Module"; then
+            echo "FAIL: driver failed to load — ESM/require() incompatibility detected (the exact bug this step exists to catch)"
+            exit 1
+          fi
+          if ! echo "$RESP" | grep -q "Could not find a connected Android device"; then
+            echo "FAIL: unexpected response — expected the driver to load and fail only on 'no device'"
+            exit 1
+          fi
+          echo "OK: driver loaded successfully, failed only on 'no device' as expected in CI (no real device attached)"
