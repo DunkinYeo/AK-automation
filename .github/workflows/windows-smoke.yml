@@ -62,3 +62,49 @@ jobs:
         run: |
           $pkg = Get-ChildItem extracted -Directory | Select-Object -First 1
           & "$($pkg.FullName)\automation\python\python.exe" "$($pkg.FullName)\automation\scripts\smoke_test.py"
+
+      - name: Appium bootstrap smoke test (the actual run.bat first-launch path)
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          # run.bat's npm install / driver install steps were never exercised
+          # by this workflow before — smoke_test.py above only checks the
+          # bundled Python's own boot, bypassing this Node/npm path entirely.
+          # A real external tester hit this exact gap (2026-08-05): npm
+          # resolving an incompatible "latest" appium-uiautomator2-driver at
+          # first-launch time broke with "Cannot require() ES Module ... in
+          # a cycle". Reproduce run.bat's actual install + a real session
+          # creation attempt here so a future version drift fails CI instead
+          # of a tester's PC.
+          $pkg = Get-ChildItem extracted -Directory | Select-Object -First 1
+          $A = "$($pkg.FullName)\automation"
+          $env:APPIUM_HOME = "$A\appium_home"
+          New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
+
+          & "$A\node\npm.cmd" install -g appium@3.5.2 --prefix "$A\appium" --quiet --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "npm install -g appium failed" }
+
+          $appiumCmd = "$A\appium\appium.cmd"
+          if (-not (Test-Path $appiumCmd)) { $appiumCmd = "$A\appium\node_modules\.bin\appium.cmd" }
+          if (-not (Test-Path $appiumCmd)) { throw "appium.cmd not found after install" }
+
+          & $appiumCmd driver install uiautomator2@4.1.5
+          if ($LASTEXITCODE -ne 0) { throw "appium driver install uiautomator2 failed" }
+
+          $proc = Start-Process -FilePath $appiumCmd -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 8
+          try {
+            $body = '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}'
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:4744/session" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 30 -SkipHttpErrorCheck
+            $text = $resp.Content
+            Write-Host $text
+            if ($text -match "Cannot require\(\)" -or $text -match "ES Module") {
+              throw "Driver failed to load — ESM/require() incompatibility detected (the exact bug this step exists to catch)"
+            }
+            if ($text -notmatch "Could not find a connected Android device") {
+              throw "Unexpected response — expected the driver to load and fail only on 'no device' (got something else)"
+            }
+            Write-Host "OK: driver loaded successfully, failed only on 'no device' as expected in CI (no real device attached)"
+          } finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
