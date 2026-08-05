@@ -834,9 +834,16 @@ class AndroidDriver:
     # ── Connectivity monitoring ──────────────────────────────────────────────
     # Known popup/state signatures — add new ones after live monitoring
     # ── Connectivity check definitions ──────────────────────────────────────
-    # Text-based checks: detected when ANY candidate text is visible
+    # Text-based checks: detected when ANY candidate text is visible.
+    # "S-Patch connection lost" was never actually observed live — the web
+    # dashboard's "Connection" chip has been silently stuck at its default
+    # pending state since it was added, since this popup text never appears
+    # in the real app (found 2026-08-05, cross-checked against MA-automation
+    # hitting the identical bug for the same reason). connection_lost is now
+    # derived from the same bt_disconnected signal already computed below
+    # (the "Disconnected" card / guidance-card text bluetooth_off already
+    # uses), which is confirmed to actually fire.
     _CONN_TEXT_CHECKS = [
-        ("connection_lost",   ["S-Patch connection lost"],   "S-Patch connection lost"),
         ("low_battery_patch", ["Low battery", "Battery low",
                                "Replace battery"],           "Patch low battery"),
         # --- add more after live monitoring ---
@@ -919,6 +926,11 @@ class AndroidDriver:
                 del self._bt_disconnect_ts
                 self._verify_ecg_after_reconnect()
         # else: was_bt_off=True but on a different screen — preserve disconnected state
+
+        # "Connection" chip (web dashboard) — same signal as bluetooth_off.
+        # See _CONN_TEXT_CHECKS comment above for why this replaced the old
+        # (dead) "S-Patch connection lost" popup-text check.
+        self._emit_conn_event("connection_lost", bt_disconnected, "S-Patch connection lost")
 
         # WiFi off — detected via ADB settings (OS-level, reliable)
         was_wifi_off = self._conn_state.get("wifi_off", False)
