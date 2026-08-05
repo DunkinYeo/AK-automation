@@ -833,8 +833,14 @@ function processConnEvents(events) {
       updateConnCard('wifi_reconnect','pass', '✓ Restored','');
     } else if (ev.event === 'battery_status') {
       const s = d.status || '';
-      const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
-      updateConnCard('battery', isLow ? 'alert' : 'pass', isLow ? `✗ ${s}` : `✓ ${s}`, '');
+      if (!s) {
+        // null/empty — unreadable while disconnected. Previous bug: this
+        // fell through to '✓' with blank text, showing a false checkmark.
+        updateConnCard('battery', 'info', 'Not Connected', '');
+      } else {
+        const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
+        updateConnCard('battery', isLow ? 'alert' : 'pass', isLow ? `✗ ${s}` : `✓ ${s}`, '');
+      }
     } else {
       updateConnCard(id, state, mapping.text, '');
     }
