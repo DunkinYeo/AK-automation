@@ -2,6 +2,18 @@
 
 ## [v1.1.3] — 2026-08-05
 
+### Fixed after initial publish (same tag, assets rebuilt)
+- **The standalone Windows/Mac build could fail immediately on first run**
+  with a Node.js "Cannot require() ES Module ... in a cycle" error,
+  reported by a real external tester. The build scripts installed Appium
+  and its UiAutomator2/XCUITest drivers with no version pin, so every
+  build silently pulled whatever npm resolved as "latest" — and
+  appium-uiautomator2-driver had since jumped 4 major versions, pulling in
+  an ESM-only dependency that breaks under Node's `require()`. Pinned to
+  the versions actually verified working (appium@3.5.2,
+  uiautomator2@4.1.5, xcuitest@11.17.1), confirmed via a real CI build +
+  smoke test of the extracted zip.
+
 ### Highlights
 This release is overwhelmingly a **reliability pass**, not a feature drop:
 of the ~29 tracked issues, only two were new capabilities and the rest were
