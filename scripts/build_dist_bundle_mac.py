@@ -146,9 +146,17 @@ fi
 PYTHON="$A/.venv/bin/python"
 
 # ── First run: install Appium ─────────────────────────────────────────────
+# Pinned versions below (appium@3.5.2, uiautomator2@4.1.5, xcuitest@11.17.1)
+# — a real external tester's Windows v1.1.3 zip failed immediately with
+# "Cannot require() ES Module ... in a cycle" (2026-08-05): unpinned
+# installs pull whatever npm resolves as "latest" at build time, and
+# appium-uiautomator2-driver had jumped 4 major versions (4.x -> 8.x)
+# since this pin was last verified working, pulling in an ESM-only
+# asyncbox transitively that breaks Node's require(). Bump these
+# deliberately, not by omission.
 if [ ! -f "$APPIUM_CMD" ]; then
     echo "  First run: installing Appium (~2 min, one-time only)..."
-    "$NODE/npm" install -g appium --prefix "$APPIUM_INSTALL" --quiet --no-progress 2>>"$LOG"
+    "$NODE/npm" install -g appium@3.5.2 --prefix "$APPIUM_INSTALL" --quiet --no-progress 2>>"$LOG"
     if [ $? -ne 0 ]; then
         echo "  FAIL  Appium installation failed. Check internet connection."
         read -r -p "  Press Enter to close... " _
@@ -162,7 +170,7 @@ fi
 # APPIUM_HOME is exported to automation/appium_home — isolated from ~/.appium
 if ! "$APPIUM_CMD" driver list --installed 2>/dev/null | grep -qi "uiautomator2"; then
     echo "  Installing UiAutomator2 driver (one-time only)..."
-    "$APPIUM_CMD" driver install uiautomator2 2>&1 | tee -a "$LOG"
+    "$APPIUM_CMD" driver install uiautomator2@4.1.5 2>&1 | tee -a "$LOG"
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
         echo "  FAIL  UiAutomator2 driver installation failed."
         echo "  Log: $LOG"
@@ -178,7 +186,7 @@ fi
 # present, installs WDA on the device. Failures never block Android testing.
 if ! "$APPIUM_CMD" driver list --installed 2>/dev/null | grep -qi "xcuitest"; then
     echo "  Installing XCUITest driver for iOS (one-time only)..."
-    "$APPIUM_CMD" driver install xcuitest >> "$LOG" 2>&1 \
+    "$APPIUM_CMD" driver install xcuitest@11.17.1 >> "$LOG" 2>&1 \
         && echo "  OK  XCUITest driver installed." \
         || echo "  WARN  XCUITest driver install failed (iOS unavailable). Log: $LOG"
     echo ""

@@ -304,13 +304,20 @@ IF "%_APPIUM_CMD%"=="" (
     )
 )
 
+REM Pinned versions below (appium@3.5.2, uiautomator2@4.1.5) — a real
+REM external tester's v1.1.3 zip failed immediately with "Cannot require()
+REM ES Module ... in a cycle" (2026-08-05): unpinned installs pull whatever
+REM npm resolves as "latest" at build time, and appium-uiautomator2-driver
+REM had jumped 4 major versions (4.x -> 8.x) since this pin was last
+REM verified working, pulling in an ESM-only asyncbox transitively that
+REM breaks Node's require(). Bump these deliberately, not by omission.
 IF NOT "%_APPIUM_CMD%"=="" (
     echo   Appium already installed.
     echo [2/5] Appium present: %_APPIUM_CMD% >> "%LOG%"
 ) ELSE (
     echo   Installing Appium. This may take a few minutes...
     echo [2/5] npm install start >> "%LOG%"
-    call "%NODE%\npm.cmd" install -g appium --prefix "%APPIUM_INSTALL%" --quiet --no-progress >> "%LOG%" 2>&1
+    call "%NODE%\npm.cmd" install -g appium@3.5.2 --prefix "%APPIUM_INSTALL%" --quiet --no-progress >> "%LOG%" 2>&1
     SET "_NPM_EXIT=!ERRORLEVEL!"
     IF "!_NPM_EXIT!"=="" SET "_NPM_EXIT=unknown"
     echo   npm install completed (exit code: !_NPM_EXIT!^).
@@ -409,8 +416,8 @@ IF "!_FIND_EXIT!"=="0" (
 ) ELSE (
     echo   UiAutomator2 not found. Installing...
     echo   Installing UiAutomator2 driver. This may take a few minutes...
-    echo [3/5] CMD: call "!_APPIUM_CMD!" driver install uiautomator2 >> "%LOG%"
-    call "!_APPIUM_CMD!" driver install uiautomator2 >> "%LOG%" 2>&1
+    echo [3/5] CMD: call "!_APPIUM_CMD!" driver install uiautomator2@4.1.5 >> "%LOG%"
+    call "!_APPIUM_CMD!" driver install uiautomator2@4.1.5 >> "%LOG%" 2>&1
     SET "_DRV_INST_EXIT=!ERRORLEVEL!"
     IF "!_DRV_INST_EXIT!"=="" SET "_DRV_INST_EXIT=unknown"
     echo   UiAutomator2 install completed (exit code: !_DRV_INST_EXIT!^).
