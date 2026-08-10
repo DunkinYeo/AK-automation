@@ -410,6 +410,26 @@ IF "!_FIND_EXIT!"=="" SET "_FIND_EXIT=unknown"
 del "%_DRV_TMP%" >nul 2>&1
 echo [3/5] findstr exit: !_FIND_EXIT! >> "%LOG%"
 
+REM Real tester failure (2026-08-06 -> 08-11): appium-uiautomator2-driver
+REM pushes/refreshes its helper app (settings_apk-debug.apk) to the device on
+REM EVERY driver install AND every later session start, not just the very
+REM first install. On devices with Play Protect's "Verify apps over USB"
+REM active, that install-time verification blocks this debug-signed APK:
+REM 'INSTALL_FAILED_VERIFICATION_FAILURE'. Not a leftover-app conflict
+REM (confirmed: tester had no old io.appium.* app installed at all), and not
+REM fixed by retrying setup once the npm package is already registered — a
+REM prior fix here was gated inside the "not yet installed" branch below and
+REM so never ran again on retry. Run unconditionally, every launch, so it
+REM covers both a fresh install AND a retry after a partial prior failure.
+REM Best-effort: if no device is connected yet or this device doesn't support
+REM these settings keys, ignore and let the later error (if any) surface
+REM normally rather than aborting setup here. (Belt-and-suspenders: the same
+REM disable now also runs from Python before every Appium session, so this
+REM covers the case even if this script's install step never runs at all.)
+echo   Disabling Android install-time verification (Play Protect) for driver install...
+"%ADB%\adb.exe" shell settings put global verifier_verify_adb_installs 0 >> "%LOG%" 2>&1
+"%ADB%\adb.exe" shell settings put global package_verifier_enable 0 >> "%LOG%" 2>&1
+
 IF "!_FIND_EXIT!"=="0" (
     echo   UiAutomator2 driver already installed.
     echo [3/5] UiAutomator2 present >> "%LOG%"

@@ -166,6 +166,24 @@ if [ ! -f "$APPIUM_CMD" ]; then
     echo ""
 fi
 
+# Real tester failure (2026-08-06 -> 08-11): appium-uiautomator2-driver
+# pushes/refreshes its helper app (settings_apk-debug.apk) to the device on
+# EVERY driver install AND every later session start, not just the very
+# first install. On devices with Play Protect's "Verify apps over USB"
+# active, that install-time verification blocks this debug-signed APK:
+# 'INSTALL_FAILED_VERIFICATION_FAILURE'. Not a leftover-app conflict
+# (confirmed live: tester had no old io.appium.* app installed at all), and
+# not fixed by retrying setup once the npm package is already registered —
+# a prior fix here was gated inside the "not yet installed" branch below and
+# so never ran again on retry. Run unconditionally, every launch, so it
+# covers both a fresh install AND a retry after a partial prior failure.
+# Best-effort, no error check, since a device may not be connected yet at
+# this point. (Belt-and-suspenders: the same disable now also runs from
+# Python before every Appium session, so this covers the case even if this
+# script's install step never runs at all.)
+"$ADB/adb" shell settings put global verifier_verify_adb_installs 0 >> "$LOG" 2>&1 || true
+"$ADB/adb" shell settings put global package_verifier_enable 0 >> "$LOG" 2>&1 || true
+
 # ── First run: install UiAutomator2 driver ────────────────────────────────
 # APPIUM_HOME is exported to automation/appium_home — isolated from ~/.appium
 if ! "$APPIUM_CMD" driver list --installed 2>/dev/null | grep -qi "uiautomator2"; then
