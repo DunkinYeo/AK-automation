@@ -1,0 +1,94 @@
+name: Appium Dependency Drift Canary
+
+# Weekly early-warning check — installs Appium and the UiAutomator2 driver
+# UNPINNED (whatever npm currently resolves as "latest") and verifies a
+# session can still be created. Deliberately separate from
+# windows-smoke.yml/mac-smoke.yml, which pin exact versions and gate merges:
+# this workflow's only job is to catch npm's "latest" drifting into another
+# incompatible state BEFORE it reaches a real tester, the way it silently
+# did once already (2026-08-05 — appium-uiautomator2-driver's "latest"
+# pulled in an ESM-only dependency, breaking under Node's require() with
+# "Cannot require() ES Module ... in a cycle"). A failure here never blocks
+# anything — it's a signal that the pins in build_dist_bundle.py /
+# build_dist_bundle_mac.py need to be re-verified and bumped.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # every Monday 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  canary-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Appium + UiAutomator2 driver (latest, unpinned)
+        shell: pwsh
+        run: |
+          $env:APPIUM_HOME = "$PWD\appium_home"
+          New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
+          npm install -g appium --quiet --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "npm install -g appium failed" }
+          appium driver install uiautomator2
+          if ($LASTEXITCODE -ne 0) { throw "appium driver install uiautomator2 failed" }
+
+      - name: Create a session and check for the known ESM/require() failure class
+        shell: pwsh
+        run: |
+          $env:APPIUM_HOME = "$PWD\appium_home"
+          $proc = Start-Process -FilePath "appium" -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 8
+          try {
+            $body = '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}'
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:4744/session" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 30 -SkipHttpErrorCheck
+            $text = $resp.Content
+            Write-Host $text
+            if ($text -match "Cannot require\(\)" -or $text -match "ES Module") {
+              throw "DRIFT DETECTED: npm's 'latest' appium-uiautomator2-driver now ships an ESM-only dependency incompatible with require() -- the same failure class a real tester hit on 2026-08-05. Re-verify and bump the pins in build_dist_bundle.py / build_dist_bundle_mac.py before the next release."
+            }
+            if ($text -notmatch "Could not find a connected Android device") {
+              throw "Unexpected response from session creation -- investigate: $text"
+            }
+            Write-Host "OK: latest driver still loads cleanly."
+          } finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+
+  canary-mac:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Appium + UiAutomator2 driver (latest, unpinned)
+        run: |
+          export APPIUM_HOME="$PWD/appium_home"
+          mkdir -p "$APPIUM_HOME"
+          npm install -g appium --quiet --no-progress
+          appium driver install uiautomator2
+
+      - name: Create a session and check for the known ESM/require() failure class
+        run: |
+          export APPIUM_HOME="$PWD/appium_home"
+          appium --port 4744 --relaxed-security > appium_canary.log 2>&1 &
+          APPIUM_PID=$!
+          sleep 8
+          RESP=$(curl -s -X POST http://127.0.0.1:4744/session -H "Content-Type: application/json" \
+            -d '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}')
+          kill "$APPIUM_PID" 2>/dev/null || true
+          echo "$RESP"
+          if echo "$RESP" | grep -q "Cannot require()" || echo "$RESP" | grep -q "ES Module"; then
+            echo "DRIFT DETECTED: npm's 'latest' appium-uiautomator2-driver now ships an ESM-only dependency incompatible with require() -- the same failure class a real tester hit on 2026-08-05. Re-verify and bump the pins in build_dist_bundle.py / build_dist_bundle_mac.py before the next release."
+            exit 1
+          fi
+          if ! echo "$RESP" | grep -q "Could not find a connected Android device"; then
+            echo "Unexpected response from session creation -- investigate: $RESP"
+            exit 1
+          fi
+          echo "OK: latest driver still loads cleanly."
