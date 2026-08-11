@@ -107,6 +107,30 @@ class AndroidDriver:
             opts.app_activity = self.cfg["app_activity"]
         return opts
 
+    def _disable_install_verification(self) -> None:
+        """
+        Disable Play Protect's install-time verification before every
+        session creation. UiAutomator2's driver pushes/refreshes its
+        debug-signed helper APK (settings_apk-debug.apk) to the device as
+        part of EVERY session start, not just the first-ever driver
+        install — a real tester hit INSTALL_FAILED_VERIFICATION_FAILURE on
+        this exact step (2026-08-06), and it recurred after re-running
+        run.bat's setup because that only covers the first-launch install
+        path, not later session creations. This setting is a persistent
+        Android global (survives reboots) so writing it here, unconditionally,
+        before every session covers both paths without depending on tester
+        action. Best-effort: no device may be attached yet, or this device
+        may not expose these keys — never block/raise on failure.
+        """
+        for key in ("verifier_verify_adb_installs", "package_verifier_enable"):
+            try:
+                subprocess.run(
+                    self._adb_cmd() + ["shell", "settings", "put", "global", key, "0"],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except Exception:
+                pass
+
     def _connect(self) -> webdriver.Remote:
         server = self.cfg.get("appium_server_url", "http://127.0.0.1:4723")
         # #34: without this, a stalled Appium/adb HTTP call blocks forever
@@ -116,6 +140,7 @@ class AndroidDriver:
         # legitimate slow operations (cold session creation, screenshots)
         # while still turning a stall into a recoverable exception.
         RemoteConnection.set_timeout(self.cfg.get("appium_http_timeout", 120))
+        self._disable_install_verification()
         self.reporter.log_event("appium_connect", {"server": server})
         return webdriver.Remote(server, options=self._build_options())
 
