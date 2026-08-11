@@ -153,9 +153,24 @@ def build_log_timeline(out_dir: str, events: list[dict], run_start_ts: str, run_
 
     rows = []
     for e in events:
-        rows.append({"ts": e.get("ts", ""), "source": "auto", "html": _fmt_event_for_timeline(e)})
+        text = e.get("event", "")
+        rows.append({
+            "ts": e.get("ts", ""), "source": "auto",
+            "html": _fmt_event_for_timeline(e),
+            # "flagged" lets a caller show a short highlights list (e.g. the
+            # mobile-card /api/report) instead of the full row-by-row table
+            # reporter.py's summary.html renders.
+            "flagged": bool(_KEYWORD_RE.search(text)) or e.get("event") in (
+                "run_failed", "job_failed", "session_recovery_failed",
+                "ui_health_check_failed",
+            ),
+        })
     for e in app_entries:
-        rows.append({"ts": e["ts"].isoformat(timespec="seconds"), "source": "app", "html": _highlight(e["text"])})
+        rows.append({
+            "ts": e["ts"].isoformat(timespec="seconds"), "source": "app",
+            "html": _highlight(e["text"]),
+            "flagged": bool(_KEYWORD_RE.search(e["text"])),
+        })
 
     rows.sort(key=lambda r: r["ts"])
 

@@ -27,6 +27,8 @@ _INTERVAL_OVERRIDE = ROOT / "runtime" / "interval_override.json"
 _INJECT_NOW_FILE   = ROOT / "runtime" / "inject_now.json"
 sys.path.insert(0, str(ROOT))
 
+from src.log_timeline import build_log_timeline
+
 ARTIFACTS_DIR = ROOT / "artifacts"
 
 app = Flask(__name__)
@@ -474,7 +476,7 @@ def _sync_localhost_session():
                 report_path = Path(out_dir) / "report.html"
                 if not report_path.exists():
                     try:
-                        report_path.write_text(_build_report_html(events), encoding="utf-8")
+                        report_path.write_text(_build_report_html(events, out_dir), encoding="utf-8")
                         log.info("[report] Auto-saved to %s", report_path)
                     except Exception:
                         pass
@@ -1490,7 +1492,7 @@ _TC_PERIODIC_TWIN = {
 _TC_PERIODIC_MIN_PASSES = 3  # fewer later passes isn't enough to call it "probably transient"
 
 
-def _build_report_html(events: list[dict]) -> str:
+def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     device = start_ts_str = ""
     duration_h = interval_h = None
@@ -1852,6 +1854,59 @@ def _build_report_html(events: list[dict]) -> str:
         cls  = "ok" if t["ok"] else "err"
         ap_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t['minutes']} min</span><span class='{cls}'>{icon}</span></div>"
 
+    # #69: app-log + automation-event highlights (errors/fails/keywords),
+    # with a link to the full merged timeline in reporter.py's summary.html
+    # rather than embedding every row here -- this report is meant to stay
+    # a light overview, not a full raw dump (that already exists elsewhere).
+    run_end_ts = next(
+        (e.get("ts", "") for e in events
+         if e.get("event") in ("run_complete", "run_ended_study_complete", "run_failed")),
+        "",
+    )
+    log_timeline = (build_log_timeline(out_dir, events, start_ts_str, run_end_ts) if out_dir
+                    else {"rows": [], "app_log_source": None, "unparsed_count": 0})
+    flagged_rows = [r for r in log_timeline["rows"] if r["flagged"]][-20:]
+
+    timeline_rows_html = ""
+    for r in flagged_rows:
+        badge_cls = "src-auto" if r["source"] == "auto" else "src-app"
+        badge_txt = "AUTO" if r["source"] == "auto" else "APP"
+        timeline_rows_html += (
+            f"<div class='list-row'><span class='ts'>{_t(r['ts'])}</span>"
+            f"<span class='{badge_cls}'>{badge_txt}</span>"
+            f"<span style='flex:1;font-size:.78rem;text-align:left'>{r['html']}</span></div>"
+        )
+
+    report_link = None
+    if out_dir:
+        try:
+            rel = (ROOT / out_dir).resolve().relative_to(ROOT.resolve())
+            report_link = f"/app_logs/{rel.as_posix()}/summary.html"
+        except Exception:
+            report_link = None
+
+    if flagged_rows:
+        timeline_card = f"""
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span>
+          <span class="card-count">{len(flagged_rows)}</span></div>
+        {timeline_rows_html}
+        {f'<div style="margin-top:10px"><a href="{report_link}" target="_blank" style="font-size:.8rem">View full log timeline →</a></div>' if report_link else ''}
+      </div>"""
+    elif log_timeline["app_log_source"]:
+        timeline_card = f"""
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span></div>
+        <div style="font-size:.8rem;color:#6b7280">No errors/warnings flagged in the captured app log.</div>
+        {f'<div style="margin-top:10px"><a href="{report_link}" target="_blank" style="font-size:.8rem">View full log timeline →</a></div>' if report_link else ''}
+      </div>"""
+    else:
+        timeline_card = """
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span></div>
+        <div style="font-size:.8rem;color:#6b7280">No app log was captured for this run.</div>
+      </div>"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8">
@@ -1910,6 +1965,9 @@ def _build_report_html(events: list[dict]) -> str:
   .ok{{color:#059669;font-weight:700;min-width:24px;text-align:center}}
   .err{{color:#dc2626;font-weight:700;min-width:24px;text-align:center}}
   .empty{{font-size:.8rem;color:#9ca3af;font-style:italic;padding:4px 0}}
+  .src-auto{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.68rem;font-weight:700;background:#e7edff;color:#1d4ed8;min-width:38px;text-align:center}}
+  .src-app{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.68rem;font-weight:700;background:#eafbe7;color:#15803d;min-width:38px;text-align:center}}
+  mark{{background:#ffe58f;padding:0 2px;border-radius:2px}}
 </style>
 </head>
 <body>
@@ -1978,7 +2036,7 @@ def _build_report_html(events: list[dict]) -> str:
     </div>
     {ap_html if ap_html else "<div class='empty'>No airplane tests yet.</div>"}
   </div>
-
+{timeline_card}
   <div class="card">
     <div class="card-header">
       <span class="card-icon">📶</span>
@@ -2014,7 +2072,7 @@ def api_report():
         # 2026-07-22; same fallback /api/status already uses).
         out_dir = _find_latest_output_dir()
     events = read_events(out_dir) if out_dir else []
-    html   = _build_report_html(events)
+    html   = _build_report_html(events, out_dir)
     ts     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return Response(
         html,
