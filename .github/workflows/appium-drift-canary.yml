@@ -40,7 +40,15 @@ jobs:
         shell: pwsh
         run: |
           $env:APPIUM_HOME = "$PWD\appium_home"
-          $proc = Start-Process -FilePath "appium" -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
+          # Start-Process needs a real executable path -- npm installs
+          # "appium" on Windows as an appium.cmd shim, and passing the bare
+          # name here (unlike a normal cmdline invocation, which PowerShell
+          # resolves through cmd.exe association) fails with "%1 is not a
+          # valid Win32 application" (seen in the first canary run,
+          # 2026-08-11). Resolve the real .cmd path first, same pattern
+          # windows-smoke.yml already uses successfully.
+          $appiumCmd = (Get-Command appium -ErrorAction Stop).Source
+          $proc = Start-Process -FilePath $appiumCmd -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
           Start-Sleep -Seconds 8
           try {
             $body = '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}'
