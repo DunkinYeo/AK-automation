@@ -13,6 +13,18 @@
   the versions actually verified working (appium@3.5.2,
   uiautomator2@4.1.5, xcuitest@11.17.1), confirmed via a real CI build +
   smoke test of the extracted zip.
+- **After the pin above, the same tester hit a second first-run failure**:
+  `INSTALL_FAILED_VERIFICATION_FAILURE` installing Appium's helper APK
+  (`settings_apk-debug.apk`), on the same phone/PC that had worked fine on
+  v1.1.2. Root cause: the UiAutomator2 driver pushes/refreshes this helper
+  app to the device on every session start (not just the first-ever driver
+  install), and Android's Play Protect "Verify apps over USB" blocks its
+  debug signature — something that can start happening at any time as npm
+  dependency resolution drifts, independent of the tester's environment.
+  The app now disables this Android setting automatically before every
+  Appium session (`src/driver.py`), so no tester action or re-diagnosis is
+  ever needed again; the build scripts also disable it unconditionally on
+  every launch as defense in depth for the very first driver install.
 
 ### Highlights
 This release is overwhelmingly a **reliability pass**, not a feature drop:
