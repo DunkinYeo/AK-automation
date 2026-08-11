@@ -184,11 +184,17 @@ def go_to_step2(drv, wait_ble: int = 45):
     raise Exception(f"Failed to enter Step 2 ('Check Incoming Signal' not displayed after {wait_ble}s)")
 
 
-def go_to_main(drv, wait_ble: int = 120):
+def go_to_main(drv, wait_ble: int = 240):
     """App initial screen → Connect → (auto-handle Step 2/3/Start Study) → main measurement screen.
 
     State-driven: detects current screen on every loop iteration and acts accordingly.
     Takes diagnostic screenshots on repeated BLE failures and on timeout.
+
+    wait_ble was 120s until a real run on a Samsung SM-A325N (Android 11)
+    timed out stuck on the Start Study screen -- the tap itself was landing
+    fine (text-based locator, not a coordinate issue) but the actual
+    Start-Study BLE/backend handshake was slower on this device than the
+    old budget allowed for (2026-08-11).
     """
     # Bring the AK app to foreground first
     try:
