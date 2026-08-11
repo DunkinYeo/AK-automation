@@ -296,6 +296,26 @@ def get_devices() -> list[str]:
         return []
 
 
+def get_unauthorized_devices() -> list[str]:
+    """
+    Serials adb sees over USB but can't use yet ('unauthorized' state) — the
+    phone hasn't confirmed the "Allow USB debugging?" RSA-key prompt. These
+    used to be silently dropped from the device list with no explanation,
+    so a tester whose phone missed/dismissed that prompt saw "No USB device
+    connected" and no clue why (real tester report, 2026-08-11 — worked
+    around by switching to WiFi ADB, never learned the actual cause).
+    """
+    try:
+        r = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
+        return [
+            line.split("\t")[0].strip()
+            for line in r.stdout.splitlines()[1:]
+            if "\t" in line and line.split("\t")[1].strip() == "unauthorized"
+        ]
+    except Exception:
+        return []
+
+
 def get_ios_devices() -> list[str]:
     """List connected iOS device UDIDs (libimobiledevice, else pymobiledevice3)."""
     try:
@@ -669,6 +689,7 @@ def get_cached_wifi() -> str:
 @app.route("/api/init")
 def api_init():
     return jsonify({"devices": get_devices(), "ios_devices": get_ios_devices(),
+                    "unauthorized_devices": get_unauthorized_devices(),
                     "appium": appium_ok(), "cached_wifi": get_cached_wifi()})
 
 
