@@ -38,13 +38,17 @@ jobs:
           # appium.ps1) and Start-Process needs the real .cmd path, not
           # whichever one Get-Command happens to resolve first.
           #
-          # Run from RUNNER_TEMP, not the repo checkout: the npm version that
+          # Run from a scratch dir with a stub package.json: the npm version
           # actions/setup-node's "22" resolves to (newer than the pinned
-          # 22.13.1 windows-smoke.yml bundles) errors ENOENT looking for a
-          # package.json in CWD even for a global install -- this repo has
-          # none (it's a Python project). Also seen 2026-08-11.
+          # 22.13.1 windows-smoke.yml bundles directly) errors ENOENT
+          # reading package.json from CWD whenever -g is combined with an
+          # explicit --prefix, regardless of which directory CWD actually
+          # is -- moving to RUNNER_TEMP alone still hit the same error
+          # there (2026-08-11), so npm needs *a* package.json present, not
+          # specifically one belonging to this (package.json-less) repo.
           $work = New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\canary"
           Set-Location $work
+          '{}' | Out-File -FilePath "$work\package.json" -Encoding utf8
           $env:APPIUM_HOME = "$work\appium_home"
           New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
           npm install -g appium --prefix "$work\appium" --quiet --no-progress
