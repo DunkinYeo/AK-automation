@@ -941,7 +941,7 @@ async function init() {
   requestNotificationPermission();
   const r = await fetch('/api/init').then(r => r.json());
   updateAppiumUI(r.appium);
-  populateDevices(r.devices, r.ios_devices || []);
+  populateDevices(r.devices, r.ios_devices || [], r.unauthorized_devices || []);
   if (r.cached_wifi) document.getElementById('wifi-addr').value = r.cached_wifi;
   initSuiteGrid();
   initConnGrid();
@@ -1000,7 +1000,7 @@ async function detectWifi() {
     // Refresh device list (now includes every detected WiFi device) and
     // auto-select the primary one; new devices are highlighted in the list
     const init = await fetch('/api/init').then(r => r.json());
-    populateDevices(init.devices);
+    populateDevices(init.devices, undefined, init.unauthorized_devices || []);
     const sel = document.getElementById('device-select');
     if ([...sel.options].some(o => o.value === r.wifi_addr)) {
       sel.value = r.wifi_addr;
@@ -1020,10 +1020,12 @@ async function detectWifi() {
 
 let _allDevices = [];
 let _iosDevices = [];
+let _unauthorizedDevices = [];
 
-function populateDevices(devices, iosDevices) {
+function populateDevices(devices, iosDevices, unauthorizedDevices) {
   _allDevices = devices;
   if (iosDevices !== undefined) _iosDevices = iosDevices;
+  if (unauthorizedDevices !== undefined) _unauthorizedDevices = unauthorizedDevices;
   _filterDevices();
 }
 
@@ -1041,15 +1043,31 @@ function _filterDevices() {
   }
   const isWifi = document.getElementById('adb-wifi').checked;
   const filtered = _allDevices.filter(d => isWifi ? d.includes(':') : !d.includes(':'));
-  if (!filtered.length) sel.innerHTML = `<option value="">No ${isWifi ? 'WiFi' : 'USB'} device connected</option>`;
-  else filtered.forEach(d => {
-    const o = document.createElement('option');
-    o.value = d;
-    // Highlight devices that the last Auto Detect just connected
-    if (_newWifiAddrs.has(d)) { o.textContent = d + '  ● just detected'; o.style.color = '#16a34a'; }
-    else o.textContent = d;
-    sel.appendChild(o);
-  });
+  if (!filtered.length && (isWifi || !_unauthorizedDevices.length)) {
+    sel.innerHTML = `<option value="">No ${isWifi ? 'WiFi' : 'USB'} device connected</option>`;
+  } else {
+    filtered.forEach(d => {
+      const o = document.createElement('option');
+      o.value = d;
+      // Highlight devices that the last Auto Detect just connected
+      if (_newWifiAddrs.has(d)) { o.textContent = d + '  ● just detected'; o.style.color = '#16a34a'; }
+      else o.textContent = d;
+      sel.appendChild(o);
+    });
+  }
+  // adb sees these over USB but the phone hasn't confirmed the "Allow USB
+  // debugging?" prompt yet — surface why nothing shows up instead of
+  // silently omitting them (real tester report, 2026-08-11).
+  if (!isWifi) {
+    _unauthorizedDevices.forEach(d => {
+      const o = document.createElement('option');
+      o.value = '';
+      o.disabled = true;
+      o.textContent = d + '  ⚠ unauthorized — 폰 화면에서 "USB 디버깅 허용" 팝업을 눌러주세요';
+      o.style.color = '#dc2626';
+      sel.appendChild(o);
+    });
+  }
 }
 
 function applyPlatformUI() {
