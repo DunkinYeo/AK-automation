@@ -29,26 +29,32 @@ jobs:
       - name: Install Appium + UiAutomator2 driver (latest, unpinned)
         shell: pwsh
         run: |
+          # Installed to a known --prefix (not the ambiguous global default)
+          # so the next step can resolve appium.cmd's exact path directly --
+          # same pattern windows-smoke.yml already uses successfully.
+          # Get-Command-based resolution failed twice here (2026-08-11):
+          # npm installs THREE shims for "appium" on Windows (an
+          # extensionless POSIX script for Git Bash/WSL, appium.cmd, and
+          # appium.ps1) and Start-Process needs the real .cmd path, not
+          # whichever one Get-Command happens to resolve first.
           $env:APPIUM_HOME = "$PWD\appium_home"
           New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
-          npm install -g appium --quiet --no-progress
+          npm install -g appium --prefix "$PWD\appium" --quiet --no-progress
           if ($LASTEXITCODE -ne 0) { throw "npm install -g appium failed" }
-          appium driver install uiautomator2
+
+          $appiumCmd = "$PWD\appium\appium.cmd"
+          if (-not (Test-Path $appiumCmd)) { $appiumCmd = "$PWD\appium\node_modules\.bin\appium.cmd" }
+          if (-not (Test-Path $appiumCmd)) { throw "appium.cmd not found after install" }
+          "APPIUM_CMD=$appiumCmd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          & $appiumCmd driver install uiautomator2
           if ($LASTEXITCODE -ne 0) { throw "appium driver install uiautomator2 failed" }
 
       - name: Create a session and check for the known ESM/require() failure class
         shell: pwsh
         run: |
           $env:APPIUM_HOME = "$PWD\appium_home"
-          # Start-Process needs a real executable path -- npm installs
-          # "appium" on Windows as an appium.cmd shim, and passing the bare
-          # name here (unlike a normal cmdline invocation, which PowerShell
-          # resolves through cmd.exe association) fails with "%1 is not a
-          # valid Win32 application" (seen in the first canary run,
-          # 2026-08-11). Resolve the real .cmd path first, same pattern
-          # windows-smoke.yml already uses successfully.
-          $appiumCmd = (Get-Command appium -ErrorAction Stop).Source
-          $proc = Start-Process -FilePath $appiumCmd -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
+          $proc = Start-Process -FilePath $env:APPIUM_CMD -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
           Start-Sleep -Seconds 8
           try {
             $body = '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}'
