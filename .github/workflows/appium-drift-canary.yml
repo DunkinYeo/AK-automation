@@ -29,45 +29,35 @@ jobs:
       - name: Install Appium + UiAutomator2 driver (latest, unpinned)
         shell: pwsh
         run: |
-          # Installed to a known --prefix (not the ambiguous global default)
-          # so the next step can resolve appium.cmd's exact path directly --
-          # same pattern windows-smoke.yml already uses successfully.
-          # Get-Command-based resolution failed twice here (2026-08-11):
-          # npm installs THREE shims for "appium" on Windows (an
-          # extensionless POSIX script for Git Bash/WSL, appium.cmd, and
-          # appium.ps1) and Start-Process needs the real .cmd path, not
-          # whichever one Get-Command happens to resolve first.
-          #
-          # Run from a scratch dir with a stub package.json: the npm version
-          # actions/setup-node's "22" resolves to (newer than the pinned
-          # 22.13.1 windows-smoke.yml bundles directly) errors ENOENT
-          # reading package.json from CWD whenever -g is combined with an
-          # explicit --prefix, regardless of which directory CWD actually
-          # is -- moving to RUNNER_TEMP alone still hit the same error
-          # there (2026-08-11), so npm needs *a* package.json present, not
-          # specifically one belonging to this (package.json-less) repo.
-          $work = New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\canary"
-          Set-Location $work
-          '{}' | Out-File -FilePath "$work\package.json" -Encoding utf8
-          $env:APPIUM_HOME = "$work\appium_home"
+          # Plain "npm install -g appium" (no --prefix) always worked here
+          # across every earlier attempt. Combining -g with an explicit
+          # --prefix is what broke, two different ways, on the npm version
+          # actions/setup-node's "22" currently resolves to: ENOENT reading
+          # package.json from CWD (regardless of directory), then even with
+          # a stub package.json present, an internal npm crash ("Cannot
+          # destructure property 'name' of '.for' as it is undefined") --
+          # looks like a real npm regression in -g+--prefix specifically
+          # (all seen 2026-08-11). Avoiding --prefix sidesteps it entirely;
+          # `npm config get prefix` gives the real shim location afterward.
+          $env:APPIUM_HOME = "$env:RUNNER_TEMP\appium_home"
           New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
-          npm install -g appium --prefix "$work\appium" --quiet --no-progress
+          npm install -g appium --quiet --no-progress
           if ($LASTEXITCODE -ne 0) { throw "npm install -g appium failed" }
 
-          $appiumCmd = "$work\appium\appium.cmd"
-          if (-not (Test-Path $appiumCmd)) { $appiumCmd = "$work\appium\node_modules\.bin\appium.cmd" }
-          if (-not (Test-Path $appiumCmd)) { throw "appium.cmd not found after install" }
+          $npmPrefix = (npm config get prefix).Trim()
+          $appiumCmd = Join-Path $npmPrefix "appium.cmd"
+          if (-not (Test-Path $appiumCmd)) { throw "appium.cmd not found under npm prefix: $npmPrefix" }
           "APPIUM_CMD=$appiumCmd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "APPIUM_HOME=$env:APPIUM_HOME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          & $appiumCmd driver install uiautomator2
+          appium driver install uiautomator2
           if ($LASTEXITCODE -ne 0) { throw "appium driver install uiautomator2 failed" }
 
       - name: Create a session and check for the known ESM/require() failure class
         shell: pwsh
         run: |
           # APPIUM_HOME and APPIUM_CMD carried over via $GITHUB_ENV from the
-          # previous step (set there, in the RUNNER_TEMP scratch dir).
+          # previous step.
           $proc = Start-Process -FilePath $env:APPIUM_CMD -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
           Start-Sleep -Seconds 8
           try {
