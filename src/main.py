@@ -301,6 +301,9 @@ def main():
 
     # ── Full long-run mode ───────────────────────────────────────────────────
     dm = None
+    driver = None  # guards the finally block's `if dm and driver:` — dm.driver
+                    # could theoretically fail right after `dm = DeviceManager(...)`
+                    # succeeds, which would otherwise leave `driver` unbound there
     keep_awake = KeepAwake()
     _screen_restore: dict = {}  # filled once the driver sets the run timeout
 
@@ -649,6 +652,38 @@ def main():
                     _clear_screen_orig()
         except Exception:
             pass
+
+        # #69 follow-up to #55: capture the app's own log export
+        # automatically at run end (success OR failure), before the driver
+        # closes -- a purely manual, mid-run-only "Capture App Logs" click
+        # means most runs would have no app log by the time anyone wants
+        # a Log Timeline View, and the scenario this matters most for (a
+        # crashed/failed run) is exactly the one case a scheduler-routed
+        # capture can't reach anymore, since the scheduler is already gone
+        # by the time we're here. Best-effort: must never block the run's
+        # own cleanup/report generation below.
+        #
+        # _job_busy must be held for this too: _stop_monitor is only set on
+        # the normal-completion path above (before this finally block), so
+        # on any early exit (SIGTERM/exception) the connectivity monitor's
+        # 30s-tick thread can still be alive and touching the UI on its own
+        # — confirmed as a real, reproducible failure mode for the
+        # scheduler-routed capture path (mid-run "Capture App Logs" clicks,
+        # 2026-08-11); this path can hit the exact same race.
+        if dm and driver:
+            busy = getattr(driver, "_job_busy", None)
+            if busy is not None:
+                busy.set()
+            try:
+                from src.log_capture import capture_app_logs
+                capture_app_logs(driver, os.path.join(out_dir, "app_logs"))
+                reporter.log_event("capture_logs_success", {"trigger": "run_end"})
+            except Exception as e:
+                reporter.log_event("capture_logs_failed", {"trigger": "run_end", "error": str(e)})
+            finally:
+                if busy is not None:
+                    busy.clear()
+
         if dm:
             dm.close()
         try:

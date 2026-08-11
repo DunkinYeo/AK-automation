@@ -590,9 +590,15 @@ def _kill_proc():
         if proc and proc.poll() is None:
             try:
                 proc.terminate()
-                # 15s parity with /api/stop — the run's finally needs time to
-                # restore the device screen timeout (review 2026-07-14)
-                proc.wait(timeout=15)
+                # 150s parity with /api/stop — the run's finally needs time to
+                # restore the device screen timeout (review 2026-07-14) and,
+                # since #69, run the auto app-log capture (#55's flow, ~30-60s
+                # on real hardware) before the driver closes. Killing mid-
+                # capture would leave a half-written zip and/or an orphaned
+                # UiAutomator2 session on the device. 90s wasn't enough in
+                # practice — screen-restore + capture together got cut off
+                # before logging a result (real restart, 2026-08-11).
+                proc.wait(timeout=150)
             except subprocess.TimeoutExpired:
                 proc.kill()
         # Re-attached run (pid only, no Popen handle) is NOT killed on server
@@ -785,9 +791,18 @@ def api_capture_logs():
     """
     data = request.json or {}
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = APP_LOGS_DIR / ts
 
     if _run_already_active():
+        # Lands inside the LIVE run's own output dir (output/<run_id>/app_logs/),
+        # not the standalone artifacts/ location below -- #69's Log Timeline
+        # View needs to find this next to that run's events.jsonl. main.py
+        # also captures automatically at run end into the same place, so a
+        # mid-run manual click here and the automatic end-of-run capture are
+        # never split across two different locations for the same run.
+        run_out_dir = _state.get("out_dir")
+        if not run_out_dir:
+            return jsonify({"error": "Run is active but its output directory isn't known yet — try again shortly."}), 400
+        out_dir = Path(run_out_dir) / "app_logs" / ts
         out_dir.mkdir(parents=True, exist_ok=True)
         try:
             _CAPTURE_LOGS_RESULT.unlink()
@@ -808,7 +823,8 @@ def api_capture_logs():
                         pass
                 if result.get("status") == "ok":
                     zip_path = Path(result["zip_path"])
-                    return jsonify({"download_url": f"/app_logs/{ts}/{zip_path.name}", "filename": zip_path.name})
+                    rel = zip_path.resolve().relative_to(ROOT)
+                    return jsonify({"download_url": f"/app_logs/{rel.as_posix()}", "filename": zip_path.name})
                 return jsonify({"error": result.get("message", "Capture failed")}), 500
             time.sleep(1)
         return jsonify({"error": "Log capture timed out waiting for the active run to pick it up."}), 500
@@ -817,6 +833,9 @@ def api_capture_logs():
     if not device:
         return jsonify({"error": "No device specified."}), 400
 
+    # No run to attach to -- standalone captures have no events.jsonl to
+    # compare against anyway, so they just live in their own artifacts/ spot.
+    out_dir = APP_LOGS_DIR / ts
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         result = subprocess.run(
@@ -829,19 +848,33 @@ def api_capture_logs():
     out = result.stdout or ""
     if "CAPTURE_OK:" in out:
         zip_path = Path(out.split("CAPTURE_OK:", 1)[1].strip().splitlines()[0])
-        return jsonify({"download_url": f"/app_logs/{ts}/{zip_path.name}", "filename": zip_path.name})
+        rel = zip_path.resolve().relative_to(ROOT)
+        return jsonify({"download_url": f"/app_logs/{rel.as_posix()}", "filename": zip_path.name})
     if "CAPTURE_FAIL:" in out:
         reason = out.split("CAPTURE_FAIL:", 1)[1].strip().splitlines()[0]
         return jsonify({"error": reason}), 500
     return jsonify({"error": (result.stderr or out or "Unknown failure")[-500:]}), 500
 
 
-@app.route("/app_logs/<ts>/<filename>")
-def serve_app_log(ts, filename):
-    folder = APP_LOGS_DIR / ts
-    if not folder.is_dir():
+# Captured logs can live in two places (see api_capture_logs): standalone
+# captures under artifacts/app_logs_captures/, or run-attached captures
+# (manual mid-run clicks and the automatic end-of-run capture in main.py)
+# under output/<run_id>/app_logs/. This serves either, resolving the given
+# path and checking it stays inside one of those two roots.
+_APP_LOGS_SERVE_ROOTS = [
+    (ROOT / "artifacts" / "app_logs_captures").resolve(),
+    (ROOT / "output").resolve(),
+]
+
+
+@app.route("/app_logs/<path:relpath>")
+def serve_app_log(relpath):
+    full = (ROOT / relpath).resolve()
+    if not any(root == full or root in full.parents for root in _APP_LOGS_SERVE_ROOTS):
         return "Not found.", 404
-    return send_from_directory(str(folder), filename, as_attachment=True)
+    if not full.is_file():
+        return "Not found.", 404
+    return send_from_directory(str(full.parent), full.name, as_attachment=True)
 
 
 @app.route("/api/local-ip")
@@ -1113,9 +1146,13 @@ def api_stop():
         if proc and proc.poll() is None:
             proc.terminate()
             try:
-                # 15s (was 5): the run's finally needs time for the screen-
-                # timeout restore and driver teardown before we hard-kill
-                proc.wait(timeout=15)
+                # 150s (was 90, was 15, was 5): the run's finally needs time
+                # for the screen-timeout restore, driver teardown, and,
+                # since #69, the auto app-log capture (#55's flow, ~30-60s
+                # on real hardware) before the driver closes. 90s wasn't
+                # enough in practice — screen-restore + capture together got
+                # cut off before logging a result (real restart, 2026-08-11).
+                proc.wait(timeout=150)
             except subprocess.TimeoutExpired:
                 proc.kill()
         elif not proc and _state.get("pid") and _pid_is_our_run(_state["pid"]):
@@ -1125,7 +1162,7 @@ def api_stop():
             pid = _state["pid"]
             try:
                 os.kill(pid, signal.SIGTERM)
-                deadline = time.time() + 15
+                deadline = time.time() + 150
                 while time.time() < deadline and _pid_alive(pid):
                     time.sleep(0.5)
                 if _pid_alive(pid):
