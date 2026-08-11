@@ -330,11 +330,26 @@ class LongRunScheduler:
             # if it leaves the app on an unexpected screen, the next job's
             # own pre-job health check + recovery already handles that —
             # no extra navigation cleanup needed here.
+            #
+            # job_lock alone isn't enough: main.py's connectivity monitor
+            # (30s tick) checks driver._job_busy — NOT job_lock — to decide
+            # whether it's safe to touch the UI itself (popup dismiss,
+            # BT-off diary, ECG check). _run_with_health_check sets that
+            # flag for regular jobs; this didn't, so the monitor kept
+            # polling/touching the screen concurrently with this job's own
+            # navigation for its whole ~30-60s duration -- confirmed live
+            # (2026-08-11): 3 straight open_menu() failures with zero
+            # screenshots saved, the exact "session looks dead under
+            # concurrent access" signature, only during real runs long
+            # enough to span a monitor tick.
             from src.log_capture import capture_app_logs, LogCaptureError
             with job_lock:
                 if driver is None:
                     _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "error", "message": "No active driver"}))
                     return
+                busy = getattr(driver, "_job_busy", None)
+                if busy is not None:
+                    busy.set()
                 try:
                     zip_path = capture_app_logs(driver, Path(out_dir_str))
                     _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "ok", "zip_path": str(zip_path)}))
@@ -345,6 +360,9 @@ class LongRunScheduler:
                 except Exception as e:
                     _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "error", "message": f"Unexpected error: {e}"}))
                     self.reporter.log_event("capture_logs_failed", {"error": str(e)})
+                finally:
+                    if busy is not None:
+                        busy.clear()
 
         def _capture_logs_watcher():
             while datetime.datetime.now() < end:
