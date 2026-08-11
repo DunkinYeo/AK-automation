@@ -758,6 +758,92 @@ def api_detect_wifi():
     })
 
 
+APP_LOGS_DIR = ROOT / "artifacts" / "app_logs_captures"
+_CAPTURE_LOGS_REQUEST = ROOT / "runtime" / "capture_logs_request.json"
+_CAPTURE_LOGS_RESULT  = ROOT / "runtime" / "capture_logs_result.json"
+
+
+@app.route("/api/capture-logs", methods=["POST"])
+def api_capture_logs():
+    """
+    Capture AccurKardia's exported app-log zip from a connected device and
+    pull it to the server for download.
+
+    Two paths depending on whether a run is active, because a second Appium
+    session on the same device would conflict with one already driving the
+    phone (only one UiAutomator2 instrumentation session per device — a
+    real conflict hit and confirmed while building this, issue #55):
+
+    - No run active: launches src/capture_logs.py as its own subprocess
+      with a fresh driver session (mirrors how /api/start launches main.py).
+    - Run active: writes a request file that scheduler.py's
+      _capture_logs_watcher polls for and runs through the LIVE run's own
+      driver (same job_lock as regular/inject-now jobs, so it can't
+      interleave with an in-progress test step), then polls for the result
+      file it writes back. This is what lets the button work mid-run
+      instead of requiring the tester to stop the run first.
+    """
+    data = request.json or {}
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = APP_LOGS_DIR / ts
+
+    if _run_already_active():
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            _CAPTURE_LOGS_RESULT.unlink()
+        except FileNotFoundError:
+            pass
+        _CAPTURE_LOGS_REQUEST.parent.mkdir(parents=True, exist_ok=True)
+        _CAPTURE_LOGS_REQUEST.write_text(json.dumps({"out_dir": str(out_dir)}))
+
+        deadline = time.time() + 200
+        while time.time() < deadline:
+            if _CAPTURE_LOGS_RESULT.exists():
+                try:
+                    result = json.loads(_CAPTURE_LOGS_RESULT.read_text())
+                finally:
+                    try:
+                        _CAPTURE_LOGS_RESULT.unlink()
+                    except FileNotFoundError:
+                        pass
+                if result.get("status") == "ok":
+                    zip_path = Path(result["zip_path"])
+                    return jsonify({"download_url": f"/app_logs/{ts}/{zip_path.name}", "filename": zip_path.name})
+                return jsonify({"error": result.get("message", "Capture failed")}), 500
+            time.sleep(1)
+        return jsonify({"error": "Log capture timed out waiting for the active run to pick it up."}), 500
+
+    device = (data.get("device") or "").strip()
+    if not device:
+        return jsonify({"error": "No device specified."}), 400
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "src" / "capture_logs.py"), "--device", device, "--out", str(out_dir)],
+            capture_output=True, text=True, timeout=210,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Log capture timed out."}), 500
+
+    out = result.stdout or ""
+    if "CAPTURE_OK:" in out:
+        zip_path = Path(out.split("CAPTURE_OK:", 1)[1].strip().splitlines()[0])
+        return jsonify({"download_url": f"/app_logs/{ts}/{zip_path.name}", "filename": zip_path.name})
+    if "CAPTURE_FAIL:" in out:
+        reason = out.split("CAPTURE_FAIL:", 1)[1].strip().splitlines()[0]
+        return jsonify({"error": reason}), 500
+    return jsonify({"error": (result.stderr or out or "Unknown failure")[-500:]}), 500
+
+
+@app.route("/app_logs/<ts>/<filename>")
+def serve_app_log(ts, filename):
+    folder = APP_LOGS_DIR / ts
+    if not folder.is_dir():
+        return "Not found.", 404
+    return send_from_directory(str(folder), filename, as_attachment=True)
+
+
 @app.route("/api/local-ip")
 def api_local_ip():
     ip = _get_lan_ip()

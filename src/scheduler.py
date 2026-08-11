@@ -26,6 +26,8 @@ from pathlib import Path
 
 _OVERRIDE_FILE    = Path(__file__).resolve().parent.parent / "runtime" / "interval_override.json"
 _INJECT_NOW_FILE  = Path(__file__).resolve().parent.parent / "runtime" / "inject_now.json"
+_CAPTURE_LOGS_REQUEST = Path(__file__).resolve().parent.parent / "runtime" / "capture_logs_request.json"
+_CAPTURE_LOGS_RESULT  = Path(__file__).resolve().parent.parent / "runtime" / "capture_logs_result.json"
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -317,6 +319,51 @@ class LongRunScheduler:
                     pass
 
         threading.Thread(target=_inject_now_watcher, daemon=True).start()
+
+        def _capture_logs_job(out_dir_str):
+            # Same job_lock as the regular/inject-now jobs — a second Appium
+            # session for this would conflict with the one already driving
+            # the phone (only one UiAutomator2 instrumentation session per
+            # device), so this reuses the live `driver` instead of creating
+            # its own (issue #55, web UI "Capture App Logs" during an
+            # active run). Runs the app icon 10x, hidden log-export flow;
+            # if it leaves the app on an unexpected screen, the next job's
+            # own pre-job health check + recovery already handles that —
+            # no extra navigation cleanup needed here.
+            from src.log_capture import capture_app_logs, LogCaptureError
+            with job_lock:
+                if driver is None:
+                    _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "error", "message": "No active driver"}))
+                    return
+                try:
+                    zip_path = capture_app_logs(driver, Path(out_dir_str))
+                    _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "ok", "zip_path": str(zip_path)}))
+                    self.reporter.log_event("capture_logs_success", {"zip_path": str(zip_path)})
+                except LogCaptureError as e:
+                    _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "error", "message": str(e)}))
+                    self.reporter.log_event("capture_logs_failed", {"error": str(e)})
+                except Exception as e:
+                    _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "error", "message": f"Unexpected error: {e}"}))
+                    self.reporter.log_event("capture_logs_failed", {"error": str(e)})
+
+        def _capture_logs_watcher():
+            while datetime.datetime.now() < end:
+                time.sleep(3)
+                try:
+                    if _CAPTURE_LOGS_REQUEST.exists():
+                        req = json.loads(_CAPTURE_LOGS_REQUEST.read_text())
+                        _CAPTURE_LOGS_REQUEST.unlink()
+                        self.reporter.log_event("capture_logs_triggered", {})
+                        sched.add_job(
+                            lambda o=req.get("out_dir"): _capture_logs_job(o),
+                            "date",
+                            run_date=datetime.datetime.now() + datetime.timedelta(seconds=1),
+                            misfire_grace_time=grace,
+                        )
+                except Exception:
+                    pass
+
+        threading.Thread(target=_capture_logs_watcher, daemon=True).start()
 
         while datetime.datetime.now() < end:
             time.sleep(10)

@@ -531,6 +531,22 @@
         <span id="inject-now-feedback" style="font-size:.78rem;color:#059669;margin-left:6px"></span>
       </div>
 
+      <!-- Deliberately NOT inside #config-form: that element gets
+           opacity:.55 while a run is active, and CSS opacity can't be
+           un-done by a descendant — a child stays dimmed no matter what
+           opacity/pointer-events it sets on itself. Enabled state is
+           driven from two different places depending on whether a run is
+           active (see setCaptureLogsEnabled() / setUIRunning()): only
+           during the scheduler's steady interval wait, not mid regression
+           suite or mid BT/Airplane test, where it would either get no
+           watcher to answer it or fight a device operation those don't
+           serialize against (same reason Inject Now is gated the same way). -->
+      <div id="capture-logs-row" style="margin-top:6px">
+        <button type="button" id="capture-logs-btn" class="btn-secondary" style="font-size:.82rem;padding:4px 12px" onclick="captureAppLogs()" disabled>📄 Capture App Logs</button>
+        <span id="capture-logs-hint" style="font-size:.75rem;color:#9ca3af;margin-left:6px">Android only</span>
+        <div id="capture-logs-status" style="display:none;margin-top:4px;font-size:.75rem"></div>
+      </div>
+
       <div id="interval-control" style="display:none;align-items:center;gap:6px;margin-top:6px">
         <span style="font-size:.8rem;color:#6b7280">Interval:</span>
         <input id="interval-input" type="number" min="0.1" step="0.5" style="width:60px;padding:3px 6px;font-size:.82rem;border:1px solid #d1d5db;border-radius:6px" placeholder="1.0" oninput="updateIntervalHint()">
@@ -611,7 +627,25 @@ const EVENT_INFO = {
 function fmtEvent(ev) {
   const info = EVENT_INFO[ev.event] || { text: ev.event, color: 'gray' };
   let text = info.text;
-  if (ev.event === 'inject_start')  text = `Injecting: ${ev.data?.symptom || ''}`;
+  if (ev.event === 'run_start') {
+    // New run — the scheduler (and its capture_logs watcher) hasn't
+    // started yet, and won't until regression/menu/connectivity suites
+    // finish and go_to_main() succeeds.
+    _captureLogsSchedulerReady = false;
+    _captureLogsBusyReasons.clear();
+    _captureLogsRecompute();
+  } else if (ev.event === 'scheduler_started') {
+    _captureLogsSchedulerReady = true;
+    _captureLogsRecompute();
+  } else if (ev.event === 'job_start') {
+    // Regular scheduled injection — job_lock would technically make a
+    // capture request just wait rather than conflict, but a click that
+    // silently queues for however long the injection takes (with the
+    // button showing no reason why) is worse than just not offering it.
+    _captureLogsBusyStart('job');
+  } else if (ev.event === 'job_result') {
+    _captureLogsBusyEnd('job');
+  } else if (ev.event === 'inject_start')  text = `Injecting: ${ev.data?.symptom || ''}`;
   else if (ev.event === 'inject_done') text = `Injection done — ${ev.data?.symptom || ''} (${ev.data?.elapsed_sec ?? '?'}s)`;
   else if (ev.event === 'device_info') {
     const d = ev.data || {};
@@ -626,17 +660,21 @@ function fmtEvent(ev) {
   } else if (ev.event === 'bt_disconnect_start') {
     text = `BT disconnect — off for ${ev.data?.minutes ?? '?'} min`;
     setInjectNowEnabled(false);
+    _captureLogsBusyStart('bt');
   } else if (ev.event === 'bt_disconnect_done' || ev.event === 'bt_disconnect_failed' || ev.event === 'bt_disconnect_not_supported') {
     text = ev.event === 'bt_disconnect_done' ? `BT reconnected after ${ev.data?.minutes ?? '?'} min`
          : ev.event === 'bt_disconnect_not_supported' ? `BT toggle skipped — ADB not supported on this device/OS`
          : `BT disconnect failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
     setInjectNowEnabled(true);
+    _captureLogsBusyEnd('bt');
   } else if (ev.event === 'airplane_mode_start') {
     text = `Airplane mode ON — ${ev.data?.minutes ?? '?'} min`;
     setInjectNowEnabled(false);
+    _captureLogsBusyStart('airplane');
   } else if (ev.event === 'airplane_mode_done' || ev.event === 'airplane_mode_failed') {
     text = ev.event === 'airplane_mode_done' ? `Airplane mode OFF after ${ev.data?.minutes ?? '?'} min` : `Airplane mode failed (${ev.data?.phase ?? ''}: ${ev.data?.error ?? ''})`;
     setInjectNowEnabled(true);
+    _captureLogsBusyEnd('airplane');
   } else if (ev.event === 'battery_status') {
     const s = ev.data?.status || '';
     const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
@@ -902,6 +940,16 @@ function downloadReport() {
 
 // ── State ────────────────────────────────────────────────────────────────
 let pollTimer = null, seenEvents = 0, runStartTs = null, nextInjectTs = null, countdownTimer = null;
+// The button must only be clickable during a genuinely quiet stretch of the
+// scheduler's interval loop — not just "scheduler_started has fired once".
+// job_lock technically serializes a capture request against a regular
+// injection/BT/Airplane job (it would just wait), but that's not the same
+// as safe: queuing it mid-job means the click sits there indefinitely with
+// no feedback, and if two of these windows overlap the reasons for being
+// blocked need to stack, not overwrite each other — hence a Set instead of
+// a single boolean.
+let _captureLogsSchedulerReady = false;
+let _captureLogsBusyReasons = new Set();
 
 // ── Field persistence ─────────────────────────────────────────────────────
 const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes'];
@@ -960,6 +1008,7 @@ async function init() {
     setUIRunning(true); startPolling();
   } else {
     if (s.exit_code !== null && s.exit_code !== undefined) showFinished(s.exit_code);
+    setUIRunning(false);  // also seeds the standalone capture-logs button state from the device list just loaded
   }
   restoreFields();
 }
@@ -1016,6 +1065,43 @@ async function detectWifi() {
     _wifiDetectStatus(msg, color);
   } catch(e) { _wifiDetectStatus('✗ WiFi detect error: ' + e, '#dc2626'); }
   finally { btn.textContent = 'Auto Detect'; btn.disabled = false; }
+}
+
+function _captureLogsStatus(html, color) {
+  const el = document.getElementById('capture-logs-status');
+  el.style.display = html ? 'block' : 'none';
+  el.style.color = color || '#9ca3af';
+  el.innerHTML = html || '';
+}
+
+async function captureAppLogs() {
+  // Empty is fine while a run is active — the backend routes through that
+  // run's own driver/device and ignores this field in that case; it only
+  // requires a device when starting a fresh standalone capture.
+  const device = document.getElementById('device-select').value;
+  const btn = document.getElementById('capture-logs-btn');
+  const wasRunning = document.getElementById('stop-btn').style.display !== 'none';
+  btn.textContent = 'Capturing... (up to a few min)';
+  btn.disabled = true;
+  _captureLogsStatus('Navigating app menus and pulling the export zip…', '#9ca3af');
+  try {
+    const r = await fetch('/api/capture-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device }),
+    }).then(r => r.json());
+    if (r.error) { _captureLogsStatus('✗ ' + r.error, '#dc2626'); return; }
+    _captureLogsStatus(`✓ Captured <a href="${r.download_url}" target="_blank">${r.filename}</a>`, '#16a34a');
+  } catch (e) {
+    _captureLogsStatus('✗ Capture error: ' + e, '#dc2626');
+  } finally {
+    btn.textContent = '📄 Capture App Logs';
+    // Don't blindly re-enable — respect whatever the run/device state
+    // actually is right now (it may have moved into a busy window, or the
+    // run may have stopped, while this was in flight).
+    if (wasRunning) _captureLogsRecompute();
+    else setCaptureLogsEnabled(!!document.getElementById('device-select').value, 'Select a device first');
+  }
 }
 
 let _allDevices = [];
@@ -1091,6 +1177,15 @@ function applyPlatformUI() {
   }
 }
 document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', applyPlatformUI));
+
+// Standalone capture-logs path just needs a device picked — re-check on
+// every selection change (only matters while no run is active; the running
+// case is driven entirely by run events, see fmtEvent()).
+document.getElementById('device-select')?.addEventListener('change', () => {
+  if (!document.getElementById('stop-btn') || document.getElementById('stop-btn').style.display === 'none') {
+    setCaptureLogsEnabled(!!document.getElementById('device-select').value, 'Select a device first');
+  }
+});
 
 // issue #37: the platform radio defaults to Android in the HTML and never
 // got re-synced to whatever's actually running — loading/reloading the
@@ -1244,6 +1339,14 @@ function setUIRunning(running) {
   form.classList.toggle('locked', running);
   form.querySelectorAll('input, select, button').forEach(el => { el.disabled = running; });
   document.getElementById('lock-note').style.display = running ? '' : 'none';
+
+  if (!running) {
+    // Standalone path (src/capture_logs.py, own driver session) — just
+    // needs a device selected, no run/scheduler dependency.
+    _captureLogsSchedulerReady = false;
+    const device = document.getElementById('device-select')?.value;
+    setCaptureLogsEnabled(!!device, 'Select a device first');
+  }
 }
 
 function setInjectNowEnabled(enabled) {
@@ -1254,6 +1357,42 @@ function setInjectNowEnabled(enabled) {
     btn.title = enabled ? '' : 'BT/Airplane 테스트 중에는 사용할 수 없습니다';
   }
 }
+
+// Low-level DOM setter — used directly for the not-running (standalone)
+// case. The running case goes through _captureLogsBusyStart/End below,
+// which recomputes from the full set of currently-active reasons instead
+// of one boolean, since the injection/BT/Airplane windows this needs to
+// avoid aren't mutually exclusive in general.
+function setCaptureLogsEnabled(enabled, reason) {
+  const btn = document.getElementById('capture-logs-btn');
+  const hint = document.getElementById('capture-logs-hint');
+  if (!btn) return;
+  btn.disabled = !enabled;
+  btn.style.opacity = enabled ? '' : '0.5';
+  if (hint) hint.textContent = enabled ? 'Android only' : (reason || 'Not available right now');
+}
+
+const _CAPTURE_LOGS_REASON_TEXT = {
+  job:      'Injection in progress…',
+  bt:       'BT disconnect test in progress…',
+  airplane: 'Airplane mode test in progress…',
+};
+
+function _captureLogsRecompute() {
+  if (!_captureLogsSchedulerReady) {
+    setCaptureLogsEnabled(false, 'Waiting for the run to reach steady state…');
+    return;
+  }
+  if (_captureLogsBusyReasons.size > 0) {
+    const [first] = _captureLogsBusyReasons;
+    setCaptureLogsEnabled(false, _CAPTURE_LOGS_REASON_TEXT[first] || 'Not available right now');
+    return;
+  }
+  setCaptureLogsEnabled(true);
+}
+
+function _captureLogsBusyStart(reason) { _captureLogsBusyReasons.add(reason); _captureLogsRecompute(); }
+function _captureLogsBusyEnd(reason)   { _captureLogsBusyReasons.delete(reason); _captureLogsRecompute(); }
 
 async function injectNow() {
   const fb = document.getElementById('inject-now-feedback');
