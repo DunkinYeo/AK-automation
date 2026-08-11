@@ -37,15 +37,24 @@ jobs:
           # extensionless POSIX script for Git Bash/WSL, appium.cmd, and
           # appium.ps1) and Start-Process needs the real .cmd path, not
           # whichever one Get-Command happens to resolve first.
-          $env:APPIUM_HOME = "$PWD\appium_home"
+          #
+          # Run from RUNNER_TEMP, not the repo checkout: the npm version that
+          # actions/setup-node's "22" resolves to (newer than the pinned
+          # 22.13.1 windows-smoke.yml bundles) errors ENOENT looking for a
+          # package.json in CWD even for a global install -- this repo has
+          # none (it's a Python project). Also seen 2026-08-11.
+          $work = New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\canary"
+          Set-Location $work
+          $env:APPIUM_HOME = "$work\appium_home"
           New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
-          npm install -g appium --prefix "$PWD\appium" --quiet --no-progress
+          npm install -g appium --prefix "$work\appium" --quiet --no-progress
           if ($LASTEXITCODE -ne 0) { throw "npm install -g appium failed" }
 
-          $appiumCmd = "$PWD\appium\appium.cmd"
-          if (-not (Test-Path $appiumCmd)) { $appiumCmd = "$PWD\appium\node_modules\.bin\appium.cmd" }
+          $appiumCmd = "$work\appium\appium.cmd"
+          if (-not (Test-Path $appiumCmd)) { $appiumCmd = "$work\appium\node_modules\.bin\appium.cmd" }
           if (-not (Test-Path $appiumCmd)) { throw "appium.cmd not found after install" }
           "APPIUM_CMD=$appiumCmd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "APPIUM_HOME=$env:APPIUM_HOME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
           & $appiumCmd driver install uiautomator2
           if ($LASTEXITCODE -ne 0) { throw "appium driver install uiautomator2 failed" }
@@ -53,7 +62,8 @@ jobs:
       - name: Create a session and check for the known ESM/require() failure class
         shell: pwsh
         run: |
-          $env:APPIUM_HOME = "$PWD\appium_home"
+          # APPIUM_HOME and APPIUM_CMD carried over via $GITHUB_ENV from the
+          # previous step (set there, in the RUNNER_TEMP scratch dir).
           $proc = Start-Process -FilePath $env:APPIUM_CMD -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
           Start-Sleep -Seconds 8
           try {
