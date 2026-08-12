@@ -167,6 +167,22 @@ def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
         )
     file_id = m.group(1)
 
+    zip_name = f"{file_id}.zip"
+    remote_path = f"/sdcard/Download/{zip_name}"
+    local_path = out_dir / zip_name
+
+    # Every capture of the same study/session re-exports to this SAME
+    # UUID filename (confirmed live, 2026-08-12: two captures of the same
+    # run 4.5h apart both produced .../<same-uuid>.zip) -- if a stale copy
+    # from an earlier capture is still sitting at remote_path when
+    # _wait_for_stable_file starts polling, its already-stable size can
+    # pass the two-consecutive-checks test before the new export has even
+    # started writing, silently pulling stale data instead of the fresh
+    # capture. Best-effort delete first so the stability check can only
+    # ever observe the new file.
+    subprocess.run(drv._adb_cmd() + ["shell", "rm", "-f", remote_path],
+                    capture_output=True, text=True, timeout=10)
+
     try:
         drv.tap_text(file_id, timeout=10)
         time.sleep(1.5)
@@ -174,10 +190,6 @@ def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
     except Exception as e:
         drv.screenshot("capture_logs_download_tap_failed")
         raise LogCaptureError(f"Could not tap Download for {file_id}: {e}")
-
-    zip_name = f"{file_id}.zip"
-    remote_path = f"/sdcard/Download/{zip_name}"
-    local_path = out_dir / zip_name
 
     _wait_for_stable_file(drv, remote_path, timeout=timeout)
 
