@@ -10,11 +10,19 @@ point where APP rows silently stop (raised 2026-08-12).
 
 Run: .venv/bin/pytest tests/test_log_timeline_gap_marker.py -v
 """
+import datetime
 import zipfile
 
 from src.log_timeline import build_log_timeline
 
-_APP_LOG_LINE = "[Tue Aug 11 2026 00:18:48 GMT-0500] [S-Patch AccurKardia] - [Test] [Sub] app log entry\n"
+# _parse_app_log_line() now converts each line's device-local timestamp to
+# this host's local time (see test_log_timeline_device_timezone.py) -- tag
+# the fixture line with this host's own current UTC offset so the
+# conversion is a no-op and the hardcoded "00:18:48" expectations below
+# stay valid on any machine/CI runner, regardless of its actual timezone.
+_local_offset_min = int(datetime.datetime.now().astimezone().utcoffset().total_seconds() // 60)
+_GMT_TAG = f"GMT{'+' if _local_offset_min >= 0 else '-'}{abs(_local_offset_min) // 60:02d}{abs(_local_offset_min) % 60:02d}"
+_APP_LOG_LINE = f"[Tue Aug 11 2026 00:18:48 {_GMT_TAG}] [S-Patch AccurKardia] - [Test] [Sub] app log entry\n"
 
 
 def _write_app_log(out_dir, filename="capture.zip"):

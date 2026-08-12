@@ -10,11 +10,16 @@ format, not something that needs multiple regex candidates):
 
     [Tue Aug 11 2026 00:18:48 GMT-0500] [S-Patch AccurKardia] - [Category] [Sub] Message
 
-The timestamp has an explicit GMT offset; events.jsonl's timestamps don't
-(naive local time). Both are produced on the same machine, so they're
-compared as naive local datetimes here rather than converted to UTC --
-simpler, and correct as long as that assumption holds (noted in case a
-future multi-machine setup breaks it).
+The timestamp carries the DEVICE's own GMT offset, which is not
+necessarily this host's -- a real incident (2026-07-21, driver.py's
+device_tz_offset_seconds) already hit the same class of bug for the
+Study Overview screen's start/end times: a tester's phone set to
+America/Chicago made those look ~14h off from the report's own
+timestamps. Every app log line self-describes its offset, so each one
+is converted from the device's local time to this host's local time
+(matching events.jsonl's naive-local timestamps) independently --
+more robust than a single adb-queried snapshot, since it stays correct
+even if the device's timezone changes mid-capture.
 """
 import datetime
 import html as _html
@@ -24,7 +29,8 @@ import zipfile
 
 _APP_LOG_LINE_RE = re.compile(
     r'^\[\w+ (?P<mon>\w+) (?P<day>\d+) (?P<year>\d+) '
-    r'(?P<h>\d+):(?P<m>\d+):(?P<s>\d+) GMT[+-]\d+\] '
+    r'(?P<h>\d+):(?P<m>\d+):(?P<s>\d+) '
+    r'GMT(?P<tz_sign>[+-])(?P<tz_h>\d{2})(?P<tz_m>\d{2})\] '
     r'\[S-Patch AccurKardia\] - (?P<rest>.*)$'
 )
 _MONTHS = {m: i + 1 for i, m in enumerate(
@@ -43,13 +49,22 @@ def _parse_app_log_line(line: str):
     if mon is None:
         return None
     try:
-        dt = datetime.datetime(
+        sign = 1 if m.group("tz_sign") == "+" else -1
+        offset = sign * datetime.timedelta(
+            hours=int(m.group("tz_h")), minutes=int(m.group("tz_m")))
+        dt_device = datetime.datetime(
             int(m.group("year")), mon, int(m.group("day")),
             int(m.group("h")), int(m.group("m")), int(m.group("s")),
+            tzinfo=datetime.timezone(offset),
         )
     except ValueError:
         return None
-    return dt, m.group("rest")
+    # Convert from the device's own clock to this host's local time (see
+    # module docstring) -- astimezone() with no args targets the system's
+    # local timezone, matching how events.jsonl's naive timestamps are
+    # produced (datetime.datetime.now()) elsewhere in this codebase.
+    dt_host = dt_device.astimezone().replace(tzinfo=None)
+    return dt_host, m.group("rest")
 
 
 def _find_latest_app_log_zip(out_dir: str) -> str | None:
