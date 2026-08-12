@@ -27,7 +27,7 @@ _INTERVAL_OVERRIDE = ROOT / "runtime" / "interval_override.json"
 _INJECT_NOW_FILE   = ROOT / "runtime" / "inject_now.json"
 sys.path.insert(0, str(ROOT))
 
-from src.log_timeline import build_log_timeline
+from src.log_timeline import build_log_timeline, build_capture_history
 
 ARTIFACTS_DIR = ROOT / "artifacts"
 
@@ -1897,6 +1897,22 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         '<div style="margin-top:10px;font-size:.78rem;color:#9ca3af">Full log timeline will be available here once an app log has been captured.</div>'
     )
 
+    # How often/when app logs were captured this run -- requested
+    # 2026-08-12, compact form here since the full per-capture table
+    # lives in the saved summary.html report.
+    capture_history = build_capture_history(events)
+    capture_summary_html = ""
+    if capture_history:
+        n_ok = sum(1 for c in capture_history if c["outcome"] == "success")
+        n_other = len(capture_history) - n_ok
+        last = capture_history[-1]
+        capture_summary_html = (
+            f'<div style="font-size:.72rem;color:#9ca3af;margin-top:4px">'
+            f'{len(capture_history)} capture(s) this run ({n_ok} ok'
+            f'{f", {n_other} other" if n_other else ""}) '
+            f'&middot; last {last["outcome"]} at {_t(last["ts"])}</div>'
+        )
+
     if flagged_rows:
         timeline_card = f"""
       <div class="card">
@@ -1904,6 +1920,7 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
           <span class="card-count">{len(flagged_rows)}</span></div>
         {timeline_rows_html}
         {link_html}
+        {capture_summary_html}
       </div>"""
     elif log_timeline["app_log_source"]:
         timeline_card = f"""
@@ -1911,6 +1928,7 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span></div>
         <div style="font-size:.8rem;color:#6b7280">No errors/warnings flagged in the captured app log.</div>
         {link_html}
+        {capture_summary_html}
       </div>"""
     else:
         timeline_card = f"""

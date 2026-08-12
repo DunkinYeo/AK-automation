@@ -222,3 +222,43 @@ def build_log_timeline(out_dir: str, events: list[dict], run_start_ts: str, run_
         "rows": rows, "app_log_source": app_log_source,
         "unparsed_count": unparsed_count, "app_log_last_ts": app_log_last_ts_str,
     }
+
+
+def build_capture_history(events: list[dict]) -> list[dict]:
+    """
+    When app logs were captured during this run and how -- requested
+    2026-08-12 so a reviewer doesn't have to reconstruct capture
+    frequency/timing by hand from the raw event log. Purely derived from
+    events already logged by the two capture paths (scheduler.py's
+    mid-run "Capture App Logs" watcher, main.py's run-end auto-capture),
+    so this needs no new event types and stays accurate even if a run
+    had zero, one, or many captures.
+
+    Returns a list of {"ts", "outcome": "success"|"failed"|"skipped",
+    "trigger": "manual"|"run_end", "filename": str|None, "detail": str}.
+    """
+    history = []
+    for e in events:
+        ev = e.get("event", "")
+        data = e.get("data") or {}
+        if ev == "capture_logs_success":
+            trigger = "run_end" if data.get("trigger") == "run_end" else "manual"
+            zip_path = data.get("zip_path")
+            history.append({
+                "ts": e.get("ts", ""), "outcome": "success", "trigger": trigger,
+                "filename": os.path.basename(zip_path) if zip_path else None,
+                "detail": "",
+            })
+        elif ev == "capture_logs_failed":
+            trigger = "run_end" if data.get("trigger") == "run_end" else "manual"
+            history.append({
+                "ts": e.get("ts", ""), "outcome": "failed", "trigger": trigger,
+                "filename": None, "detail": str(data.get("error", ""))[:200],
+            })
+        elif ev == "capture_logs_skipped_study_completed":
+            history.append({
+                "ts": e.get("ts", ""), "outcome": "skipped", "trigger": "run_end",
+                "filename": None,
+                "detail": "study completed — app left on Upload/Skip screen",
+            })
+    return history

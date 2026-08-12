@@ -1,6 +1,6 @@
 import os, json, datetime, threading, html as _html
 from jinja2 import Template
-from src.log_timeline import build_log_timeline
+from src.log_timeline import build_log_timeline, build_capture_history
 
 class RunReporter:
     def __init__(self, out_dir: str, run_name: str, hub_url: str = "", tester_name: str = ""):
@@ -97,6 +97,10 @@ class RunReporter:
         # captured app log (or a broken/unparseable one) still gets a valid,
         # automation-only timeline back.
         log_timeline = build_log_timeline(self.out_dir, events, run_start_ts, run_end_ts)
+        # How often/when app logs were captured during this run -- requested
+        # 2026-08-12 so this doesn't have to be reconstructed by hand from
+        # events.jsonl. Purely derived from existing capture_logs_* events.
+        capture_history = build_capture_history(events)
 
         FAIL_EVENTS = {
             "job_failed", "inject_symptom_failed", "session_recovery_failed",
@@ -171,6 +175,24 @@ mark{background:#ffe58f;padding:0 2px;border-radius:2px}
     <div class="val" style="color:#dc3545">{{ injections_fail }}</div><div class="lbl">Failed</div>
   </div>
 </div>
+<h3>Log Captures <span style="font-weight:400;font-size:.7em;color:#666">— when this run's app log was captured, manual or automatic</span></h3>
+{% if capture_history %}
+<table style="margin-bottom:20px">
+<tr><th>Time</th><th>Trigger</th><th>Result</th><th>Detail</th></tr>
+{% for c in capture_history %}
+<tr class="{{ 'row-fail' if c.outcome == 'failed' else 'row-warn' if c.outcome == 'skipped' else 'row-ok' }}">
+  <td style="white-space:nowrap">{{ c.ts }}</td>
+  <td>{{ 'Run end (auto)' if c.trigger == 'run_end' else 'Manual click' }}</td>
+  <td>{{ c.outcome }}</td>
+  <td>{{ c.filename or c.detail or '' }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<div style="font-size:.8em;color:#9a6b00;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:6px 10px;margin-bottom:20px">
+  App logs were never captured during this run.
+</div>
+{% endif %}
 <h3>Log Timeline <span style="font-weight:400;font-size:.7em;color:#666">— automation events + app-internal log, merged by time</span></h3>
 {% if log_timeline.app_log_source %}
 <div style="font-size:.8em;color:#666;margin-bottom:6px">
@@ -223,6 +245,7 @@ mark{background:#ffe58f;padding:0 2px;border-radius:2px}
             row_class=row_class,
             data_json=data_json,
             log_timeline=log_timeline,
+            capture_history=capture_history,
         )
         out = os.path.join(self.out_dir, "summary.html")
         with open(out, "w", encoding="utf-8") as f:
