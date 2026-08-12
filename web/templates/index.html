@@ -1507,7 +1507,19 @@ function updateProgress(events) {
   } else if (studySamples.length) {
     const last = studySamples[studySamples.length - 1];
     studyEl.style.display = '';
-    let text = `· App Study: ${last.p}%`;
+    // Study % only refreshes once per scheduled job (hourly by default,
+    // via that job's own UI health check) -- a connectivity hiccup can
+    // skip a cycle or two, and a stale reading can otherwise look like
+    // "the study is stuck at X%" rather than "automation hasn't had a
+    // chance to re-check yet" (real confusion, 2026-08-12: dashboard
+    // showed 81% while the phone itself already read 93%, because two
+    // scheduled jobs in a row had failed their UI health check during a
+    // ~1.5h connectivity dropout). 90min ~= one missed hourly cycle past
+    // the normal cadence.
+    const ageMin = Math.floor((Date.now() - last.t) / 60000);
+    const ageStr = ageMin >= 60 ? `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago` : `${ageMin}m ago`;
+    const isStale = ageMin > 90;
+    let text = `· App Study: ${last.p}% (${ageStr})`;
     // ETA: extrapolate from first/last distinct samples
     const first = studySamples.find(s => s.p !== last.p);
     if (first && last.p < 100 && last.p > first.p) {
@@ -1524,8 +1536,9 @@ function updateProgress(events) {
     // in auto mode the study finishing early is the intended trigger, not a problem
     const showWarning = studyWarned && !untilStudy;
     if (showWarning) text += ' ⚠ ends before run';
+    else if (isStale) text += ' ⏱ stale';
     studyEl.textContent = text;
-    studyEl.style.color = showWarning ? '#d97706' : '#6b7280';
+    studyEl.style.color = showWarning ? '#d97706' : isStale ? '#9a6b00' : '#6b7280';
   } else {
     studyEl.style.display = 'none';
   }
