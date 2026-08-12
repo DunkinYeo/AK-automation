@@ -185,11 +185,15 @@ mark{background:#ffe58f;padding:0 2px;border-radius:2px}
 <table>
 <tr><th>Time</th><th>Source</th><th>Entry</th></tr>
 {% for r in log_timeline.rows %}
+{% if r.source == 'gap' %}
+<tr><td colspan="3" style="text-align:center;font-style:italic;color:#9a6b00;background:#fffbe6">{{ r.html | safe }}</td></tr>
+{% else %}
 <tr>
   <td style="white-space:nowrap">{{ r.ts }}</td>
   <td><span class="src-{{ r.source }}">{{ 'AUTO' if r.source == 'auto' else 'APP' }}</span></td>
   <td>{{ r.html | safe }}</td>
 </tr>
+{% endif %}
 {% endfor %}
 </table>
 <h3 style="margin-top:24px">Event Timeline <span style="font-weight:400;font-size:.7em;color:#666">— automation events only, full data payloads</span></h3>

@@ -1884,8 +1884,15 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
     # summary.html genuinely didn't exist yet at that point, but there was
     # no reason the comparison view itself had to wait that long.
     report_link = "/log-timeline" if log_timeline["app_log_source"] else None
+    # Same reasoning as _build_log_timeline_page's freshness banner: a stale
+    # capture on a live run can otherwise read as "the app stopped logging"
+    # rather than "nobody's re-captured it recently" (2026-08-12).
+    as_of_html = (
+        f' — app log as of {log_timeline["app_log_last_ts"]}' if log_timeline.get("app_log_last_ts") else ""
+    )
     link_html = (
-        f'<div style="margin-top:10px"><a href="{report_link}" target="_blank" style="font-size:.8rem">View full log timeline →</a></div>'
+        f'<div style="margin-top:10px"><a href="{report_link}" target="_blank" style="font-size:.8rem">View full log timeline →</a>'
+        f'<span style="font-size:.75rem;color:#9ca3af">{as_of_html}</span></div>'
         if report_link else
         '<div style="margin-top:10px;font-size:.78rem;color:#9ca3af">Full log timeline will be available here once an app log has been captured.</div>'
     )
@@ -2105,12 +2112,15 @@ def _build_log_timeline_page(out_dir: str, events: list[dict]) -> str:
     def _t(ts):
         return ts.split("T")[1][:8] if "T" in ts else ts
 
-    rows_html = "".join(
-        f"<tr><td style='white-space:nowrap'>{_t(r['ts'])}</td>"
-        f"<td><span class='src-{r['source']}'>{'AUTO' if r['source'] == 'auto' else 'APP'}</span></td>"
-        f"<td>{r['html']}</td></tr>"
-        for r in tl["rows"]
-    )
+    def _row_html(r):
+        if r["source"] == "gap":
+            return f"<tr><td colspan='3' class='gap-row'>{r['html']}</td></tr>"
+        badge = "AUTO" if r["source"] == "auto" else "APP"
+        return (f"<tr><td style='white-space:nowrap'>{_t(r['ts'])}</td>"
+                f"<td><span class='src-{r['source']}'>{badge}</span></td>"
+                f"<td>{r['html']}</td></tr>")
+
+    rows_html = "".join(_row_html(r) for r in tl["rows"])
     note = ""
     if tl["app_log_source"]:
         note = f"App log source: <code>{tl['app_log_source']}</code>"
@@ -2118,6 +2128,25 @@ def _build_log_timeline_page(out_dir: str, events: list[dict]) -> str:
             note += f" &middot; {tl['unparsed_count']} line(s) could not be parsed and were omitted"
     else:
         note = "No app log has been captured for this run yet — this shows automation events only, and will fill in once a capture completes."
+
+    # A tester watching a live run could otherwise mistake a stale capture
+    # for the app having stopped logging (raised 2026-08-12) -- spell out
+    # exactly how far the app log's own coverage reaches, separate from the
+    # gap-row marker inline in the table, so it's visible without scrolling.
+    freshness_html = ""
+    if tl["app_log_last_ts"]:
+        try:
+            age_min = int((datetime.datetime.now() - datetime.datetime.fromisoformat(tl["app_log_last_ts"])).total_seconds() // 60)
+            age_str = f"{age_min // 60}h {age_min % 60}m ago" if age_min >= 60 else f"{age_min}m ago"
+        except ValueError:
+            age_str = "unknown"
+        freshness_html = (
+            f"<div class='freshness'>App log data covers up to <b>{tl['app_log_last_ts']}</b> "
+            f"({age_str}). Automation events below that point are live; the app log itself "
+            f"won't catch up until the next capture. "
+            f"<button type='button' id='capture-now-btn' onclick='captureNow()'>Capture Now</button>"
+            f"<span id='capture-now-status'></span></div>"
+        )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -2128,6 +2157,9 @@ table{{border-collapse:collapse;width:100%;background:#fff;border-radius:8px;ove
 td,th{{border:1px solid #e0e0e0;padding:6px 10px;font-size:.84em;text-align:left}}
 th{{background:#f0f0f0;font-weight:600}}
 .note{{font-size:.85em;color:#666;margin-bottom:10px}}
+.freshness{{font-size:.85em;color:#9a6b00;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;margin-bottom:10px}}
+.freshness button{{margin-left:8px;font-size:.85em;padding:2px 10px;cursor:pointer}}
+.gap-row{{text-align:center;font-style:italic;color:#9a6b00;background:#fffbe6}}
 .src-auto{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#e7edff;color:#1d4ed8}}
 .src-app{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#eafbe7;color:#15803d}}
 mark{{background:#ffe58f;padding:0 2px;border-radius:2px}}
@@ -2136,10 +2168,30 @@ mark{{background:#ffe58f;padding:0 2px;border-radius:2px}}
 <body>
 <h2>Log Timeline</h2>
 <div class="note">{note}</div>
+{freshness_html}
 <table>
 <tr><th>Time</th><th>Source</th><th>Entry</th></tr>
 {rows_html}
 </table>
+<script>
+async function captureNow() {{
+  const btn = document.getElementById('capture-now-btn');
+  const status = document.getElementById('capture-now-status');
+  btn.disabled = true;
+  status.textContent = ' Capturing… (up to a few min)';
+  try {{
+    const r = await fetch('/api/capture-logs', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: '{{}}',
+    }}).then(r => r.json());
+    if (r.error) {{ status.textContent = ' ✗ ' + r.error; btn.disabled = false; return; }}
+    status.textContent = ' ✓ Captured — reloading…';
+    location.reload();
+  }} catch (e) {{
+    status.textContent = ' ✗ ' + e;
+    btn.disabled = false;
+  }}
+}}
+</script>
 </body></html>"""
 
 

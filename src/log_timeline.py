@@ -174,4 +174,36 @@ def build_log_timeline(out_dir: str, events: list[dict], run_start_ts: str, run_
 
     rows.sort(key=lambda r: r["ts"])
 
-    return {"rows": rows, "app_log_source": app_log_source, "unparsed_count": unparsed_count}
+    # Mark exactly where the app log's own coverage ends, if it stops
+    # meaningfully earlier than the timeline's last row. A capture only
+    # happens on a manual click or at run end -- for a live mid-run view
+    # this can silently lag hours behind while AUTO events keep flowing,
+    # which a tester watching the merged view could easily misread as "the
+    # app itself stopped logging" rather than "nobody's re-captured it
+    # recently" (raised 2026-08-12). Threshold of 5 minutes keeps this from
+    # firing on the normal case (e.g. summary.html, where the automatic
+    # end-of-run capture lands within seconds of the last event).
+    app_log_last_ts = max((e["ts"] for e in app_entries), default=None)
+    app_log_last_ts_str = app_log_last_ts.isoformat(timespec="seconds") if app_log_last_ts else None
+    if app_log_last_ts_str and rows:
+        try:
+            gap_seconds = (datetime.datetime.fromisoformat(rows[-1]["ts"]) - app_log_last_ts).total_seconds()
+        except ValueError:
+            gap_seconds = 0
+        if gap_seconds > 300:
+            insert_at = next(
+                (i for i, r in enumerate(rows) if r["ts"] > app_log_last_ts_str),
+                len(rows),
+            )
+            rows.insert(insert_at, {
+                "ts": app_log_last_ts_str, "source": "gap",
+                "html": f"App log capture ends here (covers up to {app_log_last_ts_str}) "
+                        f"— automation events continue below from live monitoring, "
+                        f"not from the app's own log",
+                "flagged": False,
+            })
+
+    return {
+        "rows": rows, "app_log_source": app_log_source,
+        "unparsed_count": unparsed_count, "app_log_last_ts": app_log_last_ts_str,
+    }
