@@ -214,6 +214,46 @@ def _run_once(cfg: dict, reporter: RunReporter, artifacts: ArtifactManager) -> N
         dm.close()
 
 
+def _maybe_capture_logs_at_run_end(driver, out_dir: str, reporter) -> None:
+    """
+    Best-effort automatic app-log capture at run end (#69 follow-up to
+    #55) -- must never block the run's own cleanup/report generation.
+
+    Skipped when the study completed normally: the app is sitting on the
+    Study Overview (Upload/Skip) screen the tester may still need --
+    capture_app_logs() -> _ensure_menu_reachable() would press Back
+    trying to escape it to reach Setting/Version Information, exactly
+    what scheduler.py's own recovery-skip already avoids doing for the
+    same reason (2026-08-12, real conflict caught live: this used to run
+    unconditionally on every exit path). Earlier hourly captures during
+    the run already cover most of what one more at the very end would
+    add, so skip rather than disturb the screen the tester needs most
+    right now.
+    """
+    if getattr(driver, "_study_completed", False):
+        reporter.log_event("capture_logs_skipped_study_completed", {})
+        return
+    # _job_busy must be held for this too: _stop_monitor is only set on
+    # the normal-completion path (before this runs), so on any early exit
+    # (SIGTERM/exception) the connectivity monitor's 30s-tick thread can
+    # still be alive and touching the UI on its own -- confirmed as a
+    # real, reproducible failure mode for the scheduler-routed capture
+    # path (mid-run "Capture App Logs" clicks, 2026-08-11); this path can
+    # hit the exact same race.
+    busy = getattr(driver, "_job_busy", None)
+    if busy is not None:
+        busy.set()
+    try:
+        from src.log_capture import capture_app_logs
+        capture_app_logs(driver, os.path.join(out_dir, "app_logs"))
+        reporter.log_event("capture_logs_success", {"trigger": "run_end"})
+    except Exception as e:
+        reporter.log_event("capture_logs_failed", {"trigger": "run_end", "error": str(e)})
+    finally:
+        if busy is not None:
+            busy.clear()
+
+
 def main():
     ap = argparse.ArgumentParser(description="S-Patch Accurkardia long-run test automation")
     ap.add_argument("--config", required=True, help="Path to run.yaml")
@@ -654,35 +694,10 @@ def main():
             pass
 
         # #69 follow-up to #55: capture the app's own log export
-        # automatically at run end (success OR failure), before the driver
-        # closes -- a purely manual, mid-run-only "Capture App Logs" click
-        # means most runs would have no app log by the time anyone wants
-        # a Log Timeline View, and the scenario this matters most for (a
-        # crashed/failed run) is exactly the one case a scheduler-routed
-        # capture can't reach anymore, since the scheduler is already gone
-        # by the time we're here. Best-effort: must never block the run's
-        # own cleanup/report generation below.
-        #
-        # _job_busy must be held for this too: _stop_monitor is only set on
-        # the normal-completion path above (before this finally block), so
-        # on any early exit (SIGTERM/exception) the connectivity monitor's
-        # 30s-tick thread can still be alive and touching the UI on its own
-        # — confirmed as a real, reproducible failure mode for the
-        # scheduler-routed capture path (mid-run "Capture App Logs" clicks,
-        # 2026-08-11); this path can hit the exact same race.
+        # automatically at run end, before the driver closes -- see
+        # _maybe_capture_logs_at_run_end()'s own docstring.
         if dm and driver:
-            busy = getattr(driver, "_job_busy", None)
-            if busy is not None:
-                busy.set()
-            try:
-                from src.log_capture import capture_app_logs
-                capture_app_logs(driver, os.path.join(out_dir, "app_logs"))
-                reporter.log_event("capture_logs_success", {"trigger": "run_end"})
-            except Exception as e:
-                reporter.log_event("capture_logs_failed", {"trigger": "run_end", "error": str(e)})
-            finally:
-                if busy is not None:
-                    busy.clear()
+            _maybe_capture_logs_at_run_end(driver, out_dir, reporter)
 
         if dm:
             dm.close()
