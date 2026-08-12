@@ -89,7 +89,24 @@ def capture_app_logs(drv, out_dir: Path, timeout: int = 180) -> Path:
     Returns the local path to the pulled zip. Raises LogCaptureError on
     any failure; a diagnostic screenshot is saved via drv.screenshot()
     before raising. Safe to call from any screen the app happens to be on.
+
+    Always attempts to leave the app back on a known-reachable screen
+    before returning, success or failure — a real run sat on the Folder
+    Information modal (Download/Share still showing) for 14+ minutes
+    after a successful capture with zero automation activity in between
+    (2026-08-12), because nothing navigated back afterward and the next
+    scheduled job's own recovery apparently couldn't get out of it either.
     """
+    try:
+        return _capture_app_logs_inner(drv, out_dir, timeout)
+    finally:
+        try:
+            _ensure_menu_reachable(drv)
+        except Exception:
+            pass
+
+
+def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
