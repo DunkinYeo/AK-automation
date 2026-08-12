@@ -164,6 +164,20 @@ def _run_already_active() -> bool:
     return bool(pid and _pid_is_our_run(pid))
 
 
+def _append_run_event(out_dir: str, name: str, data: dict) -> None:
+    """Best-effort append to a run's events.jsonl from outside its own
+    process -- used when a post-run manual log capture (api_capture_logs,
+    2026-08-12) needs to show up in that run's own report/capture-history
+    even though its RunReporter instance is long gone (the process
+    already exited). Mirrors api_status()'s synthetic-event append."""
+    try:
+        rec = {"ts": datetime.datetime.now().isoformat(timespec="seconds"), "event": name, "data": data}
+        with open(Path(out_dir) / "events.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def _persist_run_state(pid: int, start_ts: float, out_dir: str | None = None) -> None:
     try:
         _RUN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -835,9 +849,21 @@ def api_capture_logs():
     if not device:
         return jsonify({"error": "No device specified."}), 400
 
-    # No run to attach to -- standalone captures have no events.jsonl to
-    # compare against anyway, so they just live in their own artifacts/ spot.
-    out_dir = APP_LOGS_DIR / ts
+    # No run currently active, but this session may still remember the
+    # last run's output dir -- it's only cleared by /api/start (new run)
+    # or an explicit /api/stop, so a run that ended naturally (e.g. study
+    # completed) leaves it in place. Route into that run's own app_logs/
+    # so a post-run manual capture still shows up in that run's own
+    # report/log-timeline instead of vanishing into the unrelated
+    # standalone artifacts/ location (raised 2026-08-12 -- especially
+    # relevant now that a normal study completion skips the automatic
+    # run-end capture specifically to avoid disturbing the Upload/Skip
+    # screen, see main.py's _maybe_capture_logs_at_run_end).
+    with _lock:
+        last_run_out_dir = _state.get("out_dir")
+    run_out_dir = last_run_out_dir if last_run_out_dir and Path(last_run_out_dir).is_dir() else None
+
+    out_dir = (Path(run_out_dir) / "app_logs" / ts) if run_out_dir else (APP_LOGS_DIR / ts)
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         result = subprocess.run(
@@ -845,17 +871,26 @@ def api_capture_logs():
             capture_output=True, text=True, timeout=210,
         )
     except subprocess.TimeoutExpired:
+        if run_out_dir:
+            _append_run_event(run_out_dir, "capture_logs_failed", {"error": "timed out"})
         return jsonify({"error": "Log capture timed out."}), 500
 
     out = result.stdout or ""
     if "CAPTURE_OK:" in out:
         zip_path = Path(out.split("CAPTURE_OK:", 1)[1].strip().splitlines()[0])
+        if run_out_dir:
+            _append_run_event(run_out_dir, "capture_logs_success", {"zip_path": str(zip_path)})
         rel = zip_path.resolve().relative_to(ROOT)
         return jsonify({"download_url": f"/app_logs/{rel.as_posix()}", "filename": zip_path.name})
     if "CAPTURE_FAIL:" in out:
         reason = out.split("CAPTURE_FAIL:", 1)[1].strip().splitlines()[0]
+        if run_out_dir:
+            _append_run_event(run_out_dir, "capture_logs_failed", {"error": reason})
         return jsonify({"error": reason}), 500
-    return jsonify({"error": (result.stderr or out or "Unknown failure")[-500:]}), 500
+    error = (result.stderr or out or "Unknown failure")[-500:]
+    if run_out_dir:
+        _append_run_event(run_out_dir, "capture_logs_failed", {"error": error})
+    return jsonify({"error": error}), 500
 
 
 # Captured logs can live in two places (see api_capture_logs): standalone
