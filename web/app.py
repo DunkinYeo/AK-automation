@@ -178,6 +178,24 @@ def _append_run_event(out_dir: str, name: str, data: dict) -> None:
         pass
 
 
+def _refresh_summary_html_if_exists(out_dir: str) -> None:
+    """Re-render summary.html after a post-run manual log capture, but
+    only if it already exists -- that's the signal the run had actually
+    finished (render_html_summary() is normally only called once, at run
+    end). summary.html is the durable/shareable artifact (chosen as the
+    primary #69 report surface, 2026-08-12) -- unlike /api/report and
+    /log-timeline, which recompute live on every request, it would
+    otherwise stay silently stale forever once the process that could
+    write it has exited. Best-effort: must never break the capture
+    response over a report-rendering hiccup."""
+    try:
+        if (Path(out_dir) / "summary.html").is_file():
+            from src.reporter import RunReporter
+            RunReporter(str(out_dir), Path(out_dir).name).render_html_summary()
+    except Exception:
+        pass
+
+
 def _persist_run_state(pid: int, start_ts: float, out_dir: str | None = None) -> None:
     try:
         _RUN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -886,6 +904,7 @@ def api_capture_logs():
         zip_path = Path(out.split("CAPTURE_OK:", 1)[1].strip().splitlines()[0])
         if run_out_dir:
             _append_run_event(run_out_dir, "capture_logs_success", {"zip_path": str(zip_path)})
+            _refresh_summary_html_if_exists(run_out_dir)
         rel = zip_path.resolve().relative_to(ROOT)
         return jsonify({"download_url": f"/app_logs/{rel.as_posix()}", "filename": zip_path.name})
     if "CAPTURE_FAIL:" in out:
