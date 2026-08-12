@@ -1877,25 +1877,17 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
             f"<span style='flex:1;font-size:.78rem;text-align:left'>{r['html']}</span></div>"
         )
 
-    # summary.html is only written once, in main.py's `finally` block at
-    # run end (reporter.py's render_html_summary()) -- an app log CAN
-    # already be captured mid-run (manual click), but the file this links
-    # to genuinely doesn't exist until the run finishes. Checking for the
-    # app log alone here previously built a link that 404'd while a run
-    # was still active (real report, 2026-08-12).
-    report_link = None
-    if out_dir:
-        try:
-            summary_path = Path(out_dir) / "summary.html"
-            if summary_path.is_file():
-                rel = (ROOT / out_dir).resolve().relative_to(ROOT.resolve())
-                report_link = f"/app_logs/{rel.as_posix()}/summary.html"
-        except Exception:
-            report_link = None
+    # /log-timeline (unlike linking straight to summary.html, only written
+    # once at run end) computes live from whatever's on disk right now, so
+    # it works mid-run too -- a tester asked for exactly this after seeing
+    # the link 404 while a run was still active (real report, 2026-08-12):
+    # summary.html genuinely didn't exist yet at that point, but there was
+    # no reason the comparison view itself had to wait that long.
+    report_link = "/log-timeline" if log_timeline["app_log_source"] else None
     link_html = (
         f'<div style="margin-top:10px"><a href="{report_link}" target="_blank" style="font-size:.8rem">View full log timeline →</a></div>'
         if report_link else
-        '<div style="margin-top:10px;font-size:.78rem;color:#9ca3af">Full log timeline will be available here once the run finishes.</div>'
+        '<div style="margin-top:10px;font-size:.78rem;color:#9ca3af">Full log timeline will be available here once an app log has been captured.</div>'
     )
 
     if flagged_rows:
@@ -2092,6 +2084,74 @@ def api_report():
         mimetype="text/html",
         headers={"Content-Disposition": f"inline; filename=ak_report_{ts}.html"},
     )
+
+
+def _build_log_timeline_page(out_dir: str, events: list[dict]) -> str:
+    """
+    Full-page version of the merged app+automation timeline, computed live
+    from whatever's on disk right now -- unlike reporter.py's summary.html
+    (only written once, at run end), this works equally well mid-run: it
+    just reflects however much of the app log has been captured so far
+    (real request from a tester watching a live run, 2026-08-12).
+    """
+    run_start_ts = next((e.get("ts", "") for e in events if e.get("event") == "run_start"), "")
+    run_end_ts = next(
+        (e.get("ts", "") for e in events
+         if e.get("event") in ("run_complete", "run_ended_study_complete", "run_failed")),
+        "",
+    )
+    tl = build_log_timeline(out_dir, events, run_start_ts, run_end_ts)
+
+    def _t(ts):
+        return ts.split("T")[1][:8] if "T" in ts else ts
+
+    rows_html = "".join(
+        f"<tr><td style='white-space:nowrap'>{_t(r['ts'])}</td>"
+        f"<td><span class='src-{r['source']}'>{'AUTO' if r['source'] == 'auto' else 'APP'}</span></td>"
+        f"<td>{r['html']}</td></tr>"
+        for r in tl["rows"]
+    )
+    note = ""
+    if tl["app_log_source"]:
+        note = f"App log source: <code>{tl['app_log_source']}</code>"
+        if tl["unparsed_count"]:
+            note += f" &middot; {tl['unparsed_count']} line(s) could not be parsed and were omitted"
+    else:
+        note = "No app log has been captured for this run yet — this shows automation events only, and will fill in once a capture completes."
+
+    return f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Log Timeline</title>
+<style>
+body{{font-family:Arial,sans-serif;margin:24px;background:#fafafa;color:#222}}
+table{{border-collapse:collapse;width:100%;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)}}
+td,th{{border:1px solid #e0e0e0;padding:6px 10px;font-size:.84em;text-align:left}}
+th{{background:#f0f0f0;font-weight:600}}
+.note{{font-size:.85em;color:#666;margin-bottom:10px}}
+.src-auto{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#e7edff;color:#1d4ed8}}
+.src-app{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#eafbe7;color:#15803d}}
+mark{{background:#ffe58f;padding:0 2px;border-radius:2px}}
+</style>
+</head>
+<body>
+<h2>Log Timeline</h2>
+<div class="note">{note}</div>
+<table>
+<tr><th>Time</th><th>Source</th><th>Entry</th></tr>
+{rows_html}
+</table>
+</body></html>"""
+
+
+@app.route("/log-timeline")
+def log_timeline_page():
+    with _lock:
+        out_dir = _state["out_dir"]
+    if not out_dir:
+        out_dir = _find_latest_output_dir()
+    events = read_events(out_dir) if out_dir else []
+    html = _build_log_timeline_page(out_dir, events) if out_dir else "<p>No run found.</p>"
+    return Response(html, mimetype="text/html")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
