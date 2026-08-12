@@ -852,15 +852,21 @@ def api_capture_logs():
     # No run currently active, but this session may still remember the
     # last run's output dir -- it's only cleared by /api/start (new run)
     # or an explicit /api/stop, so a run that ended naturally (e.g. study
-    # completed) leaves it in place. Route into that run's own app_logs/
-    # so a post-run manual capture still shows up in that run's own
-    # report/log-timeline instead of vanishing into the unrelated
-    # standalone artifacts/ location (raised 2026-08-12 -- especially
-    # relevant now that a normal study completion skips the automatic
-    # run-end capture specifically to avoid disturbing the Upload/Skip
-    # screen, see main.py's _maybe_capture_logs_at_run_end).
+    # completed) leaves it in place. Falls back to the most recently
+    # modified output/ dir otherwise (e.g. the web server itself got
+    # restarted since the run ended, clearing in-memory _state -- same
+    # fallback /api/report and /log-timeline already use, so "Capture
+    # Now" targets the same run those are currently showing). Route into
+    # that run's own app_logs/ so a post-run manual capture still shows
+    # up in its report/log-timeline instead of vanishing into the
+    # unrelated standalone artifacts/ location (raised 2026-08-12 --
+    # especially relevant now that a normal study completion skips the
+    # automatic run-end capture specifically to avoid disturbing the
+    # Upload/Skip screen, see main.py's _maybe_capture_logs_at_run_end).
     with _lock:
         last_run_out_dir = _state.get("out_dir")
+    if not last_run_out_dir:
+        last_run_out_dir = _find_latest_output_dir()
     run_out_dir = last_run_out_dir if last_run_out_dir and Path(last_run_out_dir).is_dir() else None
 
     out_dir = (Path(run_out_dir) / "app_logs" / ts) if run_out_dir else (APP_LOGS_DIR / ts)

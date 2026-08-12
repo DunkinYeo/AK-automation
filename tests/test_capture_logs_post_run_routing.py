@@ -62,10 +62,47 @@ def test_post_run_capture_routes_into_known_run_dir(tmp_path, monkeypatch):
     assert "deadbeef" in success_events[0]["data"]["zip_path"]
 
 
+def test_falls_back_to_find_latest_output_dir_when_state_empty(tmp_path, monkeypatch):
+    """_state["out_dir"] is empty (e.g. the web server itself got
+    restarted after the run ended, clearing in-memory state) but a run
+    output dir still exists on disk -- must still route there, same
+    fallback /api/report and /log-timeline already use for this exact
+    situation."""
+    monkeypatch.setattr(app_mod, "ROOT", tmp_path)
+    run_dir = tmp_path / "output" / "20260812_090358"
+    run_dir.mkdir(parents=True)
+    (run_dir / "events.jsonl").write_text(
+        json.dumps({"ts": "2026-08-12T09:00:00", "event": "run_start", "data": {}}) + "\n"
+    )
+
+    monkeypatch.setattr(app_mod, "_run_already_active", lambda: False)
+    monkeypatch.setitem(app_mod._state, "out_dir", None)
+
+    captured_cmd = {}
+
+    def fake_run(cmd, **kwargs):
+        captured_cmd["cmd"] = cmd
+        out_arg = cmd[cmd.index("--out") + 1]
+        return _FakeCompletedProcess(stdout=f"CAPTURE_OK:{out_arg}/deadbeef.zip\n")
+
+    monkeypatch.setattr(app_mod.subprocess, "run", fake_run)
+
+    client = app_mod.app.test_client()
+    resp = client.post("/api/capture-logs", json={"device": "RF9R503211R"})
+    assert resp.status_code == 200
+
+    out_arg = captured_cmd["cmd"][captured_cmd["cmd"].index("--out") + 1]
+    assert str(run_dir / "app_logs") in out_arg
+
+    events = [json.loads(l) for l in (run_dir / "events.jsonl").read_text().splitlines()]
+    assert any(e["event"] == "capture_logs_success" for e in events)
+
+
 def test_falls_back_to_standalone_when_no_known_run_dir(tmp_path, monkeypatch):
-    """Negative control: with no last-known run dir (fresh server, or one
-    cleared by /api/stop), behaves exactly as before -- standalone
-    artifacts/ location, no events.jsonl append attempted."""
+    """Negative control: with no last-known run dir at all (fresh server
+    with no prior output/ dir, or one cleared by /api/stop), behaves
+    exactly as before -- standalone artifacts/ location, no events.jsonl
+    append attempted."""
     monkeypatch.setattr(app_mod, "ROOT", tmp_path)
     monkeypatch.setattr(app_mod, "_run_already_active", lambda: False)
     monkeypatch.setitem(app_mod._state, "out_dir", None)
