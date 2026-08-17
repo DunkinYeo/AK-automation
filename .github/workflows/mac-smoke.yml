@@ -15,6 +15,7 @@ on:
       - 'tests/**'
       - 'requirements.txt'
       - 'pytest.ini'
+      - 'Makefile'
       - '.github/workflows/mac-smoke.yml'
   pull_request:
     branches: [main]
@@ -25,6 +26,7 @@ on:
       - 'tests/**'
       - 'requirements.txt'
       - 'pytest.ini'
+      - 'Makefile'
       - '.github/workflows/mac-smoke.yml'
   workflow_dispatch:
 
