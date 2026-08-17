@@ -952,7 +952,7 @@ let _captureLogsSchedulerReady = false;
 let _captureLogsBusyReasons = new Set();
 
 // ── Field persistence ─────────────────────────────────────────────────────
-const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes'];
+const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes', 'interval-select'];
 
 function saveFields() {
   PERSIST_FIELDS.forEach(id => {
