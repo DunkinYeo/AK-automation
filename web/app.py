@@ -1156,6 +1156,11 @@ def api_start():
             "bt_disconnect_minutes":         float(data.get("bt_disconnect_minutes", 10)),
             "airplane_mode_interval_hours":  float(data.get("airplane_mode_interval_hours", 1)),
             "airplane_mode_minutes":         float(data.get("airplane_mode_minutes", 5)),
+            # "On Study Completion" (2026-08-18): notify (default, original
+            # Slack-only behavior) / upload / skip -- a per-run tester
+            # choice, since not every run's study data should necessarily
+            # be auto-uploaded (e.g. a synthetic QA study).
+            "study_complete_action":         (data.get("study_complete_action") or "notify"),
         }
         common = {
             "recovery": {"cooldown_seconds_between_steps": 30},

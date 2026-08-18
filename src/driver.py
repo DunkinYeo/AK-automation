@@ -1439,23 +1439,75 @@ class AndroidDriver:
             log.warning("[study] App study completed (upload %s%%, %s ~ %s) — "
                         "remaining scheduled jobs will be skipped",
                         info["upload_percent"], info["study_start"], info["study_end"])
-            # Upload incomplete → tester must tap Upload in the app; Slack
-            # heads-up so they know without watching the phone (issue #13)
-            up = info["upload_percent"]
-            webhook = getattr(self, "_slack_webhook", "")
-            if webhook and up is not None and up != "100":
-                try:
-                    from src.slack import slack_notify
-                    slack_notify(webhook,
-                                 f"🩺 App study completed — Data Upload {up}%. "
-                                 f"ACTION REQUIRED: tap 'Upload' in the app to "
-                                 f"finish uploading the study data.")
-                except Exception:
-                    pass
+            self._handle_study_completion_action(info)
             return True
         except Exception as e:
             log.debug("[study] completed-screen check failed: %s", e)
             return False
+
+    def _handle_study_completion_action(self, info: dict) -> None:
+        """
+        Act on the "On Study Completion" choice configured for this run
+        (web UI run-setup option, default "notify" — the original,
+        Slack-only behavior). "upload"/"skip" are tester opt-ins added
+        2026-08-18: not everyone running a long-run test wants the data
+        actually uploaded (e.g. a synthetic QA study), so this is a
+        per-run choice rather than always auto-tapping Upload.
+
+        Best-effort: never raises, since this is called from inside
+        _detect_study_completed(), which itself must never raise.
+        """
+        action = getattr(self, "_study_complete_action", "notify")
+        up = info.get("upload_percent")
+        webhook = getattr(self, "_slack_webhook", "")
+
+        def _notify(msg_suffix: str = ""):
+            if not webhook:
+                return
+            try:
+                from src.slack import slack_notify
+                slack_notify(webhook,
+                             f"🩺 App study completed — Data Upload {up}%.{msg_suffix} "
+                             f"ACTION REQUIRED: tap 'Upload' in the app to "
+                             f"finish uploading the study data.")
+            except Exception:
+                pass
+
+        if action == "skip":
+            try:
+                self.tap_text("Skip", timeout=5, contains=False)
+                self.reporter.log_event("study_completion_action", {"action": "skip"})
+            except Exception as e:
+                self.reporter.log_event("study_completion_action_failed",
+                                         {"action": "skip", "error": str(e)})
+            return
+
+        if action == "upload" and up is not None and up != "100":
+            try:
+                self.tap_text("Upload", timeout=5, contains=False)
+                time.sleep(5)  # give the app a moment to actually start uploading
+                import re as _re
+                new_src = self.drv.page_source
+                m = _re.search(r'text="Data Upload".{0,1500}?text="(\d{1,3})"', new_src, _re.S)
+                new_up = m.group(1) if m else None
+                self.reporter.log_event("study_completion_action", {
+                    "action": "upload", "upload_percent_before": up, "upload_percent_after": new_up,
+                })
+                if new_up is None or new_up == up:
+                    # Tap didn't visibly help -- fall back to the same
+                    # human heads-up "notify" mode always sends, so this
+                    # never silently fails quieter than the default.
+                    _notify(" Auto-tapped Upload but the percent didn't change.")
+            except Exception as e:
+                self.reporter.log_event("study_completion_action_failed",
+                                         {"action": "upload", "error": str(e)})
+                _notify(f" Auto-tap Upload failed ({e}).")
+            return
+
+        # "notify" (default), upload already 100%, or an unrecognized
+        # action -- original issue #13 behavior, unchanged.
+        if up is not None and up != "100":
+            _notify()
 
     def _report_study_progress(self):
         """
