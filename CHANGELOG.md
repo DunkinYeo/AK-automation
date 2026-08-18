@@ -1,5 +1,144 @@
 # Changelog — S-Patch AccurKardia Automation
 
+## [v1.1.4] — Unreleased
+
+### Highlights
+Two new capabilities (#55, #69) plus a batch of real bugs found by
+watching actual multi-day runs on the dashboard — several only surfaced
+because a tester was staring at a live run and noticed something looked
+wrong, not from code review.
+
+### App log capture & Log Timeline View (#55, #69)
+- **The app's own internal log can now be pulled from the device and
+  compared side-by-side with automation events on a single timeline.**
+  A "Capture App Logs" button (web UI, works mid-run without disrupting
+  the active session) drives AccurKardia's hidden log-export screen and
+  pulls the resulting zip; it's also captured automatically at the end
+  of every run (success or failure) so a Log Timeline is available even
+  when nobody thought to click the button — the case that matters most
+  (a crash) is exactly the one a manual click can't reach after the
+  fact.
+- The saved report (`summary.html`) and the live web report both show a
+  merged, time-ordered view — app-log lines and automation events
+  side by side with source badges — plus a live-updating `/log-timeline`
+  page and a keyword-highlighted "Log Highlights" summary
+  (error/fail/exception/bluetooth/disconnect/upload/study/timeout).
+- **Real bugs found while building and using this against actual live
+  runs:**
+  - App log timestamps carry the *device's* own GMT offset, not
+    necessarily the host machine's — a device set to a different
+    timezone than the automation host would have merged rows into
+    wildly wrong positions on the timeline. Each line is now converted
+    from its own embedded offset instead of assuming it already matches
+    host-local time (same class of bug #11's Study Overview
+    start/end-time scraping hit for real once already).
+  - The same study/session re-exports to the *same* filename every
+    capture — a stale copy from an earlier capture already sitting on
+    the device could pass the "is the download done yet" stability
+    check before the new export had even started writing, silently
+    pulling stale data. The old file is now deleted right before each
+    new capture.
+  - A capture at run end could leave the app stranded on whatever
+    screen the export flow finished on, with nothing to notice or
+    recover it — now always attempts to return to a known-reachable
+    screen afterward, success or failure.
+  - **A normal, successful study completion used to break the run-end
+    capture entirely**: the app is sitting on the Study Overview
+    (Upload/Skip) screen at that point, which the tester may still need
+    — the capture flow's own screen-recovery logic would press Back
+    trying to escape it to reach Setting/Version Information, disturbing
+    the exact screen that mattered most. Run-end capture is now skipped
+    in this one case (earlier hourly captures during the run already
+    cover most of what one more at the very end would add).
+  - A tester watching a live run mid-capture-gap could misread a stale
+    (not-recently-recaptured) app log as "the app stopped logging" —
+    the timeline now marks exactly where the app log's own coverage
+    ends and shows how long ago it was last captured, with a one-click
+    re-capture from the timeline page itself.
+  - A manual capture *after* a run had already ended used to vanish
+    into an unrelated standalone folder instead of that run's own
+    report — now routed into the run's own directory (falling back to
+    the most recently active run if the web server itself was restarted
+    since), and the saved report is re-rendered on the spot so it picks
+    up the new capture instead of staying frozen at whatever it looked
+    like when the run originally finished.
+  - The report now also records a capture history — when the app log
+    was captured during a run, how many times, and whether each attempt
+    succeeded, failed, or was skipped.
+
+### Faster study-completion detection
+- The automation previously only checked whether the app study had
+  finished once per scheduled injection job (hourly by default) — fine
+  for most of a multi-day run, but a run whose last job happened to fail
+  a connectivity hiccup could take up to an hour longer than necessary
+  to notice the study was actually done, and the dashboard's "App
+  Study: N%" reading could sit stale for the same reason. Once the last
+  known reading crosses 95%, the connectivity monitor now also checks
+  every 30 seconds — no added overhead for the rest of a run's duration,
+  since it only activates in the final stretch.
+- The "App Study" progress indicator now shows how long ago its last
+  reading was taken, and flags itself once that reading is stale enough
+  to plausibly be out of date.
+
+### Dashboard fixes (found via live usage)
+- **Battery status reporting was broken for the actual normal case**:
+  the device's real "battery is fine" text ("Normal") was never in the
+  recognized label list, so a healthy battery never updated the
+  dashboard and it could stay stuck showing "Not Connected" indefinitely
+  after a Bluetooth reconnect. Separately, "Replace" was removed from
+  the recognized labels entirely — the app has no such real status text,
+  it only ever came from an always-on-screen "How to Replace the
+  Battery" tutorial card being misread as a live reading.
+- The "Connection" status chip could stay stuck on "pending" forever
+  (it was watching for a popup that never actually appears), and the
+  battery chip could show a false green checkmark while genuinely
+  disconnected instead of "Not Connected".
+- Unauthorized USB devices (phone hasn't accepted the "Allow USB
+  debugging" prompt yet) used to disappear from the device list with no
+  explanation — now shown with a clear warning instead of just vanishing.
+- The mid-run "Interval" override box and the pre-start "Injection
+  Interval" dropdown could both show misleading values: the override
+  box defaulted to a placeholder that looked like a real "1h" reading
+  regardless of the run's actual interval, and the dropdown's chosen
+  value (e.g. "Every 4 hours") wasn't remembered across a page reload,
+  silently reverting to "Every 1 hour". Both now correctly reflect the
+  actual running session / the tester's last choice.
+
+### iOS
+- Confirmed (and locked in with regression tests) that
+  `study_completed_ios` already reaches the dashboard and saved report
+  correctly via the existing Android/iOS event-name normalization — no
+  code change needed, just verification.
+- Cleaned up a stale code comment in `main_ios.py` describing
+  `until_study_end` as unsupported on iOS, left over from before #18
+  shipped real iOS study-completion detection.
+
+### CI/CD & tooling
+- New weekly canary workflow installs Appium/UiAutomator2 at "latest"
+  (no version pin) and attempts a real session creation, to catch a
+  future repeat of the npm dependency drift that broke a tester's
+  first-run install in v1.1.3 before it ever reaches a release.
+- `windows-smoke.yml`/`mac-smoke.yml`'s path filters now also cover
+  `Makefile` changes — a Makefile-only PR previously got stuck
+  permanently blocked, since branch protection requires these checks
+  but neither workflow's filter included it (same class of gap the
+  `tests/**`/`pytest.ini` filter omission was).
+- `make restart-web` codifies the SIGKILL-based web server restart
+  sequence that lets a web/report code change take effect without
+  disrupting an in-progress multi-day run.
+
+### Known issues / deferred
+- **USB re-recognition after WiFi ADB use (#62)**: an external Windows
+  tester reported the device disappearing from USB after switching to
+  WiFi ADB. Not reproduced on this project's own Mac + test device
+  combination, and a stronger candidate explanation (an *unauthorized*
+  device silently vanishing from the list, now fixed above) hasn't been
+  confirmed either — holding off on a speculative code change until an
+  actual `adb devices` capture from the failure is available.
+- PyInstaller-based standalone packaging (#46) and per-device scoping of
+  iOS WDA process cleanup (#26) remain deferred; neither is urgent for
+  this release.
+
 ## [v1.1.3] — 2026-08-05
 
 ### Fixed after initial publish (same tag, assets rebuilt)
