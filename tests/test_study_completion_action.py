@@ -23,13 +23,19 @@ class _FakeInnerDriver:
         self.page_source = page_source
 
 
-def _make_driver(action, upload_percent_after=None, tap_raises=False, skip_confirm_visible=False):
+def _make_driver(action, upload_percent_after=None, tap_raises=False,
+                  skip_confirm_visible=False, success_screen=False):
     drv = object.__new__(driver_mod.AndroidDriver)
     drv.reporter = _FakeReporter()
     drv._study_complete_action = action
     drv._slack_webhook = "https://hooks.slack.com/services/fake"
     drv._tap_calls = []
-    src = f'text="Data Upload" text="{upload_percent_after}"' if upload_percent_after is not None else ""
+    if success_screen:
+        src = "Your study has been completed. Please return the device to the provider."
+    elif upload_percent_after is not None:
+        src = f'text="Data Upload" text="{upload_percent_after}"'
+    else:
+        src = ""
     drv.drv = _FakeInnerDriver(page_source=src)
 
     def _tap_text(text, timeout=5, contains=True):
@@ -43,6 +49,19 @@ def _make_driver(action, upload_percent_after=None, tap_raises=False, skip_confi
     drv.tap_text = _tap_text
     drv.is_visible_text = _is_visible_text
     return drv
+
+
+def _use_fake_clock(monkeypatch):
+    """The upload branch polls with a 300s wall-clock deadline
+    (time.time()) between time.sleep(3) calls -- for a case that never
+    resolves, a real clock would cost the full 300s per test. Advancing
+    a fake clock only when time.sleep() is called keeps the loop's
+    iteration count identical to production while making the test
+    instant."""
+    state = {"now": 1_700_000_000.0}
+    monkeypatch.setattr("src.driver.time.time", lambda: state["now"])
+    monkeypatch.setattr("src.driver.time.sleep", lambda s: state.__setitem__("now", state["now"] + s))
+    return state
 
 
 def test_default_notify_action_sends_slack_when_incomplete(monkeypatch):
@@ -103,7 +122,7 @@ def test_skip_action_confirms_the_are_you_sure_dialog(monkeypatch):
 
 
 def test_upload_action_taps_upload_and_verifies_progress(monkeypatch):
-    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    _use_fake_clock(monkeypatch)
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
     drv = _make_driver("upload", upload_percent_after="100")
@@ -112,15 +131,39 @@ def test_upload_action_taps_upload_and_verifies_progress(monkeypatch):
 
     assert drv._tap_calls == ["Upload"]
     logged = dict(drv.reporter.events)["study_completion_action"]
-    assert logged == {"action": "upload", "upload_percent_before": "31", "upload_percent_after": "100"}
+    assert logged == {"action": "upload", "upload_percent_before": "31",
+                       "upload_percent_after": "100", "success_screen_detected": False}
     assert sent == [], "must not fall back to notify once the tap visibly worked"
+
+
+def test_upload_action_detects_success_screen_and_taps_ok(monkeypatch):
+    """Real gap caught live, 2026-08-18: a fully successful upload
+    replaces the whole screen with a "Your study has been completed.
+    Please return the device to the provider." success state that no
+    longer shows the "Data Upload: N%" label at all -- waiting for that
+    label's number to change would have hung the full timeout and then
+    falsely reported failure on a perfectly successful upload."""
+    _use_fake_clock(monkeypatch)
+    sent = []
+    monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
+    drv = _make_driver("upload", success_screen=True)
+
+    drv._handle_study_completion_action({"upload_percent": "31"})
+
+    assert drv._tap_calls == ["Upload", "Ok"]
+    logged = dict(drv.reporter.events)["study_completion_action"]
+    assert logged == {"action": "upload", "upload_percent_before": "31",
+                       "upload_percent_after": None, "success_screen_detected": True}
+    assert sent == [], "must not fall back to notify when the success screen is detected"
 
 
 def test_upload_action_falls_back_to_notify_when_percent_unchanged(monkeypatch):
     """Negative control for the happy path above: if the tap didn't
-    actually move the percentage, this must not silently succeed --
-    falls back to the same human heads-up 'notify' mode always sends."""
-    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    actually move the percentage (and the success screen never appears
+    either), this must not silently succeed -- falls back to the same
+    human heads-up 'notify' mode always sends, after actually waiting
+    out the full poll budget rather than giving up instantly."""
+    clock = _use_fake_clock(monkeypatch)
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
     drv = _make_driver("upload", upload_percent_after="31")  # unchanged
@@ -130,6 +173,7 @@ def test_upload_action_falls_back_to_notify_when_percent_unchanged(monkeypatch):
     assert drv._tap_calls == ["Upload"]
     assert len(sent) == 1
     assert "didn't change" in sent[0]
+    assert clock["now"] >= 1_700_000_000.0 + 300, "must actually wait out the full poll budget, not bail early"
 
 
 def test_upload_action_falls_back_to_notify_when_tap_raises(monkeypatch):
@@ -189,7 +233,7 @@ def test_upload_action_still_taps_when_upload_percent_unparseable(monkeypatch):
     """The Upload button is confirmed present on screen regardless of
     whether the % could be read, so attempting the tap is still safe --
     must not skip it just because the percent is unknown."""
-    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    clock = _use_fake_clock(monkeypatch)
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
     drv = _make_driver("upload")  # upload_percent_after=None -> re-scrape also fails
@@ -198,11 +242,14 @@ def test_upload_action_still_taps_when_upload_percent_unparseable(monkeypatch):
 
     assert drv._tap_calls == ["Upload"]
     logged = dict(drv.reporter.events)["study_completion_action"]
-    assert logged == {"action": "upload", "upload_percent_before": None, "upload_percent_after": None}
+    assert logged == {"action": "upload", "upload_percent_before": None,
+                       "upload_percent_after": None, "success_screen_detected": False}
     # Can't confirm success either way when the percent can't be read --
-    # falls back to notify rather than assuming it worked.
+    # falls back to notify rather than assuming it worked, only after
+    # actually waiting out the full poll budget.
     assert len(sent) == 1
     assert "couldn't be read" in sent[0]
+    assert clock["now"] >= 1_700_000_000.0 + 300
 
 
 def test_upload_action_with_unparseable_percent_that_resolves_after_tap(monkeypatch):
@@ -210,7 +257,7 @@ def test_upload_action_with_unparseable_percent_that_resolves_after_tap(monkeypa
     successfully read a percent (even though the before-value didn't
     parse), that's still meaningfully different from "before" and must
     count as progress, not trigger the didn't-change fallback."""
-    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    _use_fake_clock(monkeypatch)
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
     drv = _make_driver("upload", upload_percent_after="100")
@@ -219,5 +266,6 @@ def test_upload_action_with_unparseable_percent_that_resolves_after_tap(monkeypa
 
     assert drv._tap_calls == ["Upload"]
     logged = dict(drv.reporter.events)["study_completion_action"]
-    assert logged == {"action": "upload", "upload_percent_before": None, "upload_percent_after": "100"}
+    assert logged == {"action": "upload", "upload_percent_before": None,
+                       "upload_percent_after": "100", "success_screen_detected": False}
     assert sent == []

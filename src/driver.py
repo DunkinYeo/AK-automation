@@ -1510,20 +1510,52 @@ class AndroidDriver:
         if action == "upload" and incomplete_or_unknown:
             try:
                 self.tap_text("Upload", timeout=5, contains=False)
-                time.sleep(5)  # give the app a moment to actually start uploading
+                # Real upload duration varies with how much data there is
+                # to send -- a multi-day study can accumulate a lot of
+                # ECG/sensor data, so this budget is generous (5min) and
+                # polls instead of a single fixed sleep. Recognizes BOTH
+                # possible success signals: the "Data Upload: N%" text
+                # increasing, or the whole screen replacing itself with a
+                # "Your study has been completed. Please return the
+                # device to the provider." success state (confirmed live
+                # via screenshot, 2026-08-18) that no longer shows that
+                # label at all -- waiting for the % text to change would
+                # hang the full timeout on a perfectly successful upload.
                 import re as _re
-                new_src = self.drv.page_source
-                m = _re.search(r'text="Data Upload".{0,1500}?text="(\d{1,3})"', new_src, _re.S)
-                new_up = m.group(1) if m else None
+                deadline = time.time() + 300
+                new_up = None
+                upload_success_screen = False
+                while time.time() < deadline:
+                    src = self.drv.page_source
+                    if "return the device" in src:
+                        upload_success_screen = True
+                        break
+                    m = _re.search(r'text="Data Upload".{0,1500}?text="(\d{1,3})"', src, _re.S)
+                    candidate = m.group(1) if m else None
+                    if candidate is not None and candidate != up:
+                        new_up = candidate
+                        break
+                    time.sleep(3)
                 self.reporter.log_event("study_completion_action", {
                     "action": "upload", "upload_percent_before": up, "upload_percent_after": new_up,
+                    "success_screen_detected": upload_success_screen,
                 })
-                if new_up is None or new_up == up:
+                if upload_success_screen:
+                    # Dismiss the success dialog so the app doesn't sit
+                    # there indefinitely -- best-effort, a missed Ok tap
+                    # isn't itself a failure of the upload.
+                    try:
+                        self.tap_text("Ok", timeout=5, contains=False)
+                    except Exception:
+                        pass
+                elif new_up is None:
                     # Tap didn't visibly help (or we still can't read the
-                    # percent to tell) -- fall back to the same human
-                    # heads-up "notify" mode always sends, so this never
-                    # silently fails quieter than the default.
-                    _notify(" Auto-tapped Upload but the percent didn't change (or couldn't be read).")
+                    # percent to tell) even after waiting -- fall back to
+                    # the same human heads-up "notify" mode always sends,
+                    # so this never fails more silently than doing
+                    # nothing would have.
+                    _notify(" Auto-tapped Upload but the percent didn't change "
+                            "(or couldn't be read) after waiting.")
             except Exception as e:
                 self.reporter.log_event("study_completion_action_failed",
                                          {"action": "upload", "error": str(e)})
