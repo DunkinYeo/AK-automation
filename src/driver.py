@@ -1004,6 +1004,25 @@ class AndroidDriver:
                 self.reporter.log_event("battery_status", {"status": battery_status})
                 log.info("[connectivity] Patch battery status: %s", battery_status)
 
+        # App study progress/completion normally only gets checked once per
+        # scheduled job's UI health check (hourly by default) -- fine most
+        # of a multi-day run, but real confusion on 2026-08-12: the
+        # dashboard sat on a stale % for hours, and a run that had actually
+        # finished on the phone took up to an hour to notice (the
+        # until_study_end scheduler loop already polls the _study_completed
+        # flag every 10s -- scheduler.py -- the bottleneck was purely how
+        # rarely that flag got a chance to be set). Once the last known
+        # reading is >=95% (same threshold study_end_warning already uses),
+        # also check here on this 30s tick so the final stretch doesn't
+        # wait for the next hourly job. Left off before 95% to keep this
+        # multi-day-run change from adding any overhead to the vast
+        # majority of a run's duration. Both calls are best-effort/never
+        # raise and are no-ops once _study_completed is already set, so
+        # this is safe to call repeatedly.
+        if getattr(self, "_last_study_pct", 0) >= 95 and not getattr(self, "_study_completed", False):
+            self._report_study_progress()
+            self._detect_study_completed()
+
     # ── Unexpected popup handling ────────────────────────────────────────────
 
     # System packages that may steal focus with dialogs/permissions.
