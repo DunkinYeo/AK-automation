@@ -677,7 +677,7 @@ function fmtEvent(ev) {
     _captureLogsBusyEnd('airplane');
   } else if (ev.event === 'battery_status') {
     const s = ev.data?.status || '';
-    const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
+    const isLow = s === 'Low' || s === 'Critical';
     text = `Patch battery: ${s}`;
     return { text, color: isLow ? 'red' : 'green' };
   } else if (ev.event === 'regression_suite_result') {
@@ -876,7 +876,7 @@ function processConnEvents(events) {
         // fell through to '✓' with blank text, showing a false checkmark.
         updateConnCard('battery', 'info', 'Not Connected', '');
       } else {
-        const isLow = s === 'Low' || s === 'Critical' || s === 'Replace';
+        const isLow = s === 'Low' || s === 'Critical';
         updateConnCard('battery', isLow ? 'alert' : 'pass', isLow ? `✗ ${s}` : `✓ ${s}`, '');
       }
     } else {

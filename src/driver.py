@@ -974,10 +974,20 @@ class AndroidDriver:
             })
             del self._wifi_off_ts
 
-        # Patch battery status — only readable when BT is connected.
-        # When BT is off the app shows "How to Replace the Battery" guidance card,
-        # which causes false "Replace" reads. Use ADB as ground truth to guard
-        # against cases where UI detection misses a natural BT disconnection.
+        # Patch battery status — only readable when BT is connected. Use ADB
+        # as ground truth to guard against cases where UI detection misses a
+        # natural BT disconnection.
+        #
+        # "Replace" is deliberately NOT in the recognized label list below:
+        # the app has no such on-screen battery status value, and the only
+        # place that text ever appears is the always-on-screen "How to
+        # Replace the Battery" guidance card, which used to cause false
+        # reads here (a card-4 disambiguation guard previously worked around
+        # this; simplest fix is to just not treat "Replace" as a real status
+        # at all). "Normal" was missing from this list entirely until
+        # 2026-08-12 — confirmed live it's the actual text the app shows,
+        # which meant a genuinely healthy battery reading never matched
+        # anything and the dashboard stayed stuck on stale status forever.
         bt_actually_off = bt_disconnected or phone_bt_off
         if bt_actually_off:
             if self._conn_state.get("battery_status"):
@@ -985,14 +995,8 @@ class AndroidDriver:
                 self.reporter.log_event("battery_status", {"status": None})
         else:
             battery_status = None
-            # "How to Replace the Battery" card is always on screen (card 4).
-            # If "Replace" is the matched label, verify it's not from card 4
-            # by confirming "How to" is NOT visible alongside it.
-            how_to_visible = self.is_visible_text("How to", contains=True, timeout=1)
-            for label in ["Good", "Low", "Critical", "Full", "Replace"]:
+            for label in ["Good", "Normal", "Low", "Critical", "Full"]:
                 if self.is_visible_text(label, contains=False, timeout=1):
-                    if label == "Replace" and how_to_visible:
-                        break  # "Replace" is from card 4, not battery status
                     battery_status = label
                     break
             if battery_status and battery_status != self._conn_state.get("battery_status"):
