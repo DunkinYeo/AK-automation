@@ -77,11 +77,22 @@ at a live run and noticed something looked wrong, not from code review.
   choice in the web UI's run-setup form instead of a fixed behavior.
 - New "On Study Completion" dropdown, default **Notify only** (preserves
   the exact original behavior — nothing changes unless a tester opts
-  in): **Auto-tap Upload** taps Upload, waits, then re-checks the Data
-  Upload % to confirm it actually moved before considering it handled —
-  falling back to the same Slack notification if the tap didn't visibly
-  help, so this never fails more silently than doing nothing would have.
-  **Auto-tap Skip** taps Skip.
+  in): **Auto-tap Upload** taps Upload, then polls up to 300s (upload
+  duration is unpredictable — could be a large dataset) for either the
+  Data Upload % to move or the completion screen to appear, falling back
+  to the same Slack notification only if neither happened, so this never
+  fails more silently than doing nothing would have. **Auto-tap Skip**
+  taps Skip.
+- **Two real gaps caught by live device testing (2026-08-18), fixed
+  before this ever ran unattended**: a fully successful upload replaces
+  the whole screen with a completion message and an "Ok" button — the
+  "Data Upload: N%" text disappears entirely, which the original
+  percent-only check would have misread as "didn't change" and falsely
+  escalated to Slack. Now detects the completion screen directly and
+  taps "Ok". Separately, tapping Skip while the upload is incomplete
+  brings up a second "...are you sure you want to skip the upload?"
+  confirmation dialog (confirm button: "Yes, Skip") that the original
+  implementation didn't know to expect — now handled.
 - Android only (matches `_detect_study_completed()`'s existing scope —
   iOS has its own separate study-completion implementation, untouched).
 
@@ -169,6 +180,13 @@ at a live run and noticed something looked wrong, not from code review.
   tracked run's state even though the process was still genuinely alive
   and correctly ours (observed 4-5 times in one session). Widened to
   15s; the fail-closed behavior itself is unchanged.
+- **The connectivity regression suite (TC-CONN-001..005) failed
+  outright on a live run** (#92): it unconditionally tapped a
+  "Device Status" nav label to navigate there, but the app's main
+  screen already opens directly on Device Status — a fact already
+  discovered and fixed elsewhere in `driver.py` back on 2026-07-15, but
+  never propagated to this suite. Now only taps the label when it's
+  actually a different, active tab offering it as a switch target.
 
 ### CI/CD & tooling
 - New weekly canary workflow installs Appium/UiAutomator2 at "latest"
