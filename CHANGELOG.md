@@ -3,10 +3,10 @@
 ## [v1.1.4] — Unreleased
 
 ### Highlights
-Two new capabilities (#55, #69) plus a batch of real bugs found by
-watching actual multi-day runs on the dashboard — several only surfaced
-because a tester was staring at a live run and noticed something looked
-wrong, not from code review.
+Three new capabilities (#55, #69, and the "On Study Completion" setting
+below) plus a batch of real bugs found by watching actual multi-day runs
+on the dashboard — several only surfaced because a tester was staring
+at a live run and noticed something looked wrong, not from code review.
 
 ### App log capture & Log Timeline View (#55, #69)
 - **The app's own internal log can now be pulled from the device and
@@ -65,6 +65,25 @@ wrong, not from code review.
   - The report now also records a capture history — when the app log
     was captured during a run, how many times, and whether each attempt
     succeeded, failed, or was skipped.
+
+### "On Study Completion" run setting — notify / auto-upload / auto-skip
+- The Study Overview screen (#11) always has both Upload and Skip
+  buttons, and automation only ever sent a Slack heads-up asking a human
+  to tap one manually. Real evidence this session: `upload_percent` sat
+  at 31% and 99% on two separate completed runs — genuinely worth
+  automating, but auto-tapping Upload unconditionally isn't right
+  either, since not every run's study data needs to actually be
+  uploaded (e.g. a synthetic QA test run). Made it a per-run tester
+  choice in the web UI's run-setup form instead of a fixed behavior.
+- New "On Study Completion" dropdown, default **Notify only** (preserves
+  the exact original behavior — nothing changes unless a tester opts
+  in): **Auto-tap Upload** taps Upload, waits, then re-checks the Data
+  Upload % to confirm it actually moved before considering it handled —
+  falling back to the same Slack notification if the tap didn't visibly
+  help, so this never fails more silently than doing nothing would have.
+  **Auto-tap Skip** taps Skip.
+- Android only (matches `_detect_study_completed()`'s existing scope —
+  iOS has its own separate study-completion implementation, untouched).
 
 ### A run whose study was never actually started no longer wastes days
 - **Real incident**: a run was started with the app study never
