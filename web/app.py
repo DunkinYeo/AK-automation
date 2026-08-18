@@ -437,12 +437,44 @@ def _terminal_event(events: list[dict]) -> str | None:
 
 
 def find_latest_output_dir(since: float) -> str | None:
+    """
+    Find the output/ directory this specific run (started at `since`)
+    created for itself.
+
+    Matches on the directory's own NAME (main.py/main_ios.py both name it
+    datetime.now().strftime("%Y%m%d_%H%M%S") at creation) rather than
+    filesystem mtime -- a real race caught live (2026-08-18, three rapid
+    restarts ~70s apart): mtime-based matching (`mtime >= since - 1`)
+    picked up a DIFFERENT, already-finishing previous run's directory,
+    because its own run-end cleanup (capture_logs, summary.html) happened
+    to touch it within that same 1s grace window. Once wrongly set,
+    _state["out_dir"] is never re-validated (callers only look this up
+    `if not out_dir`), so the dashboard stayed stuck showing the wrong
+    run's data. Directory names are immutable and process-specific, so
+    this can't be confused by another run's unrelated file writes the way
+    mtime can. Picks the earliest name-timestamp still >= since (small
+    grace window for the real gap between this function's `since` --
+    captured by /api/start right before spawning -- and the subprocess
+    creating its own directory a moment later).
+    """
     out = ROOT / "output"
     if not out.exists():
         return None
-    dirs = [d for d in out.iterdir() if d.is_dir() and d.stat().st_mtime >= since - 1]
-    dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-    return str(dirs[0]) if dirs else None
+    candidates = []
+    for d in out.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            dt = datetime.datetime.strptime(d.name, "%Y%m%d_%H%M%S")
+        except ValueError:
+            continue  # not a run output dir (e.g. "regression", "tmp")
+        ts = dt.timestamp()
+        if ts >= since - 5:
+            candidates.append((ts, d))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+    return str(candidates[0][1])
 
 
 def _find_latest_output_dir() -> str | None:
