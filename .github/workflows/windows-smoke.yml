@@ -97,7 +97,13 @@ jobs:
           Start-Sleep -Seconds 8
           try {
             $body = '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}'
-            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:4744/session" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 30 -SkipHttpErrorCheck
+            # TimeoutSec was 30 until a real run (2026-08-18) failed: Appium's
+            # own getDevicesWithRetry took 28.7s to give up and return the
+            # expected "no device" response -- only ~1.3s of margin, tight
+            # enough to flake on ordinary CI runner variance. Widened for
+            # headroom; the step's own timeout-minutes above is the real
+            # backstop against a genuine hang.
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:4744/session" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 60 -SkipHttpErrorCheck
             $text = $resp.Content
             Write-Host $text
             if ($text -match "Cannot require\(\)" -or $text -match "ES Module") {
