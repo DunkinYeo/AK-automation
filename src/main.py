@@ -214,6 +214,35 @@ def _run_once(cfg: dict, reporter: RunReporter, artifacts: ArtifactManager) -> N
         dm.close()
 
 
+def _ensure_study_active(driver, sel: dict) -> None:
+    """
+    Final precondition check right before committing to the long-run
+    schedule. Regression suites already report "Study not started" as an
+    ordinary TC failure (not a hard stop), so a run whose study was never
+    actually started/registered on the device used to sail through and
+    schedule 40+ hourly jobs that would all fail identically for days
+    (real incident, 2026-08-12: 35/35 job failures over ~43h, every one
+    "Session recovery failed" -- traced back to the app still sitting on
+    "Connect Your S-Patch", never registered/started). One fresh check
+    here, reusing the same indicator every job already relies on, catches
+    this before scheduling instead of after.
+
+    Raises RuntimeError (caught by main()'s own run_failed/Slack/cleanup
+    handling, same as any other startup failure) if the study doesn't
+    look active.
+    """
+    indicator = sel.get("symptom_add_text", "Log Symptoms")
+    if not driver.is_visible_text(indicator, timeout=10) or \
+            driver.is_visible_text("Start Study", timeout=2, contains=False):
+        raise RuntimeError(
+            f"Study does not appear to be started/active on the device "
+            f"(indicator '{indicator}' not visible, or still on the Start "
+            f"Study screen) — aborting before scheduling instead of "
+            f"repeating job failures for the run's full duration. Start "
+            f"the study on the device, then restart this run."
+        )
+
+
 def _maybe_capture_logs_at_run_end(driver, out_dir: str, reporter) -> None:
     """
     Best-effort automatic app-log capture at run end (#69 follow-up to
@@ -479,6 +508,8 @@ def main():
             go_to_main(driver)
             for name, tests in post_main_suites:
                 _run_suite(name, tests)
+
+        _ensure_study_active(driver, sel)
 
         reporter.log_event("main_screen_confirmed", {})
         log_event("main screen confirmed")
