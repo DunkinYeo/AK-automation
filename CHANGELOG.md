@@ -66,6 +66,19 @@ wrong, not from code review.
     was captured during a run, how many times, and whether each attempt
     succeeded, failed, or was skipped.
 
+### A run whose study was never actually started no longer wastes days
+- **Real incident**: a run was started with the app study never
+  registered/started on the device (still on "Connect Your S-Patch").
+  Regression suites correctly reported "Study not started" as ordinary
+  TC failures in 3 separate suites, but nothing stopped the scheduler
+  from starting anyway — it went on to schedule 40+ hourly jobs that all
+  failed identically ("Session recovery failed") over roughly 43 hours
+  before anyone noticed. A final precondition check right before the
+  scheduler starts now catches this and aborts immediately with a clear
+  error instead — reusing the same main-screen check every job already
+  relies on, so it adds no new failure mode, just moves an existing one
+  much earlier.
+
 ### Faster study-completion detection
 - The automation previously only checked whether the app study had
   finished once per scheduled injection job (hourly by default) — fine
