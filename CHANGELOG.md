@@ -126,16 +126,39 @@ wrong, not from code review.
   `until_study_end` as unsupported on iOS, left over from before #18
   shipped real iOS study-completion detection.
 
+### Hardening
+- **The `/app_logs/<path>` download route was narrowed to `*.zip`
+  captures only, no longer the whole of `output/`** (code review
+  finding). This server binds to all interfaces (the "Share on local
+  network" URL shown at startup), so anyone on the same LAN could
+  previously browse/download any run's screenshots, `events.jsonl`, or
+  `summary.html` by guessing a path, not just app-log zips. Doesn't
+  change what the app's own internal links ever request — they always
+  hand back exact real paths already — only narrows what an arbitrary
+  guessed path is allowed to reach.
+- A run whose output directory couldn't be resolved right after a rapid
+  restart (real incident: three run restarts ~70s apart) used to latch
+  onto a *different*, still-finishing previous run's directory instead
+  of its own, because the matching logic used filesystem mtime (which
+  any process's file write can bump) instead of the directory's own
+  immutable, run-specific name. The dashboard stayed stuck showing the
+  wrong run's data for the rest of the session once this happened.
+
 ### CI/CD & tooling
 - New weekly canary workflow installs Appium/UiAutomator2 at "latest"
   (no version pin) and attempts a real session creation, to catch a
   future repeat of the npm dependency drift that broke a tester's
   first-run install in v1.1.3 before it ever reaches a release.
 - `windows-smoke.yml`/`mac-smoke.yml`'s path filters now also cover
-  `Makefile` changes — a Makefile-only PR previously got stuck
-  permanently blocked, since branch protection requires these checks
-  but neither workflow's filter included it (same class of gap the
-  `tests/**`/`pytest.ini` filter omission was).
+  `Makefile` changes, and each other's workflow file — a change scoped
+  to just one of these files (or to `Makefile`) previously got stuck
+  permanently blocked, since branch protection requires both checks but
+  neither's filter covered it (same class of gap the `tests/**`/
+  `pytest.ini` filter omission was).
+- Widened the Windows Appium-bootstrap smoke test's HTTP timeout
+  (30s → 60s) after a real flake: Appium's own retry logic took 28.7s
+  to return its expected "no device" response, leaving only ~1.3s of
+  margin against ordinary CI runner variance.
 - `make restart-web` codifies the SIGKILL-based web server restart
   sequence that lets a web/report code change take effect without
   disrupting an in-progress multi-day run.
