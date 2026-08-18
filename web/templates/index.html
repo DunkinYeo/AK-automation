@@ -952,7 +952,7 @@ let _captureLogsSchedulerReady = false;
 let _captureLogsBusyReasons = new Set();
 
 // ── Field persistence ─────────────────────────────────────────────────────
-const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes'];
+const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes', 'interval-select'];
 
 function saveFields() {
   PERSIST_FIELDS.forEach(id => {
@@ -1208,6 +1208,16 @@ function syncFormToRunningSession(events) {
   if (udid) {
     const sel = document.getElementById('device-select');
     if ([...sel.options].some(o => o.value === udid)) sel.value = udid;
+  }
+  // interval-input's "1.0" is only a placeholder hint (grey, shown when
+  // empty) -- left unsynced, it can read as "this run is on a 1h
+  // interval" when the real value is whatever was actually configured
+  // (real confusion, 2026-08-18: a 4h-interval run looked like 1h on
+  // reload). Same fix class as #37 (platform/device), just a field #37
+  // didn't cover.
+  const intervalHours = runStart.data?.interval_hours;
+  if (intervalHours != null) {
+    document.getElementById('interval-input').value = intervalHours;
   }
   _formSyncedToRun = true;
 }
