@@ -17,6 +17,7 @@ on:
       - 'pytest.ini'
       - 'Makefile'
       - '.github/workflows/mac-smoke.yml'
+      - '.github/workflows/windows-smoke.yml'
   pull_request:
     branches: [main]
     paths:
@@ -28,6 +29,7 @@ on:
       - 'pytest.ini'
       - 'Makefile'
       - '.github/workflows/mac-smoke.yml'
+      - '.github/workflows/windows-smoke.yml'
   workflow_dispatch:
 
 jobs:
