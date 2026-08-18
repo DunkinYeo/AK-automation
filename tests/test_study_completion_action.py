@@ -23,7 +23,7 @@ class _FakeInnerDriver:
         self.page_source = page_source
 
 
-def _make_driver(action, upload_percent_after=None, tap_raises=False):
+def _make_driver(action, upload_percent_after=None, tap_raises=False, skip_confirm_visible=False):
     drv = object.__new__(driver_mod.AndroidDriver)
     drv.reporter = _FakeReporter()
     drv._study_complete_action = action
@@ -37,7 +37,11 @@ def _make_driver(action, upload_percent_after=None, tap_raises=False):
         if tap_raises:
             raise RuntimeError("tap failed")
 
+    def _is_visible_text(text, timeout=2, contains=True):
+        return text == "Yes, Skip" and skip_confirm_visible
+
     drv.tap_text = _tap_text
+    drv.is_visible_text = _is_visible_text
     return drv
 
 
@@ -63,16 +67,39 @@ def test_notify_action_stays_quiet_when_already_100(monkeypatch):
     assert sent == []
 
 
-def test_skip_action_taps_skip_and_logs(monkeypatch):
+def test_skip_action_taps_skip_and_logs_no_confirm_dialog(monkeypatch):
+    """Some states (e.g. upload already complete) may not show the
+    follow-up confirmation dialog at all -- a single Skip tap must still
+    succeed and log normally."""
+    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
-    drv = _make_driver("skip")
+    drv = _make_driver("skip", skip_confirm_visible=False)
 
     drv._handle_study_completion_action({"upload_percent": "31"})
 
     assert drv._tap_calls == ["Skip"]
     assert ("study_completion_action", {"action": "skip"}) in drv.reporter.events
     assert sent == [], "skip must not also send the notify-mode Slack message"
+
+
+def test_skip_action_confirms_the_are_you_sure_dialog(monkeypatch):
+    """Real gap caught live, 2026-08-18: tapping Skip when the study
+    upload is incomplete brings up an "Upload is not complete... Are you
+    sure you want to skip the upload?" dialog (confirmed via a real
+    device screenshot) whose confirm button is "Yes, Skip" -- not a
+    second tap of plain "Skip". The dialog also has a plain X close
+    button that cancels, so this must land on the exact confirm text,
+    never fall through to that instead."""
+    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    sent = []
+    monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
+    drv = _make_driver("skip", skip_confirm_visible=True)
+
+    drv._handle_study_completion_action({"upload_percent": "31"})
+
+    assert drv._tap_calls == ["Skip", "Yes, Skip"]
+    assert ("study_completion_action", {"action": "skip"}) in drv.reporter.events
 
 
 def test_upload_action_taps_upload_and_verifies_progress(monkeypatch):
@@ -139,3 +166,58 @@ def test_unrecognized_action_falls_back_to_notify_behavior(monkeypatch):
 
     assert drv._tap_calls == []
     assert len(sent) == 1
+
+
+# ── upload_percent=None (parse failure) -- code review finding, 2026-08-18 ──
+# _detect_study_completed() already confirmed "Study Overview" + an
+# Upload/Skip button really is on screen before this is ever called, so a
+# None here means only the % regex failed to match -- must be treated as
+# "known incomplete", never as silent "nothing to do".
+
+def test_notify_action_still_fires_when_upload_percent_unparseable(monkeypatch):
+    sent = []
+    monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
+    drv = _make_driver("notify")
+
+    drv._handle_study_completion_action({"upload_percent": None})
+
+    assert len(sent) == 1
+    assert "unknown" in sent[0]
+
+
+def test_upload_action_still_taps_when_upload_percent_unparseable(monkeypatch):
+    """The Upload button is confirmed present on screen regardless of
+    whether the % could be read, so attempting the tap is still safe --
+    must not skip it just because the percent is unknown."""
+    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    sent = []
+    monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
+    drv = _make_driver("upload")  # upload_percent_after=None -> re-scrape also fails
+
+    drv._handle_study_completion_action({"upload_percent": None})
+
+    assert drv._tap_calls == ["Upload"]
+    logged = dict(drv.reporter.events)["study_completion_action"]
+    assert logged == {"action": "upload", "upload_percent_before": None, "upload_percent_after": None}
+    # Can't confirm success either way when the percent can't be read --
+    # falls back to notify rather than assuming it worked.
+    assert len(sent) == 1
+    assert "couldn't be read" in sent[0]
+
+
+def test_upload_action_with_unparseable_percent_that_resolves_after_tap(monkeypatch):
+    """Negative-control-adjacent: if the re-scrape after tapping DOES
+    successfully read a percent (even though the before-value didn't
+    parse), that's still meaningfully different from "before" and must
+    count as progress, not trigger the didn't-change fallback."""
+    monkeypatch.setattr("src.driver.time.sleep", lambda *_: None)
+    sent = []
+    monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
+    drv = _make_driver("upload", upload_percent_after="100")
+
+    drv._handle_study_completion_action({"upload_percent": None})
+
+    assert drv._tap_calls == ["Upload"]
+    logged = dict(drv.reporter.events)["study_completion_action"]
+    assert logged == {"action": "upload", "upload_percent_before": None, "upload_percent_after": "100"}
+    assert sent == []
