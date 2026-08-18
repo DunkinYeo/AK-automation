@@ -316,6 +316,7 @@ def main():
     bt_minutes     = float(run_cfg.get("bt_disconnect_minutes", 10))
     ap_interval_h  = float(run_cfg.get("airplane_mode_interval_hours", 0))
     ap_minutes     = float(run_cfg.get("airplane_mode_minutes", 5))
+    study_complete_action = run_cfg.get("study_complete_action", "notify")
 
     # Dry run exits before creating output dir or reporter events
     if args.dry_run:
@@ -350,6 +351,7 @@ def main():
             "quiet_hours": quiet_hours,
             "once": args.once,
             "until_study_end": until_study_end,
+            "study_complete_action": study_complete_action,
         },
     )
     log_event(f"run started: {run_cfg.get('name', 'run')} ({duration_hours}h)")
@@ -403,6 +405,9 @@ def main():
         # Study-completed Slack heads-up is sent from the driver, which has
         # no config access — hand it the webhook (issue #13)
         driver._slack_webhook = _webhook if _slack_on else ""
+        # "On Study Completion" choice (web UI run setting, default
+        # "notify") -- same reasoning, the driver has no config access.
+        driver._study_complete_action = study_complete_action
         reporter.log_event("device_info", driver.get_device_info())
 
         # ── Regression suites ─────────────────────────────────────────────────

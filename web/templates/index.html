@@ -343,13 +343,20 @@
           <button class="btn-toggle active" data-val="auto">Auto<span class="sublabel">study end</span></button>
           <button class="btn-toggle" data-val="1">1h<span class="sublabel">test</span></button>
           <button class="btn-toggle" data-val="24">24h<span class="sublabel">1 day</span></button>
-          <button class="btn-toggle" data-val="48">48h<span class="sublabel">2 days</span></button>
           <button class="btn-toggle" data-val="72">72h<span class="sublabel">3 days</span></button>
-          <button class="btn-toggle" data-val="144">144h<span class="sublabel">6 days</span></button>
           <button class="btn-toggle" data-val="168">168h<span class="sublabel">1 week</span></button>
         </div>
         <input type="hidden" id="duration-val" value="auto">
         <div style="font-size:.72rem;color:#9ca3af;margin-top:4px">Auto: runs until the app study completes (max 168h). Pick hours to stop earlier.</div>
+      </div>
+
+      <div class="field">
+        <label>On Study Completion <span style="color:#9ca3af;font-weight:400">(when the app study finishes)</span></label>
+        <select id="study-complete-action">
+          <option value="notify" selected>Notify only (tester taps manually)</option>
+          <option value="upload">Auto-tap Upload</option>
+          <option value="skip">Auto-tap Skip</option>
+        </select>
       </div>
 
       <div class="field">
@@ -952,7 +959,7 @@ let _captureLogsSchedulerReady = false;
 let _captureLogsBusyReasons = new Set();
 
 // ── Field persistence ─────────────────────────────────────────────────────
-const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes', 'interval-select'];
+const PERSIST_FIELDS = ['serial-input', 'slack-webhook', 'bt-minutes', 'airplane-minutes', 'interval-select', 'study-complete-action'];
 
 function saveFields() {
   PERSIST_FIELDS.forEach(id => {
@@ -1219,6 +1226,10 @@ function syncFormToRunningSession(events) {
   if (intervalHours != null) {
     document.getElementById('interval-input').value = intervalHours;
   }
+  const studyCompleteAction = runStart.data?.study_complete_action;
+  if (studyCompleteAction) {
+    document.getElementById('study-complete-action').value = studyCompleteAction;
+  }
   _formSyncedToRun = true;
 }
 
@@ -1293,6 +1304,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
                        ? 168 : parseInt(document.getElementById('duration-val').value),
     until_study_end: document.getElementById('duration-val').value === 'auto',
     interval_hours:  parseFloat(document.getElementById('interval-select').value),
+    study_complete_action: document.getElementById('study-complete-action').value,
     bt_disconnect_minutes:  Math.max(1, parseFloat(document.getElementById('bt-minutes').value) || 10),
     airplane_mode_minutes:  Math.max(1, parseFloat(document.getElementById('airplane-minutes').value) || 5),
     symptoms,
