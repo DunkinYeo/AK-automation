@@ -143,6 +143,13 @@ wrong, not from code review.
   any process's file write can bump) instead of the directory's own
   immutable, run-specific name. The dashboard stayed stuck showing the
   wrong run's data for the rest of the session once this happened.
+- The dashboard's re-attached-run identity check (`ps`/`Get-CimInstance`,
+  called on every status poll) had only a 5s timeout — on a machine
+  under real concurrent load, a single slow `ps` call could trip it,
+  and the existing fail-closed safety behavior would then wipe the
+  tracked run's state even though the process was still genuinely alive
+  and correctly ours (observed 4-5 times in one session). Widened to
+  15s; the fail-closed behavior itself is unchanged.
 
 ### CI/CD & tooling
 - New weekly canary workflow installs Appium/UiAutomator2 at "latest"
