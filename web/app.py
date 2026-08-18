@@ -111,7 +111,18 @@ def _pid_is_our_run(pid) -> bool:
         # BaseException below — can still explicitly kill/reap the child
         # instead of leaking it.
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        out, _ = proc.communicate(timeout=5)
+        # /api/status calls this on every poll (~every 2s from the
+        # dashboard) whenever a run is re-attached (pid-only, no live
+        # Popen handle) -- on a system under real concurrent load (adb +
+        # pytest + curl all running at once, 2026-08-18), a single `ps`
+        # call occasionally took long enough to trip a 5s timeout, which
+        # the except BaseException below treats as fail-closed and wipes
+        # runtime/web_run_state.json even though the process was still
+        # genuinely alive and ours -- happened 4-5 times in one session.
+        # Widened for headroom; the fail-closed behavior itself (#32) is
+        # unchanged, this only reduces how often a merely-slow `ps`
+        # triggers it.
+        out, _ = proc.communicate(timeout=15)
         # Windows CommandLine comes back with backslashes (issue #31) —
         # normalize before matching so a real Windows run doesn't fail its
         # own identity check.
