@@ -27,6 +27,8 @@ _INTERVAL_OVERRIDE = ROOT / "runtime" / "interval_override.json"
 _INJECT_NOW_FILE   = ROOT / "runtime" / "inject_now.json"
 sys.path.insert(0, str(ROOT))
 
+from src.log_timeline import build_log_timeline, build_capture_history
+
 ARTIFACTS_DIR = ROOT / "artifacts"
 
 app = Flask(__name__)
@@ -160,6 +162,38 @@ def _run_already_active() -> bool:
     # #20/#30): a stale/reused pid must not block a legitimate Start by
     # looking like an already-active run.
     return bool(pid and _pid_is_our_run(pid))
+
+
+def _append_run_event(out_dir: str, name: str, data: dict) -> None:
+    """Best-effort append to a run's events.jsonl from outside its own
+    process -- used when a post-run manual log capture (api_capture_logs,
+    2026-08-12) needs to show up in that run's own report/capture-history
+    even though its RunReporter instance is long gone (the process
+    already exited). Mirrors api_status()'s synthetic-event append."""
+    try:
+        rec = {"ts": datetime.datetime.now().isoformat(timespec="seconds"), "event": name, "data": data}
+        with open(Path(out_dir) / "events.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _refresh_summary_html_if_exists(out_dir: str) -> None:
+    """Re-render summary.html after a post-run manual log capture, but
+    only if it already exists -- that's the signal the run had actually
+    finished (render_html_summary() is normally only called once, at run
+    end). summary.html is the durable/shareable artifact (chosen as the
+    primary #69 report surface, 2026-08-12) -- unlike /api/report and
+    /log-timeline, which recompute live on every request, it would
+    otherwise stay silently stale forever once the process that could
+    write it has exited. Best-effort: must never break the capture
+    response over a report-rendering hiccup."""
+    try:
+        if (Path(out_dir) / "summary.html").is_file():
+            from src.reporter import RunReporter
+            RunReporter(str(out_dir), Path(out_dir).name).render_html_summary()
+    except Exception:
+        pass
 
 
 def _persist_run_state(pid: int, start_ts: float, out_dir: str | None = None) -> None:
@@ -474,7 +508,7 @@ def _sync_localhost_session():
                 report_path = Path(out_dir) / "report.html"
                 if not report_path.exists():
                     try:
-                        report_path.write_text(_build_report_html(events), encoding="utf-8")
+                        report_path.write_text(_build_report_html(events, out_dir), encoding="utf-8")
                         log.info("[report] Auto-saved to %s", report_path)
                     except Exception:
                         pass
@@ -833,9 +867,27 @@ def api_capture_logs():
     if not device:
         return jsonify({"error": "No device specified."}), 400
 
-    # No run to attach to -- standalone captures have no events.jsonl to
-    # compare against anyway, so they just live in their own artifacts/ spot.
-    out_dir = APP_LOGS_DIR / ts
+    # No run currently active, but this session may still remember the
+    # last run's output dir -- it's only cleared by /api/start (new run)
+    # or an explicit /api/stop, so a run that ended naturally (e.g. study
+    # completed) leaves it in place. Falls back to the most recently
+    # modified output/ dir otherwise (e.g. the web server itself got
+    # restarted since the run ended, clearing in-memory _state -- same
+    # fallback /api/report and /log-timeline already use, so "Capture
+    # Now" targets the same run those are currently showing). Route into
+    # that run's own app_logs/ so a post-run manual capture still shows
+    # up in its report/log-timeline instead of vanishing into the
+    # unrelated standalone artifacts/ location (raised 2026-08-12 --
+    # especially relevant now that a normal study completion skips the
+    # automatic run-end capture specifically to avoid disturbing the
+    # Upload/Skip screen, see main.py's _maybe_capture_logs_at_run_end).
+    with _lock:
+        last_run_out_dir = _state.get("out_dir")
+    if not last_run_out_dir:
+        last_run_out_dir = _find_latest_output_dir()
+    run_out_dir = last_run_out_dir if last_run_out_dir and Path(last_run_out_dir).is_dir() else None
+
+    out_dir = (Path(run_out_dir) / "app_logs" / ts) if run_out_dir else (APP_LOGS_DIR / ts)
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         result = subprocess.run(
@@ -843,17 +895,27 @@ def api_capture_logs():
             capture_output=True, text=True, timeout=210,
         )
     except subprocess.TimeoutExpired:
+        if run_out_dir:
+            _append_run_event(run_out_dir, "capture_logs_failed", {"error": "timed out"})
         return jsonify({"error": "Log capture timed out."}), 500
 
     out = result.stdout or ""
     if "CAPTURE_OK:" in out:
         zip_path = Path(out.split("CAPTURE_OK:", 1)[1].strip().splitlines()[0])
+        if run_out_dir:
+            _append_run_event(run_out_dir, "capture_logs_success", {"zip_path": str(zip_path)})
+            _refresh_summary_html_if_exists(run_out_dir)
         rel = zip_path.resolve().relative_to(ROOT)
         return jsonify({"download_url": f"/app_logs/{rel.as_posix()}", "filename": zip_path.name})
     if "CAPTURE_FAIL:" in out:
         reason = out.split("CAPTURE_FAIL:", 1)[1].strip().splitlines()[0]
+        if run_out_dir:
+            _append_run_event(run_out_dir, "capture_logs_failed", {"error": reason})
         return jsonify({"error": reason}), 500
-    return jsonify({"error": (result.stderr or out or "Unknown failure")[-500:]}), 500
+    error = (result.stderr or out or "Unknown failure")[-500:]
+    if run_out_dir:
+        _append_run_event(run_out_dir, "capture_logs_failed", {"error": error})
+    return jsonify({"error": error}), 500
 
 
 # Captured logs can live in two places (see api_capture_logs): standalone
@@ -1490,7 +1552,7 @@ _TC_PERIODIC_TWIN = {
 _TC_PERIODIC_MIN_PASSES = 3  # fewer later passes isn't enough to call it "probably transient"
 
 
-def _build_report_html(events: list[dict]) -> str:
+def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     device = start_ts_str = ""
     duration_h = interval_h = None
@@ -1852,6 +1914,89 @@ def _build_report_html(events: list[dict]) -> str:
         cls  = "ok" if t["ok"] else "err"
         ap_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t['minutes']} min</span><span class='{cls}'>{icon}</span></div>"
 
+    # #69: app-log + automation-event highlights (errors/fails/keywords),
+    # with a link to the full merged timeline in reporter.py's summary.html
+    # rather than embedding every row here -- this report is meant to stay
+    # a light overview, not a full raw dump (that already exists elsewhere).
+    run_end_ts = next(
+        (e.get("ts", "") for e in events
+         if e.get("event") in ("run_complete", "run_ended_study_complete", "run_failed")),
+        "",
+    )
+    log_timeline = (build_log_timeline(out_dir, events, start_ts_str, run_end_ts) if out_dir
+                    else {"rows": [], "app_log_source": None, "unparsed_count": 0})
+    flagged_rows = [r for r in log_timeline["rows"] if r["flagged"]][-20:]
+
+    timeline_rows_html = ""
+    for r in flagged_rows:
+        badge_cls = "src-auto" if r["source"] == "auto" else "src-app"
+        badge_txt = "AUTO" if r["source"] == "auto" else "APP"
+        timeline_rows_html += (
+            f"<div class='list-row'><span class='ts'>{_t(r['ts'])}</span>"
+            f"<span class='{badge_cls}'>{badge_txt}</span>"
+            f"<span style='flex:1;font-size:.78rem;text-align:left'>{r['html']}</span></div>"
+        )
+
+    # /log-timeline (unlike linking straight to summary.html, only written
+    # once at run end) computes live from whatever's on disk right now, so
+    # it works mid-run too -- a tester asked for exactly this after seeing
+    # the link 404 while a run was still active (real report, 2026-08-12):
+    # summary.html genuinely didn't exist yet at that point, but there was
+    # no reason the comparison view itself had to wait that long.
+    report_link = "/log-timeline" if log_timeline["app_log_source"] else None
+    # Same reasoning as _build_log_timeline_page's freshness banner: a stale
+    # capture on a live run can otherwise read as "the app stopped logging"
+    # rather than "nobody's re-captured it recently" (2026-08-12).
+    as_of_html = (
+        f' — app log as of {log_timeline["app_log_last_ts"]}' if log_timeline.get("app_log_last_ts") else ""
+    )
+    link_html = (
+        f'<div style="margin-top:10px"><a href="{report_link}" target="_blank" style="font-size:.8rem">View full log timeline →</a>'
+        f'<span style="font-size:.75rem;color:#9ca3af">{as_of_html}</span></div>'
+        if report_link else
+        '<div style="margin-top:10px;font-size:.78rem;color:#9ca3af">Full log timeline will be available here once an app log has been captured.</div>'
+    )
+
+    # How often/when app logs were captured this run -- requested
+    # 2026-08-12, compact form here since the full per-capture table
+    # lives in the saved summary.html report.
+    capture_history = build_capture_history(events)
+    capture_summary_html = ""
+    if capture_history:
+        n_ok = sum(1 for c in capture_history if c["outcome"] == "success")
+        n_other = len(capture_history) - n_ok
+        last = capture_history[-1]
+        capture_summary_html = (
+            f'<div style="font-size:.72rem;color:#9ca3af;margin-top:4px">'
+            f'{len(capture_history)} capture(s) this run ({n_ok} ok'
+            f'{f", {n_other} other" if n_other else ""}) '
+            f'&middot; last {last["outcome"]} at {_t(last["ts"])}</div>'
+        )
+
+    if flagged_rows:
+        timeline_card = f"""
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span>
+          <span class="card-count">{len(flagged_rows)}</span></div>
+        {timeline_rows_html}
+        {link_html}
+        {capture_summary_html}
+      </div>"""
+    elif log_timeline["app_log_source"]:
+        timeline_card = f"""
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span></div>
+        <div style="font-size:.8rem;color:#6b7280">No errors/warnings flagged in the captured app log.</div>
+        {link_html}
+        {capture_summary_html}
+      </div>"""
+    else:
+        timeline_card = f"""
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Log Highlights</span></div>
+        <div style="font-size:.8rem;color:#6b7280">No app log has been captured for this run yet{' — try the "Capture App Logs" button, or wait for the run to finish (it captures automatically).' if not report_link else '.'}</div>
+      </div>"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8">
@@ -1910,6 +2055,9 @@ def _build_report_html(events: list[dict]) -> str:
   .ok{{color:#059669;font-weight:700;min-width:24px;text-align:center}}
   .err{{color:#dc2626;font-weight:700;min-width:24px;text-align:center}}
   .empty{{font-size:.8rem;color:#9ca3af;font-style:italic;padding:4px 0}}
+  .src-auto{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.68rem;font-weight:700;background:#e7edff;color:#1d4ed8;min-width:38px;text-align:center}}
+  .src-app{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.68rem;font-weight:700;background:#eafbe7;color:#15803d;min-width:38px;text-align:center}}
+  mark{{background:#ffe58f;padding:0 2px;border-radius:2px}}
 </style>
 </head>
 <body>
@@ -1978,7 +2126,7 @@ def _build_report_html(events: list[dict]) -> str:
     </div>
     {ap_html if ap_html else "<div class='empty'>No airplane tests yet.</div>"}
   </div>
-
+{timeline_card}
   <div class="card">
     <div class="card-header">
       <span class="card-icon">📶</span>
@@ -2014,13 +2162,126 @@ def api_report():
         # 2026-07-22; same fallback /api/status already uses).
         out_dir = _find_latest_output_dir()
     events = read_events(out_dir) if out_dir else []
-    html   = _build_report_html(events)
+    html   = _build_report_html(events, out_dir)
     ts     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return Response(
         html,
         mimetype="text/html",
         headers={"Content-Disposition": f"inline; filename=ak_report_{ts}.html"},
     )
+
+
+def _build_log_timeline_page(out_dir: str, events: list[dict]) -> str:
+    """
+    Full-page version of the merged app+automation timeline, computed live
+    from whatever's on disk right now -- unlike reporter.py's summary.html
+    (only written once, at run end), this works equally well mid-run: it
+    just reflects however much of the app log has been captured so far
+    (real request from a tester watching a live run, 2026-08-12).
+    """
+    run_start_ts = next((e.get("ts", "") for e in events if e.get("event") == "run_start"), "")
+    run_end_ts = next(
+        (e.get("ts", "") for e in events
+         if e.get("event") in ("run_complete", "run_ended_study_complete", "run_failed")),
+        "",
+    )
+    tl = build_log_timeline(out_dir, events, run_start_ts, run_end_ts)
+
+    def _t(ts):
+        return ts.split("T")[1][:8] if "T" in ts else ts
+
+    def _row_html(r):
+        if r["source"] == "gap":
+            return f"<tr><td colspan='3' class='gap-row'>{r['html']}</td></tr>"
+        badge = "AUTO" if r["source"] == "auto" else "APP"
+        return (f"<tr><td style='white-space:nowrap'>{_t(r['ts'])}</td>"
+                f"<td><span class='src-{r['source']}'>{badge}</span></td>"
+                f"<td>{r['html']}</td></tr>")
+
+    rows_html = "".join(_row_html(r) for r in tl["rows"])
+    note = ""
+    if tl["app_log_source"]:
+        note = f"App log source: <code>{tl['app_log_source']}</code>"
+        if tl["unparsed_count"]:
+            note += f" &middot; {tl['unparsed_count']} line(s) could not be parsed and were omitted"
+    else:
+        note = "No app log has been captured for this run yet — this shows automation events only, and will fill in once a capture completes."
+
+    # A tester watching a live run could otherwise mistake a stale capture
+    # for the app having stopped logging (raised 2026-08-12) -- spell out
+    # exactly how far the app log's own coverage reaches, separate from the
+    # gap-row marker inline in the table, so it's visible without scrolling.
+    freshness_html = ""
+    if tl["app_log_last_ts"]:
+        try:
+            age_min = int((datetime.datetime.now() - datetime.datetime.fromisoformat(tl["app_log_last_ts"])).total_seconds() // 60)
+            age_str = f"{age_min // 60}h {age_min % 60}m ago" if age_min >= 60 else f"{age_min}m ago"
+        except ValueError:
+            age_str = "unknown"
+        freshness_html = (
+            f"<div class='freshness'>App log data covers up to <b>{tl['app_log_last_ts']}</b> "
+            f"({age_str}). Automation events below that point are live; the app log itself "
+            f"won't catch up until the next capture. "
+            f"<button type='button' id='capture-now-btn' onclick='captureNow()'>Capture Now</button>"
+            f"<span id='capture-now-status'></span></div>"
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Log Timeline</title>
+<style>
+body{{font-family:Arial,sans-serif;margin:24px;background:#fafafa;color:#222}}
+table{{border-collapse:collapse;width:100%;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)}}
+td,th{{border:1px solid #e0e0e0;padding:6px 10px;font-size:.84em;text-align:left}}
+th{{background:#f0f0f0;font-weight:600}}
+.note{{font-size:.85em;color:#666;margin-bottom:10px}}
+.freshness{{font-size:.85em;color:#9a6b00;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;margin-bottom:10px}}
+.freshness button{{margin-left:8px;font-size:.85em;padding:2px 10px;cursor:pointer}}
+.gap-row{{text-align:center;font-style:italic;color:#9a6b00;background:#fffbe6}}
+.src-auto{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#e7edff;color:#1d4ed8}}
+.src-app{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#eafbe7;color:#15803d}}
+mark{{background:#ffe58f;padding:0 2px;border-radius:2px}}
+</style>
+</head>
+<body>
+<h2>Log Timeline</h2>
+<div class="note">{note}</div>
+{freshness_html}
+<table>
+<tr><th>Time</th><th>Source</th><th>Entry</th></tr>
+{rows_html}
+</table>
+<script>
+async function captureNow() {{
+  const btn = document.getElementById('capture-now-btn');
+  const status = document.getElementById('capture-now-status');
+  btn.disabled = true;
+  status.textContent = ' Capturing… (up to a few min)';
+  try {{
+    const r = await fetch('/api/capture-logs', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: '{{}}',
+    }}).then(r => r.json());
+    if (r.error) {{ status.textContent = ' ✗ ' + r.error; btn.disabled = false; return; }}
+    status.textContent = ' ✓ Captured — reloading…';
+    location.reload();
+  }} catch (e) {{
+    status.textContent = ' ✗ ' + e;
+    btn.disabled = false;
+  }}
+}}
+</script>
+</body></html>"""
+
+
+@app.route("/log-timeline")
+def log_timeline_page():
+    with _lock:
+        out_dir = _state["out_dir"]
+    if not out_dir:
+        out_dir = _find_latest_output_dir()
+    events = read_events(out_dir) if out_dir else []
+    html = _build_log_timeline_page(out_dir, events) if out_dir else "<p>No run found.</p>"
+    return Response(html, mimetype="text/html")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

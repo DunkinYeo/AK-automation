@@ -1,5 +1,6 @@
 import os, json, datetime, threading, html as _html
 from jinja2 import Template
+from src.log_timeline import build_log_timeline, build_capture_history
 
 class RunReporter:
     def __init__(self, out_dir: str, run_name: str, hub_url: str = "", tester_name: str = ""):
@@ -89,6 +90,18 @@ class RunReporter:
         device_info  = next((e["data"] for e in events if e["event"] == "device_info"), {})
         overall_ok   = injections_fail == 0 and any(e["event"] in DONE_EVENTS for e in events)
 
+        # #69: merge this run's captured app log (#55) with its own
+        # automation events into one time-ordered timeline, so investigating
+        # a problem doesn't require separately opening events.jsonl and the
+        # extracted app log side by side. Never raises -- a run with no
+        # captured app log (or a broken/unparseable one) still gets a valid,
+        # automation-only timeline back.
+        log_timeline = build_log_timeline(self.out_dir, events, run_start_ts, run_end_ts)
+        # How often/when app logs were captured during this run -- requested
+        # 2026-08-12 so this doesn't have to be reconstructed by hand from
+        # events.jsonl. Purely derived from existing capture_logs_* events.
+        capture_history = build_capture_history(events)
+
         FAIL_EVENTS = {
             "job_failed", "inject_symptom_failed", "session_recovery_failed",
             "ui_health_check_failed", "run_failed",
@@ -135,6 +148,9 @@ tr.row-fail td{background:#fff3f3}tr.row-warn td{background:#fffbe6}tr.row-ok td
 pre{margin:0;white-space:pre-wrap;word-break:break-all}
 .env{background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:.84em}
 .env span{display:inline-block;margin-right:20px}
+.src-auto{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#e7edff;color:#1d4ed8}
+.src-app{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.78em;font-weight:600;background:#eafbe7;color:#15803d}
+mark{background:#ffe58f;padding:0 2px;border-radius:2px}
 </style>
 </head>
 <body>
@@ -159,7 +175,50 @@ pre{margin:0;white-space:pre-wrap;word-break:break-all}
     <div class="val" style="color:#dc3545">{{ injections_fail }}</div><div class="lbl">Failed</div>
   </div>
 </div>
-<h3>Event Timeline</h3>
+<h3>Log Captures <span style="font-weight:400;font-size:.7em;color:#666">— when this run's app log was captured, manual or automatic</span></h3>
+{% if capture_history %}
+<table style="margin-bottom:20px">
+<tr><th>Time</th><th>Trigger</th><th>Result</th><th>Detail</th></tr>
+{% for c in capture_history %}
+<tr class="{{ 'row-fail' if c.outcome == 'failed' else 'row-warn' if c.outcome == 'skipped' else 'row-ok' }}">
+  <td style="white-space:nowrap">{{ c.ts }}</td>
+  <td>{{ 'Run end (auto)' if c.trigger == 'run_end' else 'Manual click' }}</td>
+  <td>{{ c.outcome }}</td>
+  <td>{{ c.filename or c.detail or '' }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<div style="font-size:.8em;color:#9a6b00;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:6px 10px;margin-bottom:20px">
+  App logs were never captured during this run.
+</div>
+{% endif %}
+<h3>Log Timeline <span style="font-weight:400;font-size:.7em;color:#666">— automation events + app-internal log, merged by time</span></h3>
+{% if log_timeline.app_log_source %}
+<div style="font-size:.8em;color:#666;margin-bottom:6px">
+  App log source: <code>{{ log_timeline.app_log_source }}</code>
+  {% if log_timeline.unparsed_count %}&nbsp;·&nbsp;{{ log_timeline.unparsed_count }} line(s) could not be parsed and were omitted{% endif %}
+</div>
+{% else %}
+<div style="font-size:.8em;color:#9a6b00;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:6px 10px;margin-bottom:6px">
+  No app log was captured for this run — showing automation events only.
+</div>
+{% endif %}
+<table>
+<tr><th>Time</th><th>Source</th><th>Entry</th></tr>
+{% for r in log_timeline.rows %}
+{% if r.source == 'gap' %}
+<tr><td colspan="3" style="text-align:center;font-style:italic;color:#9a6b00;background:#fffbe6">{{ r.html | safe }}</td></tr>
+{% else %}
+<tr>
+  <td style="white-space:nowrap">{{ r.ts }}</td>
+  <td><span class="src-{{ r.source }}">{{ 'AUTO' if r.source == 'auto' else 'APP' }}</span></td>
+  <td>{{ r.html | safe }}</td>
+</tr>
+{% endif %}
+{% endfor %}
+</table>
+<h3 style="margin-top:24px">Event Timeline <span style="font-weight:400;font-size:.7em;color:#666">— automation events only, full data payloads</span></h3>
 <table>
 <tr><th>Time</th><th>Event</th><th>Data</th></tr>
 {% for e in events %}
@@ -185,6 +244,8 @@ pre{margin:0;white-space:pre-wrap;word-break:break-all}
             overall_ok=overall_ok,
             row_class=row_class,
             data_json=data_json,
+            log_timeline=log_timeline,
+            capture_history=capture_history,
         )
         out = os.path.join(self.out_dir, "summary.html")
         with open(out, "w", encoding="utf-8") as f:

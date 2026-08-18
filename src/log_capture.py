@@ -89,7 +89,24 @@ def capture_app_logs(drv, out_dir: Path, timeout: int = 180) -> Path:
     Returns the local path to the pulled zip. Raises LogCaptureError on
     any failure; a diagnostic screenshot is saved via drv.screenshot()
     before raising. Safe to call from any screen the app happens to be on.
+
+    Always attempts to leave the app back on a known-reachable screen
+    before returning, success or failure — a real run sat on the Folder
+    Information modal (Download/Share still showing) for 14+ minutes
+    after a successful capture with zero automation activity in between
+    (2026-08-12), because nothing navigated back afterward and the next
+    scheduled job's own recovery apparently couldn't get out of it either.
     """
+    try:
+        return _capture_app_logs_inner(drv, out_dir, timeout)
+    finally:
+        try:
+            _ensure_menu_reachable(drv)
+        except Exception:
+            pass
+
+
+def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -150,6 +167,22 @@ def capture_app_logs(drv, out_dir: Path, timeout: int = 180) -> Path:
         )
     file_id = m.group(1)
 
+    zip_name = f"{file_id}.zip"
+    remote_path = f"/sdcard/Download/{zip_name}"
+    local_path = out_dir / zip_name
+
+    # Every capture of the same study/session re-exports to this SAME
+    # UUID filename (confirmed live, 2026-08-12: two captures of the same
+    # run 4.5h apart both produced .../<same-uuid>.zip) -- if a stale copy
+    # from an earlier capture is still sitting at remote_path when
+    # _wait_for_stable_file starts polling, its already-stable size can
+    # pass the two-consecutive-checks test before the new export has even
+    # started writing, silently pulling stale data instead of the fresh
+    # capture. Best-effort delete first so the stability check can only
+    # ever observe the new file.
+    subprocess.run(drv._adb_cmd() + ["shell", "rm", "-f", remote_path],
+                    capture_output=True, text=True, timeout=10)
+
     try:
         drv.tap_text(file_id, timeout=10)
         time.sleep(1.5)
@@ -157,10 +190,6 @@ def capture_app_logs(drv, out_dir: Path, timeout: int = 180) -> Path:
     except Exception as e:
         drv.screenshot("capture_logs_download_tap_failed")
         raise LogCaptureError(f"Could not tap Download for {file_id}: {e}")
-
-    zip_name = f"{file_id}.zip"
-    remote_path = f"/sdcard/Download/{zip_name}"
-    local_path = out_dir / zip_name
 
     _wait_for_stable_file(drv, remote_path, timeout=timeout)
 
