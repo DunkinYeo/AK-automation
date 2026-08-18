@@ -953,18 +953,42 @@ def api_capture_logs():
 # Captured logs can live in two places (see api_capture_logs): standalone
 # captures under artifacts/app_logs_captures/, or run-attached captures
 # (manual mid-run clicks and the automatic end-of-run capture in main.py)
-# under output/<run_id>/app_logs/. This serves either, resolving the given
-# path and checking it stays inside one of those two roots.
-_APP_LOGS_SERVE_ROOTS = [
-    (ROOT / "artifacts" / "app_logs_captures").resolve(),
-    (ROOT / "output").resolve(),
-]
+# under output/<run_id>/app_logs/. This serves either.
+_APP_LOGS_STANDALONE_ROOT = (ROOT / "artifacts" / "app_logs_captures").resolve()
+_APP_LOGS_OUTPUT_ROOT = (ROOT / "output").resolve()
+
+
+def _is_allowed_app_log_path(full: Path) -> bool:
+    """
+    Scoped to *.zip captures only, under either root -- not the whole of
+    output/ (review finding, 2026-08-18): this server binds to all
+    interfaces (app.run(host="::", ...), the "Share on local network"
+    URL shown at startup), so anyone on the same LAN could otherwise
+    browse/download ANY run's screenshots, events.jsonl, or summary.html
+    by guessing a path, not just app-log zips. This doesn't change what
+    the app's own internal links ever request (report links/capture
+    history/timeline always hand back exact real paths already), it
+    only narrows what an arbitrary path under these roots is allowed to
+    reach.
+    """
+    if full.suffix != ".zip":
+        return False
+    if _APP_LOGS_STANDALONE_ROOT == full.parent or _APP_LOGS_STANDALONE_ROOT in full.parents:
+        return True
+    if _APP_LOGS_OUTPUT_ROOT in full.parents:
+        rel_parts = full.relative_to(_APP_LOGS_OUTPUT_ROOT).parts
+        # <run_id>/app_logs/... (optionally nested further, e.g. a
+        # mid-run capture's own timestamp subfolder) -- never a bare
+        # screenshot/events.jsonl/summary.html sitting directly under
+        # output/<run_id>/.
+        return len(rel_parts) >= 3 and rel_parts[1] == "app_logs"
+    return False
 
 
 @app.route("/app_logs/<path:relpath>")
 def serve_app_log(relpath):
     full = (ROOT / relpath).resolve()
-    if not any(root == full or root in full.parents for root in _APP_LOGS_SERVE_ROOTS):
+    if not _is_allowed_app_log_path(full):
         return "Not found.", 404
     if not full.is_file():
         return "Not found.", 404
