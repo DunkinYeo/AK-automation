@@ -190,6 +190,33 @@ def test_windows_different_installation_src_main_py_is_rejected():
         assert app_mod._pid_is_our_run(4321) is False
 
 
+def test_pid_check_subprocess_timeout_widened_to_15s():
+    """2026-08-18: widened from 5s. /api/status calls _pid_is_our_run() on
+    every poll (~every 2s from the dashboard) whenever a run is
+    re-attached -- on a system under real concurrent load (adb + pytest +
+    curl all running at once), a single `ps` call occasionally took long
+    enough to trip a 5s timeout, which the fail-closed path below (#32)
+    treated as "not ours" and wiped runtime/web_run_state.json even
+    though the process was still genuinely alive and ours (happened 4-5
+    times in one session). Locks in the new value directly, rather than
+    just re-confirming fail-closed still works at *some* timeout the way
+    the tests below do."""
+    captured = {}
+
+    class _FakeProc:
+        def communicate(self, timeout=None):
+            captured["timeout"] = timeout
+            return ("", "")
+        def kill(self): pass
+        def wait(self, timeout=None): pass
+
+    with mock.patch.object(app_mod, "_pid_alive", return_value=True), \
+         mock.patch.object(app_mod.subprocess, "Popen", return_value=_FakeProc()):
+        app_mod._pid_is_our_run(1234)
+
+    assert captured["timeout"] == 15
+
+
 def test_verification_failure_fails_closed_not_open():
     """#32: a verification error (subprocess hiccup, or the real
     KeyboardInterrupt reproduced live on windows-latest under GitHub
