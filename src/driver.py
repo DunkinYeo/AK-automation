@@ -988,6 +988,14 @@ class AndroidDriver:
         # 2026-08-12 — confirmed live it's the actual text the app shows,
         # which meant a genuinely healthy battery reading never matched
         # anything and the dashboard stayed stuck on stale status forever.
+        #
+        # Scoped to the Battery card's own label via page_source, not a
+        # blind whole-screen is_visible_text() scan for each candidate word
+        # (real false positive, 2026-08-19: "Low" matched during an
+        # airplane-mode recovery cycle while no battery card was even
+        # showing "Low" -- some unrelated on-screen text elsewhere
+        # contained it). Same anchored-regex pattern already used for
+        # Study/Data Upload % scraping elsewhere in this class.
         bt_actually_off = bt_disconnected or phone_bt_off
         if bt_actually_off:
             if self._conn_state.get("battery_status"):
@@ -995,10 +1003,13 @@ class AndroidDriver:
                 self.reporter.log_event("battery_status", {"status": None})
         else:
             battery_status = None
-            for label in ["Good", "Normal", "Low", "Critical", "Full"]:
-                if self.is_visible_text(label, contains=False, timeout=1):
-                    battery_status = label
-                    break
+            try:
+                import re as _re
+                src = self.drv.page_source
+                m = _re.search(r'text="Battery".{0,300}?text="(Good|Normal|Low|Critical|Full)"', src, _re.S)
+                battery_status = m.group(1) if m else None
+            except Exception:
+                battery_status = None
             if battery_status and battery_status != self._conn_state.get("battery_status"):
                 self._conn_state["battery_status"] = battery_status
                 self.reporter.log_event("battery_status", {"status": battery_status})
