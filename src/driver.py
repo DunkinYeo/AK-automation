@@ -1460,14 +1460,26 @@ class AndroidDriver:
         action = getattr(self, "_study_complete_action", "notify")
         up = info.get("upload_percent")
         webhook = getattr(self, "_slack_webhook", "")
+        # None (the Data Upload % regex failed to match, even though
+        # _detect_study_completed() already confirmed "Study Overview" +
+        # an Upload/Skip button really is on screen) must be treated the
+        # same as "known incomplete", not "nothing to do" -- code review
+        # finding, 2026-08-18: the original condition (`up is not None
+        # and up != "100"`, unchanged from issue #13's notify-only days)
+        # made a parse failure silently do nothing at all: no tap, no
+        # Slack notification, not even a log event. Low-probability, but
+        # exactly the ambiguous case that most needs a human/fallback,
+        # not silence.
+        incomplete_or_unknown = up is None or up != "100"
 
         def _notify(msg_suffix: str = ""):
             if not webhook:
                 return
             try:
                 from src.slack import slack_notify
+                display_up = up if up is not None else "unknown"
                 slack_notify(webhook,
-                             f"🩺 App study completed — Data Upload {up}%.{msg_suffix} "
+                             f"🩺 App study completed — Data Upload {display_up}%.{msg_suffix} "
                              f"ACTION REQUIRED: tap 'Upload' in the app to "
                              f"finish uploading the study data.")
             except Exception:
@@ -1476,28 +1488,74 @@ class AndroidDriver:
         if action == "skip":
             try:
                 self.tap_text("Skip", timeout=5, contains=False)
+                # A confirmation dialog ("Upload is not complete ... Are
+                # you sure you want to skip the upload?") can follow --
+                # confirmed live via screenshot, 2026-08-18. Its own
+                # confirm button is "Yes, Skip", not a repeat of "Skip"
+                # (there's also a plain X close button on the dialog,
+                # which cancels -- match the exact confirm text so this
+                # can never land on that instead). Some states (e.g.
+                # upload already complete) may not show this dialog at
+                # all, so this is a best-effort tap-if-present, not a
+                # required step.
+                time.sleep(1)
+                if self.is_visible_text("Yes, Skip", timeout=3, contains=False):
+                    self.tap_text("Yes, Skip", timeout=5, contains=False)
                 self.reporter.log_event("study_completion_action", {"action": "skip"})
             except Exception as e:
                 self.reporter.log_event("study_completion_action_failed",
                                          {"action": "skip", "error": str(e)})
             return
 
-        if action == "upload" and up is not None and up != "100":
+        if action == "upload" and incomplete_or_unknown:
             try:
                 self.tap_text("Upload", timeout=5, contains=False)
-                time.sleep(5)  # give the app a moment to actually start uploading
+                # Real upload duration varies with how much data there is
+                # to send -- a multi-day study can accumulate a lot of
+                # ECG/sensor data, so this budget is generous (5min) and
+                # polls instead of a single fixed sleep. Recognizes BOTH
+                # possible success signals: the "Data Upload: N%" text
+                # increasing, or the whole screen replacing itself with a
+                # "Your study has been completed. Please return the
+                # device to the provider." success state (confirmed live
+                # via screenshot, 2026-08-18) that no longer shows that
+                # label at all -- waiting for the % text to change would
+                # hang the full timeout on a perfectly successful upload.
                 import re as _re
-                new_src = self.drv.page_source
-                m = _re.search(r'text="Data Upload".{0,1500}?text="(\d{1,3})"', new_src, _re.S)
-                new_up = m.group(1) if m else None
+                deadline = time.time() + 300
+                new_up = None
+                upload_success_screen = False
+                while time.time() < deadline:
+                    src = self.drv.page_source
+                    if "return the device" in src:
+                        upload_success_screen = True
+                        break
+                    m = _re.search(r'text="Data Upload".{0,1500}?text="(\d{1,3})"', src, _re.S)
+                    candidate = m.group(1) if m else None
+                    if candidate is not None and candidate != up:
+                        new_up = candidate
+                        break
+                    time.sleep(3)
                 self.reporter.log_event("study_completion_action", {
                     "action": "upload", "upload_percent_before": up, "upload_percent_after": new_up,
+                    "success_screen_detected": upload_success_screen,
                 })
-                if new_up is None or new_up == up:
-                    # Tap didn't visibly help -- fall back to the same
-                    # human heads-up "notify" mode always sends, so this
-                    # never silently fails quieter than the default.
-                    _notify(" Auto-tapped Upload but the percent didn't change.")
+                if upload_success_screen:
+                    # Dismiss the success dialog so the app doesn't sit
+                    # there indefinitely -- best-effort, a missed Ok tap
+                    # isn't itself a failure of the upload.
+                    try:
+                        self.tap_text("Ok", timeout=5, contains=False)
+                    except Exception:
+                        pass
+                elif new_up is None:
+                    # Tap didn't visibly help (or we still can't read the
+                    # percent to tell) even after waiting -- fall back to
+                    # the same human heads-up "notify" mode always sends,
+                    # so this never fails more silently than doing
+                    # nothing would have.
+                    _notify(" Auto-tapped Upload but the percent didn't change "
+                            "(or couldn't be read) after waiting.")
             except Exception as e:
                 self.reporter.log_event("study_completion_action_failed",
                                          {"action": "upload", "error": str(e)})
@@ -1505,8 +1563,9 @@ class AndroidDriver:
             return
 
         # "notify" (default), upload already 100%, or an unrecognized
-        # action -- original issue #13 behavior, unchanged.
-        if up is not None and up != "100":
+        # action -- original issue #13 behavior, extended to also cover
+        # the unknown-percent case above.
+        if incomplete_or_unknown:
             _notify()
 
     def _report_study_progress(self):
