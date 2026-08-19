@@ -357,6 +357,7 @@
           <option value="upload">Auto-tap Upload</option>
           <option value="skip">Auto-tap Skip</option>
         </select>
+        <div id="study-complete-note" style="display:none;font-size:.72rem;color:#9ca3af;margin-top:4px">Android only — iOS has no completion-action handling yet, so this has no effect on an iOS run.</div>
       </div>
 
       <div class="field">
@@ -1182,6 +1183,21 @@ function applyPlatformUI() {
     autoBtn.disabled = false;
     autoBtn.title = '';
   }
+
+  // "On Study Completion" (notify/upload/skip) is Android-only -- iOS has
+  // no _handle_study_completion_action() equivalent at all (not even the
+  // "notify" default sends anything), so leaving it selectable on iOS
+  // would silently do nothing while looking configured (code review
+  // finding, 2026-08-19). Force back to the harmless default so a stale
+  // Upload/Skip choice left over from switching platforms doesn't get
+  // submitted for an iOS run either.
+  const studyCompleteSelect = document.getElementById('study-complete-action');
+  const studyCompleteNote = document.getElementById('study-complete-note');
+  if (studyCompleteSelect) {
+    studyCompleteSelect.disabled = isIOS;
+    if (isIOS) studyCompleteSelect.value = 'notify';
+  }
+  if (studyCompleteNote) studyCompleteNote.style.display = isIOS ? '' : 'none';
 }
 document.querySelectorAll('input[name="platform"]').forEach(r => r.addEventListener('change', applyPlatformUI));
 
