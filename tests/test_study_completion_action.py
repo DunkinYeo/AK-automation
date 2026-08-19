@@ -76,14 +76,20 @@ def test_default_notify_action_sends_slack_when_incomplete(monkeypatch):
     assert "31%" in sent[0]
 
 
-def test_notify_action_stays_quiet_when_already_100(monkeypatch):
+def test_notify_action_still_fires_when_reported_100(monkeypatch):
+    """Real bug caught live, 2026-08-19: the app can report "Data Upload:
+    100%" while its own screen simultaneously shows "Your study data has
+    not been fully uploaded. Please tap the 'Upload' button below to
+    complete the upload." with Upload/Skip still live -- a reported 100%
+    is not a reliable "nothing to do" signal. Must still notify."""
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
     drv = _make_driver("notify")
 
     drv._handle_study_completion_action({"upload_percent": "100"})
 
-    assert sent == []
+    assert len(sent) == 1
+    assert "100%" in sent[0]
 
 
 def test_skip_action_taps_skip_and_logs_no_confirm_dialog(monkeypatch):
@@ -188,15 +194,24 @@ def test_upload_action_falls_back_to_notify_when_tap_raises(monkeypatch):
     assert "failed" in sent[0]
 
 
-def test_upload_action_skips_tap_when_already_100(monkeypatch):
+def test_upload_action_still_taps_when_reported_100(monkeypatch):
+    """Real bug caught live, 2026-08-19: on a genuinely completed study,
+    the app showed "Data Upload: 100%" while its own screen simultaneously
+    displayed "Your study data has not been fully uploaded. Please tap
+    the 'Upload' button below to complete the upload." with Upload/Skip
+    still live and tappable -- a reported 100% is not proof the upload is
+    actually done. The pre-fix code gated the tap on `up != "100"` and
+    silently skipped it here, which looked handled but wasn't (confirmed
+    live: the tester was left waiting on a screen nothing ever tapped)."""
+    _use_fake_clock(monkeypatch)
     sent = []
     monkeypatch.setattr("src.slack.slack_notify", lambda webhook, msg: sent.append(msg))
-    drv = _make_driver("upload")
+    drv = _make_driver("upload", success_screen=True)
 
     drv._handle_study_completion_action({"upload_percent": "100"})
 
-    assert drv._tap_calls == []
-    assert sent == []
+    assert drv._tap_calls == ["Upload", "Ok"]
+    assert sent == [], "must not fall back to notify once the tap visibly worked"
 
 
 def test_unrecognized_action_falls_back_to_notify_behavior(monkeypatch):
