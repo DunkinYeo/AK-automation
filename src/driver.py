@@ -750,6 +750,20 @@ class AndroidDriver:
     # State helpers
     # ------------------------------------------------------------------
 
+    def _start_activity_compat(self, pkg: str, act: str) -> None:
+        """Appium-Python-Client 4.0+ removed the old start_activity()
+        JSONWP shortcut entirely -- confirmed live, 2026-08-19: an
+        unguarded call to it raised "'WebDriver' object has no attribute
+        'start_activity'" and escalated an otherwise-recoverable hiccup
+        into a full run_failed. `mobile: startActivity` is the documented
+        UiAutomator2 driver replacement. This is itself only ever used as
+        a last-resort fallback after activate_app() already failed, so a
+        failure here must never propagate -- always best-effort."""
+        try:
+            self.drv.execute_script("mobile: startActivity", {"appPackage": pkg, "appActivity": act})
+        except Exception:
+            pass
+
     def bring_to_foreground(self):
         pkg = self.cfg.get("app_package")
         if not pkg:
@@ -760,13 +774,10 @@ class AndroidDriver:
             # activate_app resumes the app without recreating the Activity
             self.drv.activate_app(pkg)
         except Exception:
-            # fallback: start_activity (may recreate Activity on some devices)
+            # fallback: recreate the Activity (may help on some devices)
             act = self.cfg.get("app_activity")
             if act:
-                try:
-                    self.drv.start_activity(pkg, act)
-                except Exception:
-                    pass
+                self._start_activity_compat(pkg, act)
 
     def recover_session(self, step: int = 1) -> bool:
         """
@@ -817,7 +828,7 @@ class AndroidDriver:
                         self.drv.activate_app(pkg)
                     except Exception:
                         if act:
-                            self.drv.start_activity(pkg, act)
+                            self._start_activity_compat(pkg, act)
                     self.wait_idle(2.0)
                     return True
 
