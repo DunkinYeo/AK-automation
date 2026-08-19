@@ -141,7 +141,12 @@ def reset_to_step1(drv, hard: bool = True):
         except Exception:
             act = drv.cfg.get("app_activity")
             if act:
-                drv.drv.start_activity(pkg, act)
+                # Appium-Python-Client 4.0+ removed start_activity() --
+                # reuse AndroidDriver's compat shim (execute_script
+                # "mobile: startActivity"), same fix as driver.py
+                # (2026-08-19: an unguarded call here raised AttributeError
+                # and crashed the run outright).
+                drv._start_activity_compat(pkg, act)
         time.sleep(2)
     else:
         log.info("[setup] Back key → Step 1 (BLE retained)")
