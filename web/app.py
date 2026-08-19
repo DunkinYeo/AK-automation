@@ -1770,7 +1770,8 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         if passes < _TC_PERIODIC_MIN_PASSES:
             return ""
         return (f" <span style='color:#6b7280;font-style:italic'>"
-                f"— 동일 화면 검증이 이후 {passes}회 통과 (일시적 문제일 가능성)</span>")
+                f"— same-screen check passed {passes} more time(s) afterward "
+                f"(possibly a one-off glitch)</span>")
 
     inj_ok    = sum(1 for i in injections if i.get("ok"))
     inj_total = len(injections)
