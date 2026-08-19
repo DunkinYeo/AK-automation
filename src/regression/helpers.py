@@ -23,6 +23,7 @@ _SCREEN_SIGNATURES = [
     ("reset_patch",    ["Reset your S-Patch"],                        "Error: Reset S-Patch (963)"),
     ("no_study",       ["No Study Information", "No study information"], "Error: No Study Information"),
     ("bt_disabled",    ["Bluetooth not enabled"],                     "Error: Bluetooth Disabled"),
+    ("side_menu",      ["Version Information", "Terms and Information"], "Side Menu (Settings)"),
     ("upload",         ["Upload"],                                    "Upload Screen"),
 ]
 
@@ -372,6 +373,17 @@ def go_to_main(drv, wait_ble: int = 240):
             except Exception:
                 pass
             time.sleep(1)
+
+        # ── Side menu left open (e.g. a prior run was killed mid app-log-
+        # capture, which navigates into this exact screen) ──────────────────
+        elif screen_id == "side_menu":
+            log.warning("[go_to_main] Side menu open (likely leftover from a prior "
+                        "run's interrupted log capture) → closing")
+            try:
+                close_menu(drv)
+            except Exception as e:
+                log.warning("[go_to_main] close_menu() failed: %s", e)
+            time.sleep(0.5)
 
         # ── Unknown screen — try to dismiss dialogs / permission popups ─────
         else:
