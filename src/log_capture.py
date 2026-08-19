@@ -33,12 +33,27 @@ _MENU_REACHABLE_SCREENS = [
     "Device Status", "Start Study", "Setting", "Version Information",
 ]
 
+# Subset used when returning the device to its normal resting screen
+# after a capture finishes -- Setting/Version Information are deliberately
+# excluded here even though they're valid open_menu() entry points.
+# Real report, 2026-08-19: capture always ends with the app still sitting
+# inside Settings (that's where the file browser/Download flow lives), so
+# calling _ensure_menu_reachable() with the broad list above in the
+# post-capture cleanup trivially "succeeds" the instant it's called --
+# Version Information is itself in that list -- and strands the app deep
+# in Settings instead of back on the actual main/Step-1 screen a tester
+# or the next job expects.
+_MAIN_SCREENS = [
+    "Connect Your S-Patch", "Log Symptoms", "My Study Progress",
+    "Device Status", "Start Study",
+]
+
 
 class LogCaptureError(Exception):
     pass
 
 
-def _ensure_menu_reachable(drv, max_back_presses: int = 6) -> None:
+def _ensure_menu_reachable(drv, max_back_presses: int = 6, target_screens=None) -> None:
     """
     Best-effort recovery to a screen where open_menu() is known to work,
     regardless of what screen the app was on when capture was requested
@@ -47,7 +62,14 @@ def _ensure_menu_reachable(drv, max_back_presses: int = 6) -> None:
     2026-08-11). Uses Back presses only, never a hard app restart: a
     restart would drop the BLE connection to a live S-Patch mid-study,
     which is unacceptable when this runs during an active regression run.
+
+    target_screens overrides which screens count as "reached" -- defaults
+    to _MENU_REACHABLE_SCREENS (includes Setting/Version Information, for
+    the pre-capture call that just needs open_menu() to work from here).
+    Pass _MAIN_SCREENS for the post-capture cleanup so it keeps backing
+    out past Settings instead of stopping the instant it's called.
     """
+    target_screens = target_screens if target_screens is not None else _MENU_REACHABLE_SCREENS
     try:
         pkg = drv.cfg.get("app_package")
         if pkg:
@@ -57,7 +79,7 @@ def _ensure_menu_reachable(drv, max_back_presses: int = 6) -> None:
         pass
 
     for _ in range(max_back_presses):
-        if drv.is_visible_text(_MENU_REACHABLE_SCREENS, timeout=1):
+        if drv.is_visible_text(target_screens, timeout=1):
             return
         # A handful of popups can block Back navigation entirely (same set
         # go_to_main() already knows about) -- dismiss them if present.
@@ -101,7 +123,7 @@ def capture_app_logs(drv, out_dir: Path, timeout: int = 180) -> Path:
         return _capture_app_logs_inner(drv, out_dir, timeout)
     finally:
         try:
-            _ensure_menu_reachable(drv)
+            _ensure_menu_reachable(drv, target_screens=_MAIN_SCREENS)
         except Exception:
             pass
 
