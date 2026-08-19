@@ -383,8 +383,37 @@ class LongRunScheduler:
 
         threading.Thread(target=_capture_logs_watcher, daemon=True).start()
 
+        _final_capture_triggered = False
+
         while datetime.datetime.now() < end:
             time.sleep(10)
+
+            # One extra app-log capture right before the study finishes
+            # (2026-08-19): the run-end capture in main.py is deliberately
+            # SKIPPED once the study is completed, to avoid navigating away
+            # from the Study Overview (Upload/Skip) screen the tester may
+            # still need -- but with no periodic capture running either
+            # (that's manual-only, via the web UI's "Capture Now"), a run
+            # that completes naturally could end with a log timeline no
+            # fresher than whenever someone last clicked that button, up to
+            # the entire run's duration. Triggering once study progress is
+            # nearly done -- while still on the main screen, before the
+            # Study Overview screen ever appears -- gets a much fresher
+            # capture with none of the Upload/Skip screen risk. Reuses
+            # _capture_logs_job's existing job_lock + _job_busy handling,
+            # same as the manual/#55 path.
+            if (not _final_capture_triggered
+                    and getattr(driver, "_last_study_pct", 0) >= 99
+                    and not getattr(driver, "_study_completed", False)):
+                _final_capture_triggered = True
+                self.reporter.log_event("capture_logs_triggered", {"trigger": "near_study_end"})
+                sched.add_job(
+                    lambda o=str(Path(self.reporter.out_dir) / "app_logs"): _capture_logs_job(o),
+                    "date",
+                    run_date=datetime.datetime.now() + datetime.timedelta(seconds=1),
+                    misfire_grace_time=grace,
+                )
+
             # Until-study-ends mode (issue #12): once the app study finishes
             # every remaining job would be a skip — close out early with a
             # normal completion (report + run_complete) instead of idling.
