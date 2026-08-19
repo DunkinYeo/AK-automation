@@ -1460,17 +1460,21 @@ class AndroidDriver:
         action = getattr(self, "_study_complete_action", "notify")
         up = info.get("upload_percent")
         webhook = getattr(self, "_slack_webhook", "")
-        # None (the Data Upload % regex failed to match, even though
-        # _detect_study_completed() already confirmed "Study Overview" +
-        # an Upload/Skip button really is on screen) must be treated the
-        # same as "known incomplete", not "nothing to do" -- code review
-        # finding, 2026-08-18: the original condition (`up is not None
-        # and up != "100"`, unchanged from issue #13's notify-only days)
-        # made a parse failure silently do nothing at all: no tap, no
-        # Slack notification, not even a log event. Low-probability, but
-        # exactly the ambiguous case that most needs a human/fallback,
-        # not silence.
-        incomplete_or_unknown = up is None or up != "100"
+        # `up` is NOT a reliable "already done, nothing to do" signal --
+        # real device evidence, 2026-08-19: a completed study showed
+        # "Data Upload: 100%" while the app's own screen simultaneously
+        # displayed "Your study data has not been fully uploaded. Please
+        # tap the 'Upload' button below to complete the upload." with
+        # Upload/Skip still live. An earlier version of this function
+        # gated on `up != "100"` (added 2026-08-18 to also stop treating
+        # an unparseable `up` as "nothing to do") and silently skipped
+        # the tap entirely in exactly this case -- worse than doing
+        # nothing, since it looked handled but wasn't. This function is
+        # only ever reached once per run (guarded by _study_completed in
+        # the caller), so acting unconditionally here can't cause repeat
+        # taps/notifications on later calls -- always act on whatever
+        # `action` is configured, using `up` only for the log/notify
+        # message content, never to gate whether to act at all.
 
         def _notify(msg_suffix: str = ""):
             if not webhook:
@@ -1507,7 +1511,7 @@ class AndroidDriver:
                                          {"action": "skip", "error": str(e)})
             return
 
-        if action == "upload" and incomplete_or_unknown:
+        if action == "upload":
             try:
                 self.tap_text("Upload", timeout=5, contains=False)
                 # Real upload duration varies with how much data there is
@@ -1562,11 +1566,11 @@ class AndroidDriver:
                 _notify(f" Auto-tap Upload failed ({e}).")
             return
 
-        # "notify" (default), upload already 100%, or an unrecognized
-        # action -- original issue #13 behavior, extended to also cover
-        # the unknown-percent case above.
-        if incomplete_or_unknown:
-            _notify()
+        # "notify" (default) or an unrecognized action -- original issue
+        # #13 behavior. Reaching this function at all means the
+        # Upload/Skip screen is genuinely showing, so always notify;
+        # `up` is display-only now (see note above).
+        _notify()
 
     def _report_study_progress(self):
         """
