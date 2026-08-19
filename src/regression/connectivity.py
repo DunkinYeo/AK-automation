@@ -147,8 +147,17 @@ def _wifi_is_off(drv) -> bool:
 
 
 def _go_device_status(drv):
-    drv.tap_text(_DEV_TAB, timeout=5)
-    time.sleep(0.5)
+    """Navigate to the Device Status tab -- but the app's main screen
+    already opens directly on Device Status (confirmed 2026-07-15 in
+    driver.py's _verify_ecg_after_reconnect: "The current app main screen
+    opens on the Device Status tab"), so a "Device Status" label only
+    exists as a tappable element when a *different* tab (e.g. Real-time
+    ECG) is currently active and offers it as a switch target. Tapping
+    unconditionally raises once already there, which broke
+    TC-CONN-001..005 outright on a live run (2026-08-18)."""
+    if drv.is_visible_text(_DEV_TAB, timeout=3):
+        drv.tap_text(_DEV_TAB, timeout=5)
+        time.sleep(0.5)
 
 
 def _poll_until(drv, text: str, appear: bool, timeout: int) -> tuple[bool, float]:
