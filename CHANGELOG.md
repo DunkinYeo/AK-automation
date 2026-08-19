@@ -83,16 +83,19 @@ at a live run and noticed something looked wrong, not from code review.
   to the same Slack notification only if neither happened, so this never
   fails more silently than doing nothing would have. **Auto-tap Skip**
   taps Skip.
-- **Two real gaps caught by live device testing (2026-08-18), fixed
-  before this ever ran unattended**: a fully successful upload replaces
-  the whole screen with a completion message and an "Ok" button — the
-  "Data Upload: N%" text disappears entirely, which the original
-  percent-only check would have misread as "didn't change" and falsely
-  escalated to Slack. Now detects the completion screen directly and
-  taps "Ok". Separately, tapping Skip while the upload is incomplete
-  brings up a second "...are you sure you want to skip the upload?"
-  confirmation dialog (confirm button: "Yes, Skip") that the original
-  implementation didn't know to expect — now handled.
+- **Three real gaps found before/during this feature's first live test,
+  fixed before it ever ran fully unattended**: an unparseable Data
+  Upload % (`up is None`) used to silently do nothing at all in every
+  mode, not just skip the upload-specific logic — now treated the same
+  as "known incomplete" (code review finding). Tapping Skip when upload
+  is incomplete also brings up a second "Are you sure you want to skip
+  the upload?" dialog (confirmed via a real device screenshot) whose
+  confirm button is "Yes, Skip", not a repeat of "Skip" — now handled.
+  And a fully successful upload replaces the whole screen with a
+  completion message and an "Ok" button — the "Data Upload: N%" text
+  disappears entirely, which the original percent-only check would have
+  misread as "didn't change" and falsely escalated to Slack; now detects
+  the completion screen directly and taps "Ok".
 - Android only (matches `_detect_study_completed()`'s existing scope —
   iOS has its own separate study-completion implementation, untouched).
 
