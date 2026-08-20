@@ -91,10 +91,33 @@ FOR /F "skip=1 tokens=1,2" %%A IN ('adb devices 2^>nul') DO (
     IF "%%B"=="device" SET "_DEV_OK=1"
 )
 IF "%_DEV_OK%"=="0" (
+    REM No device seen yet -- a stuck adb daemon (e.g. after switching a
+    REM device between USB and WiFi ADB, or another app briefly
+    REM conflicting with adb's exclusive USB access) can make a
+    REM genuinely-connected device invisible to "adb devices" -- confirmed
+    REM live, 2026-08-20: "adb kill-server && adb start-server" fixed this
+    REM instantly every time. Restart the daemon once and recheck before
+    REM reporting nothing found, so most testers never see the warning
+    REM below at all.
+    echo   No device seen yet -- restarting the adb daemon and rechecking...
+    adb kill-server >nul 2>&1
+    timeout /t 1 /nobreak >nul
+    adb start-server >nul 2>&1
+    timeout /t 1 /nobreak >nul
+    FOR /F "skip=1 tokens=1,2" %%A IN ('adb devices 2^>nul') DO (
+        IF "%%B"=="device" SET "_DEV_OK=1"
+    )
+)
+IF "%_DEV_OK%"=="0" (
     echo.
     echo   WARN  No Android device detected.
     echo         Connect phone via USB and enable USB Debugging.
     echo         The web UI will still open.
+    echo.
+    echo   TIP   Still not showing up? Unplug and replug the USB cable,
+    echo         or try WiFi ADB instead of USB — some other running app
+    echo         (browser device inspectors, remote-debugging tools) can
+    echo         hold the USB connection and block adb from seeing it.
     echo.
     echo [run] WARN: no device >> "%LOG%"
 )
