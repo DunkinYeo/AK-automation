@@ -16,6 +16,8 @@ on:
       - 'requirements.txt'
       - 'pytest.ini'
       - 'Makefile'
+      - 'run.command'
+      - 'run.bat'
       - '.github/workflows/windows-smoke.yml'
       - '.github/workflows/mac-smoke.yml'
   pull_request:
@@ -28,6 +30,8 @@ on:
       - 'requirements.txt'
       - 'pytest.ini'
       - 'Makefile'
+      - 'run.command'
+      - 'run.bat'
       - '.github/workflows/windows-smoke.yml'
       - '.github/workflows/mac-smoke.yml'
   workflow_dispatch:
