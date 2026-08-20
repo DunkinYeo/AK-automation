@@ -1168,12 +1168,24 @@ class AndroidDriver:
         Poll ADB until device responds or timeout expires.
         Used by BT/airplane workflows to resume after disconnection.
         Returns True if device reconnected within timeout.
+
+        Restarts the adb daemon once, halfway through the wait, if the
+        device still hasn't reappeared. Real incident, 2026-08-20: after
+        a WiFi<->USB transport switch, the device vanished from `adb
+        devices` entirely (not offline/unauthorized -- just absent) and
+        stayed that way through 30+ minutes of `adb get-state`/`adb
+        connect` retries -- a wedged adb daemon never recovers on its own
+        no matter how long those keep getting retried. `adb kill-server &&
+        adb start-server` fixed it instantly. This resets every device
+        currently on this host's adb server, not just this one -- accepted
+        given this tool's single-run-at-a-time usage model (issue #62).
         """
         udid = self.cfg.get("udid", "")
         cmd = ["adb"] + (["-s", udid] if udid else []) + ["get-state"]
         deadline = time.time() + timeout
         self.reporter.log_event("adb_reconnect_wait", {"timeout_sec": timeout})
         log.info("[adb] Waiting for device reconnect (timeout=%ds)...", timeout)
+        daemon_restarted = False
         while time.time() < deadline:
             try:
                 r = subprocess.run(cmd, capture_output=True, timeout=5)
@@ -1183,6 +1195,17 @@ class AndroidDriver:
                     return True
             except Exception:
                 pass
+            elapsed = timeout - (deadline - time.time())
+            if not daemon_restarted and elapsed >= timeout / 2:
+                daemon_restarted = True
+                log.warning("[adb] Device still unreachable after %ds -- restarting the adb daemon", int(elapsed))
+                self.reporter.log_event("adb_daemon_restart", {"elapsed_sec": int(elapsed)})
+                try:
+                    subprocess.run(["adb", "kill-server"], capture_output=True, timeout=10)
+                    subprocess.run(["adb", "start-server"], capture_output=True, timeout=10)
+                except Exception as e:
+                    log.warning("[adb] daemon restart failed: %s", e)
+                time.sleep(2)
             time.sleep(5)
         log.warning("[adb] Device did not reconnect within %ds", timeout)
         self.reporter.log_event("adb_reconnect_timeout", {"timeout_sec": timeout})
