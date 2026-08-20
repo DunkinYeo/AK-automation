@@ -53,6 +53,30 @@ class LogCaptureError(Exception):
     pass
 
 
+def _adb_run_with_retry(cmd, **kwargs):
+    """Run an adb subprocess command, retrying once via a full daemon
+    restart if it fails. Real incident, 2026-08-20: another Mac app
+    (Chrome's chrome://inspect USB device inspector, even a ChatGPT
+    desktop app) briefly grabbing exclusive USB access to the same
+    device caused genuine kernel-level pipe stalls that failed a bare
+    `adb pull` outright (0 bytes transferred). Can't prevent the
+    conflict itself -- host-side, outside this tool's control -- but
+    it's reliably transient: `adb kill-server && adb start-server`
+    clears it every time (same fix already used in driver.py's
+    wait_for_adb_device(), issue #62)."""
+    result = subprocess.run(cmd, **kwargs)
+    if result.returncode == 0:
+        return result
+    try:
+        subprocess.run(["adb", "kill-server"], capture_output=True, timeout=10)
+        time.sleep(1)
+        subprocess.run(["adb", "start-server"], capture_output=True, timeout=10)
+        time.sleep(1)
+    except Exception:
+        pass
+    return subprocess.run(cmd, **kwargs)
+
+
 def _ensure_menu_reachable(drv, max_back_presses: int = 6, target_screens=None) -> None:
     """
     Best-effort recovery to a screen where open_menu() is known to work,
@@ -122,10 +146,23 @@ def capture_app_logs(drv, out_dir: Path, timeout: int = 180) -> Path:
     try:
         return _capture_app_logs_inner(drv, out_dir, timeout)
     finally:
-        try:
-            _ensure_menu_reachable(drv, target_screens=_MAIN_SCREENS)
-        except Exception:
-            pass
+        # Real incident, 2026-08-20: this cleanup call itself can land in
+        # the same transient USB/adb disruption window that just made the
+        # inner capture fail (another app briefly grabbing exclusive USB
+        # access -- kernel-level pipe stalls, ~1-2s), silently failing too
+        # (bare except below) and leaving the app stranded exactly where
+        # it was -- confirmed live, found sitting on the Folder
+        # Information / File Information screen (with an "End Study"
+        # button one screen away) for the rest of the run. One retry with
+        # a short delay costs almost nothing and meaningfully raises the
+        # odds of landing outside that window.
+        for attempt in range(2):
+            try:
+                _ensure_menu_reachable(drv, target_screens=_MAIN_SCREENS)
+                break
+            except Exception:
+                if attempt == 0:
+                    time.sleep(2)
 
 
 def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
@@ -202,8 +239,8 @@ def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
     # started writing, silently pulling stale data instead of the fresh
     # capture. Best-effort delete first so the stability check can only
     # ever observe the new file.
-    subprocess.run(drv._adb_cmd() + ["shell", "rm", "-f", remote_path],
-                    capture_output=True, text=True, timeout=10)
+    _adb_run_with_retry(drv._adb_cmd() + ["shell", "rm", "-f", remote_path],
+                         capture_output=True, text=True, timeout=10)
 
     try:
         drv.tap_text(file_id, timeout=10)
@@ -215,7 +252,7 @@ def _capture_app_logs_inner(drv, out_dir: Path, timeout: int) -> Path:
 
     _wait_for_stable_file(drv, remote_path, timeout=timeout)
 
-    result = subprocess.run(
+    result = _adb_run_with_retry(
         drv._adb_cmd() + ["pull", remote_path, str(local_path)],
         capture_output=True, text=True, timeout=60,
     )
