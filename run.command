@@ -152,6 +152,23 @@ echo "[run] ANDROID_HOME=$ANDROID_HOME" >> "$LOG_FILE"
 echo "  Checking connected devices..."
 if command -v adb >/dev/null 2>&1; then
     ADB_OUT=$(adb devices 2>/dev/null | tail -n +2 | grep -v '^$')
+
+    # No devices at all -- a stuck adb daemon (e.g. after switching a
+    # device between USB and WiFi ADB, or another app briefly conflicting
+    # with adb's exclusive USB access) can make a genuinely-connected
+    # device invisible to `adb devices` -- confirmed live, 2026-08-20:
+    # `adb kill-server && adb start-server` fixed this instantly every
+    # time. Restart the daemon once and recheck before reporting nothing
+    # found, so most testers never see the "no device" warning at all.
+    if [ -z "$ADB_OUT" ]; then
+        echo "  No device seen yet — restarting the adb daemon and rechecking..."
+        adb kill-server >/dev/null 2>&1
+        sleep 1
+        adb start-server >/dev/null 2>&1
+        sleep 1
+        ADB_OUT=$(adb devices 2>/dev/null | tail -n +2 | grep -v '^$')
+    fi
+
     DEV_OK=0
     WIFI_LIST=""
     FIRST_USB_SERIAL=""
@@ -219,6 +236,11 @@ if command -v adb >/dev/null 2>&1; then
         echo "  WARN  No Android device detected."
         echo "        Connect your phone via USB and enable USB Debugging."
         echo "        The web UI will still open. Connect before clicking Start."
+        echo ""
+        echo "  TIP   Still not showing up? Unplug and replug the USB cable,"
+        echo "        or try WiFi ADB instead of USB — some other running app"
+        echo "        (browser device inspectors, remote-debugging tools) can"
+        echo "        hold the USB connection and block adb from seeing it."
         echo ""
         echo "[run] WARN: no device" >> "$LOG_FILE"
     fi
