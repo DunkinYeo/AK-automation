@@ -351,6 +351,22 @@ class LongRunScheduler:
                 if busy is not None:
                     busy.set()
                 try:
+                    # Real incident, 2026-08-20: unlike scheduled jobs
+                    # (_run_with_health_check_inner, since #110/#111), this
+                    # standalone path never checked for a wedged (not
+                    # crashed) UiAutomator2 instrumentation before diving
+                    # in -- a raw `adb screencap` worked fine throughout,
+                    # but every Appium-mediated call in the capture flow
+                    # (including its own diagnostic screenshots) silently
+                    # produced nothing across two full failed attempts, the
+                    # exact signature ensure_ui_automation() exists to
+                    # catch and self-heal via reconnect().
+                    try:
+                        ensure_ui_automation = getattr(driver, "ensure_ui_automation", None)
+                        if ensure_ui_automation is not None:
+                            ensure_ui_automation()
+                    except Exception as e:
+                        self.reporter.log_event("ui_automation_check_failed", {"error": str(e)})
                     zip_path = capture_app_logs(driver, Path(out_dir_str))
                     _CAPTURE_LOGS_RESULT.write_text(json.dumps({"status": "ok", "zip_path": str(zip_path)}))
                     self.reporter.log_event("capture_logs_success", {"zip_path": str(zip_path)})
