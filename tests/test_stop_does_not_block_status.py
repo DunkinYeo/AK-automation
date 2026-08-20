@@ -24,11 +24,20 @@ import web.app as app_mod
 
 class _FakeProc:
     """Simulates a run process whose teardown (the real driver's
-    screen-restore + app-log capture) takes a noticeable amount of time."""
+    screen-restore + app-log capture) takes a noticeable amount of time.
+    Event-driven rather than a fixed sleep -- a wall-clock-duration
+    assertion (e.g. "must respond in <0.3s") is inherently flaky on a
+    slower/contended CI runner (confirmed: this test's first version
+    failed on windows-smoke, /api/status took 2.16s under CI load even
+    with the fix in place -- not a real regression, just a too-tight
+    threshold). wait() blocks on `release` until the test explicitly lets
+    it finish, so assertions check "did this complete" rather than "did
+    this complete within N seconds"."""
 
-    def __init__(self, wait_seconds=0.4):
-        self._wait_seconds = wait_seconds
+    def __init__(self, wait_started: threading.Event, release: threading.Event):
         self._exited = False
+        self.wait_started = wait_started
+        self._release = release
 
     def poll(self):
         return 0 if self._exited else None
@@ -37,7 +46,8 @@ class _FakeProc:
         pass
 
     def wait(self, timeout=None):
-        time_mod.sleep(self._wait_seconds)
+        self.wait_started.set()
+        self._release.wait(timeout=10)
         self._exited = True
         return 0
 
@@ -56,25 +66,41 @@ def _prep_state(monkeypatch, proc):
     monkeypatch.setattr(app_mod, "_screen_timeout_backstop", lambda: None)
 
 
-def test_status_responds_immediately_and_shows_stopped_during_teardown(monkeypatch):
-    proc = _FakeProc(wait_seconds=0.5)
+def _start_stop_mid_teardown(monkeypatch):
+    """Start /api/stop in a background thread and wait until its slow
+    proc.wait() has genuinely begun (not just "probably has by now" --
+    an explicit Event, so this holds regardless of how fast/slow the
+    host is). Returns (client, stop_thread, stop_result, release_event)."""
+    wait_started = threading.Event()
+    release = threading.Event()
+    proc = _FakeProc(wait_started, release)
     _prep_state(monkeypatch, proc)
     client = app_mod.app.test_client()
 
-    result = {}
-    t = threading.Thread(target=lambda: result.__setitem__("resp", client.post("/api/stop")))
-    t.start()
-    time_mod.sleep(0.1)  # let /api/stop acquire+release its brief lock and enter the slow wait
+    stop_result = {}
+    t_stop = threading.Thread(target=lambda: stop_result.__setitem__("resp", client.post("/api/stop")))
+    t_stop.start()
+    assert wait_started.wait(timeout=5), "proc.wait() never started -- /api/stop didn't reach the slow wait"
+    return client, t_stop, stop_result, release
 
-    start = time_mod.monotonic()
-    status = client.get("/api/status")
-    elapsed = time_mod.monotonic() - start
 
-    assert elapsed < 0.3, f"/api/status blocked for {elapsed:.2f}s -- still queued behind /api/stop's lock"
-    assert status.get_json()["running"] is False
+def test_status_responds_immediately_and_shows_stopped_during_teardown(monkeypatch):
+    client, t_stop, stop_result, release = _start_stop_mid_teardown(monkeypatch)
 
-    t.join(timeout=3)
-    assert result["resp"].status_code == 200
+    # The teardown is genuinely still blocked right now (release not set
+    # yet) -- /api/status must still complete promptly rather than queue
+    # behind /api/stop's lock. Bounded via thread join, not a real-time
+    # duration assertion, so this isn't sensitive to how fast the host is.
+    status_result = {}
+    t_status = threading.Thread(target=lambda: status_result.__setitem__("resp", client.get("/api/status")))
+    t_status.start()
+    t_status.join(timeout=5)
+    assert not t_status.is_alive(), "/api/status is still blocked -- queued behind /api/stop's lock"
+    assert status_result["resp"].get_json()["running"] is False
+
+    release.set()
+    t_stop.join(timeout=5)
+    assert stop_result["resp"].status_code == 200
 
 
 def test_second_start_still_blocked_while_teardown_in_progress(monkeypatch):
@@ -82,21 +108,19 @@ def test_second_start_still_blocked_while_teardown_in_progress(monkeypatch):
     must not also let a second /api/start race in and spawn a duplicate
     process onto the same device before the first one has actually
     exited (same concern as issue #16/#33)."""
-    proc = _FakeProc(wait_seconds=0.5)
-    _prep_state(monkeypatch, proc)
-    client = app_mod.app.test_client()
-
-    t = threading.Thread(target=lambda: client.post("/api/stop"))
-    t.start()
-    time_mod.sleep(0.1)
+    client, t_stop, stop_result, release = _start_stop_mid_teardown(monkeypatch)
 
     assert app_mod._run_already_active() is True
 
-    t.join(timeout=3)
+    release.set()
+    t_stop.join(timeout=5)
 
 
 def test_state_fully_cleared_after_teardown_completes(monkeypatch):
-    proc = _FakeProc(wait_seconds=0.1)
+    wait_started = threading.Event()
+    release = threading.Event()
+    release.set()  # teardown completes immediately once wait() is called
+    proc = _FakeProc(wait_started, release)
     _prep_state(monkeypatch, proc)
     client = app_mod.app.test_client()
 
