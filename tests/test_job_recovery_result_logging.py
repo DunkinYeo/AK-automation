@@ -35,6 +35,9 @@ class AlwaysFailingDriver:
     def ensure_session(self):
         raise RuntimeError("session not alive")
 
+    def ensure_ui_automation(self):
+        raise RuntimeError("uiautomator2 proxy unreachable")
+
     def recover_session(self, step):
         raise RuntimeError(f"recover_session step {step} failed")
 
