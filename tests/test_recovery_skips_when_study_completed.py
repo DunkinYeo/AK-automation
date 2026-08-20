@@ -53,6 +53,9 @@ class StudyCompletedDriver:
         if self._fail_ensure_session_once and self._ensure_session_calls == 1:
             raise RuntimeError("HTTPConnectionPool: Read timed out. (read timeout=120)")
 
+    def ensure_ui_automation(self):
+        pass
+
     def bring_to_foreground(self):
         pass
 
