@@ -512,6 +512,23 @@ def _run_with_health_check_inner(job_callable, driver, at_hour, payload, reporte
             if failed is not None:
                 return failed
 
+        # 1.5. UiAutomator2 instrumentation check -- ensure_session() alone
+        # can't catch this: Appium can still answer current_activity while
+        # the UiAutomator2 instrumentation itself is wedged (not crashed,
+        # just unresponsive), so ensure_ui_automation() existed in
+        # driver.py but was never actually wired up anywhere. Real
+        # incident, 2026-08-20: a job hung for ~9 minutes cascading
+        # through nested Appium HTTP timeouts before finally failing,
+        # because nothing checked for this specific case up front. Same
+        # recovery pattern as the other pre-job checks.
+        try:
+            driver.ensure_ui_automation()
+        except Exception as e:
+            reporter.log_event("ui_automation_check_failed", {"error": str(e)})
+            failed = _recover_or_fail()
+            if failed is not None:
+                return failed
+
         # 2. Bring app to foreground
         try:
             driver.bring_to_foreground()
