@@ -36,7 +36,7 @@ app = Flask(__name__)
 PORT = 5003
 
 # ── Shared state ─────────────────────────────────────────────────────────────
-_state: dict = {"proc": None, "out_dir": None, "start_ts": None, "pid": None}
+_state: dict = {"proc": None, "out_dir": None, "start_ts": None, "pid": None, "stopping": False}
 
 # ── Run-state persistence (survive web-server restart) ───────────────────────
 # The run subprocess outlives a web-server restart; without this the dashboard
@@ -1039,10 +1039,17 @@ def api_status():
         proc     = _state["proc"]
         out_dir  = _state["out_dir"]
         start_ts = _state["start_ts"]
-        running  = bool(proc and proc.poll() is None)
+        stopping = _state.get("stopping", False)
+        running  = bool(proc and proc.poll() is None) and not stopping
 
-        # Re-attached run (server restarted; no Popen handle, pid only)
-        if not running and not proc and _state.get("pid"):
+        # Re-attached run (server restarted; no Popen handle, pid only) --
+        # skipped entirely while a Stop is in progress: /api/stop's own
+        # up-to-150s teardown runs outside the lock now (2026-08-20 fix),
+        # but proc/pid stay populated throughout it on purpose (so a
+        # second Start can't race in) -- without this "stopping" check,
+        # this would still see a live pid and report running:true right
+        # up until teardown fully finishes, defeating that fix's purpose.
+        if not stopping and not running and not proc and _state.get("pid"):
             if _pid_is_our_run(_state["pid"]):
                 running = True
             else:
@@ -1275,38 +1282,53 @@ def _screen_timeout_backstop():
 
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
+    # The actual OS-level teardown below can take up to 150s (the run's
+    # finally needs time for screen-timeout restore + the auto app-log
+    # capture on real hardware). This used to run entirely inside `with
+    # _lock:`, which /api/status (and everything else touching _state)
+    # also needs -- so the whole dashboard looked frozen/unresponsive for
+    # up to 150s after clicking Stop (real tester report, 2026-08-20: not
+    # realizing Stop had registered, clicking Start again moments later
+    # queued a second run right behind the first). Grab just the
+    # proc/pid references and mark "stopping" under the lock, then do the
+    # slow wait outside it -- proc/pid stay populated throughout so
+    # _run_already_active() still correctly blocks a second Start from
+    # racing with this teardown (same concern as issue #16/#33), while
+    # _state["stopping"] lets /api/status report "not running" for
+    # display immediately instead of only once teardown finishes.
     with _lock:
         proc = _state["proc"]
-        if proc and proc.poll() is None:
-            proc.terminate()
-            try:
-                # 150s (was 90, was 15, was 5): the run's finally needs time
-                # for the screen-timeout restore, driver teardown, and,
-                # since #69, the auto app-log capture (#55's flow, ~30-60s
-                # on real hardware) before the driver closes. 90s wasn't
-                # enough in practice — screen-restore + capture together got
-                # cut off before logging a result (real restart, 2026-08-11).
-                proc.wait(timeout=150)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        elif not proc and _state.get("pid") and _pid_is_our_run(_state["pid"]):
-            # Re-attached run (no Popen handle): same SIGTERM → wait → SIGKILL.
-            # Identity-checked (not just alive) — issue #20: a stale pid must
-            # never get a kill signal meant for a run that already ended.
-            pid = _state["pid"]
-            try:
-                os.kill(pid, signal.SIGTERM)
-                deadline = time.time() + 150
-                while time.time() < deadline and _pid_alive(pid):
-                    time.sleep(0.5)
-                if _pid_alive(pid):
-                    os.kill(pid, signal.SIGKILL)
-            except Exception:
-                pass
+        pid = _state.get("pid")
+        use_proc = bool(proc and proc.poll() is None)
+        use_pid = (not use_proc) and pid and _pid_is_our_run(pid)
+        _state["stopping"] = True
+
+    if use_proc:
+        proc.terminate()
+        try:
+            proc.wait(timeout=150)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    elif use_pid:
+        # Re-attached run (no Popen handle): same SIGTERM → wait → SIGKILL.
+        # Identity-checked (not just alive) — issue #20: a stale pid must
+        # never get a kill signal meant for a run that already ended.
+        try:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.time() + 150
+            while time.time() < deadline and _pid_alive(pid):
+                time.sleep(0.5)
+            if _pid_alive(pid):
+                os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+    with _lock:
         _state["proc"]     = None
         _state["start_ts"] = None
         _state["out_dir"]  = None
         _state["pid"]      = None
+        _state["stopping"] = False
     _clear_run_state()
     _clear_interval_override()
     _screen_timeout_backstop()
