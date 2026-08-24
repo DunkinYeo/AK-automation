@@ -1484,7 +1484,24 @@ class AndroidDriver:
             log.warning("[study] App study completed (upload %s%%, %s ~ %s) — "
                         "remaining scheduled jobs will be skipped",
                         info["upload_percent"], info["study_start"], info["study_end"])
-            self._handle_study_completion_action(info)
+            # _handle_study_completion_action() (the Upload/Skip tap) runs on
+            # this same call, invoked from the connectivity-monitor's own
+            # background daemon thread (main.py) -- entirely independent of
+            # LongRunScheduler.run()'s main-thread loop, which polls
+            # self._study_completed every 10s to decide when to end the run.
+            # Real incident, 2026-08-20: that loop caught the flag (set just
+            # above) and logged run_ended_study_complete/run_complete in the
+            # SAME SECOND as study_completed -- before the tap below ever
+            # ran. Since the connectivity monitor is a daemon thread, the
+            # ensuing process exit killed it mid-action with no exception,
+            # no log, and the Upload button never actually got tapped.
+            # _study_completion_action_done exists solely so the scheduler
+            # loop can wait for this to actually finish before ending the
+            # run.
+            try:
+                self._handle_study_completion_action(info)
+            finally:
+                self._study_completion_action_done = True
             return True
         except Exception as e:
             log.debug("[study] completed-screen check failed: %s", e)

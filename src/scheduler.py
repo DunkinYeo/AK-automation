@@ -435,6 +435,22 @@ class LongRunScheduler:
             # normal completion (report + run_complete) instead of idling.
             # 2026-07-16~19 soak: 40 hourly skips over 2 idle days.
             if self.until_study_end and getattr(driver, "_study_completed", False):
+                # _handle_study_completion_action() (the Upload/Skip tap)
+                # runs on the connectivity-monitor's own background daemon
+                # thread (main.py), independent of this loop -- without
+                # waiting here, this loop can log run_ended_study_complete
+                # and let the run tear down (killing that daemon thread)
+                # before the tap ever runs. Real incident, 2026-08-20:
+                # study_completed and run_complete logged in the same
+                # second, zero study_completion_action event, Upload never
+                # tapped. Bounded by the upload action's own 300s poll
+                # budget (driver.py) plus margin -- best-effort, proceeds
+                # anyway if the action is somehow still stuck past that so
+                # a stuck action can't hang the run forever.
+                action_deadline = time.time() + 320
+                while (not getattr(driver, "_study_completion_action_done", False)
+                       and time.time() < action_deadline):
+                    time.sleep(1)
                 self.reporter.log_event("run_ended_study_complete", {
                     "duration_cap_hours": self.duration_hours,
                 })
