@@ -1663,6 +1663,7 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
     study_last_pct = None      # app study % (issue #10/#11)
     study_samples: list = []   # (ts, percent) history — mid-study ETA (issue #14 follow-up)
     study_done: dict | None = None
+    study_action: dict | None = None
     study_skipped = 0          # jobs skipped after study completion
 
     for e in events:
@@ -1752,6 +1753,8 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         elif ev == "study_completed":
             study_done = dict(data)
             study_done["ts"] = ts
+        elif ev == "study_completion_action":
+            study_action = dict(data)
         elif ev == "job_skipped_study_ended":
             study_skipped += 1
 
@@ -1819,7 +1822,30 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         if study_done:
             up = study_done.get("upload_percent")
             items.append(("Status", "<span style='color:#059669'>✓ Completed</span>", False))
-            if up is not None:
+            # study_done's upload_percent is read the moment the Study
+            # Overview screen first appears -- BEFORE any "On Study
+            # Completion" auto-tap runs. Real gap found live, 2026-08-26:
+            # a successful auto-tap Upload (study_completion_action,
+            # driver.py) still left this report showing the stale
+            # pre-tap percent and an "ACTION REQUIRED" callout telling a
+            # tester to do something the automation had already done.
+            action_taken = study_action and study_action.get("action")
+            if action_taken == "skip":
+                items.append(("Data Upload", "<span style='color:#6b7280'>Skipped (automation)</span>", False))
+            elif action_taken == "upload" and study_action.get("success_screen_detected"):
+                items.append(("Data Upload", "<span style='color:#059669'>✓ Uploaded (automation)</span>", False))
+            elif (action_taken == "upload"
+                  and study_action.get("upload_percent_after") not in (None, study_action.get("upload_percent_before"))):
+                after = study_action.get("upload_percent_after")
+                up_color = "#059669" if str(after) == "100" else "#d97706"
+                items.append(("Data Upload", f"<span style='color:{up_color}'>{after}% (automation tapped Upload)</span>", False))
+                if str(after) != "100":
+                    study_action_html = f"""
+    <div class="callout callout-warn">
+      <div class="callout-title">⚠ ACTION REQUIRED: Data upload is at {after}% after an automatic Upload tap</div>
+      <div class="callout-body">The automation already tapped 'Upload' but the upload didn't finish — check the app manually.</div>
+    </div>"""
+            elif up is not None:
                 up_color = "#059669" if str(up) == "100" else "#d97706"
                 items.append(("Data Upload", f"<span style='color:{up_color}'>{up}%</span>", False))
                 if str(up) != "100":
