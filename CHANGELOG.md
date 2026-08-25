@@ -1,226 +1,46 @@
 # Changelog — S-Patch AccurKardia Automation
 
-## [v1.1.4] — Unreleased
+## [v1.1.4] — 2026-08-25
 
-### Highlights
-Three new capabilities (#55, #69, and the "On Study Completion" setting
-below) plus a batch of real bugs found by watching actual multi-day runs
-on the dashboard — several only surfaced because a tester was staring
-at a live run and noticed something looked wrong, not from code review.
+### New
+- **App log capture & Log Timeline** — pull the app's own internal log
+  from the device and see it merged with automation events on one
+  timeline, right in the report. Captured automatically as a study
+  nears completion (and at run end), or anytime on demand from the
+  dashboard.
+- **"On Study Completion" setting** — choose what happens when a study
+  finishes: get notified only (default), auto-tap Upload, or auto-tap
+  Skip. (Android)
+- Faster study-completion detection — the dashboard now reflects a
+  finished study within about 30 seconds instead of up to an hour.
+- A run whose study was never actually started now stops immediately
+  with a clear error, instead of running for days and quietly failing
+  every scheduled job.
 
-### App log capture & Log Timeline View (#55, #69)
-- **The app's own internal log can now be pulled from the device and
-  compared side-by-side with automation events on a single timeline.**
-  A "Capture App Logs" button (web UI, works mid-run without disrupting
-  the active session) drives AccurKardia's hidden log-export screen and
-  pulls the resulting zip; it's also captured automatically at the end
-  of every run (success or failure) so a Log Timeline is available even
-  when nobody thought to click the button — the case that matters most
-  (a crash) is exactly the one a manual click can't reach after the
-  fact.
-- The saved report (`summary.html`) and the live web report both show a
-  merged, time-ordered view — app-log lines and automation events
-  side by side with source badges — plus a live-updating `/log-timeline`
-  page and a keyword-highlighted "Log Highlights" summary
-  (error/fail/exception/bluetooth/disconnect/upload/study/timeout).
-- **Real bugs found while building and using this against actual live
-  runs:**
-  - App log timestamps carry the *device's* own GMT offset, not
-    necessarily the host machine's — a device set to a different
-    timezone than the automation host would have merged rows into
-    wildly wrong positions on the timeline. Each line is now converted
-    from its own embedded offset instead of assuming it already matches
-    host-local time (same class of bug #11's Study Overview
-    start/end-time scraping hit for real once already).
-  - The same study/session re-exports to the *same* filename every
-    capture — a stale copy from an earlier capture already sitting on
-    the device could pass the "is the download done yet" stability
-    check before the new export had even started writing, silently
-    pulling stale data. The old file is now deleted right before each
-    new capture.
-  - A capture at run end could leave the app stranded on whatever
-    screen the export flow finished on, with nothing to notice or
-    recover it — now always attempts to return to a known-reachable
-    screen afterward, success or failure.
-  - **A normal, successful study completion used to break the run-end
-    capture entirely**: the app is sitting on the Study Overview
-    (Upload/Skip) screen at that point, which the tester may still need
-    — the capture flow's own screen-recovery logic would press Back
-    trying to escape it to reach Setting/Version Information, disturbing
-    the exact screen that mattered most. Run-end capture is now skipped
-    in this one case (earlier hourly captures during the run already
-    cover most of what one more at the very end would add).
-  - A tester watching a live run mid-capture-gap could misread a stale
-    (not-recently-recaptured) app log as "the app stopped logging" —
-    the timeline now marks exactly where the app log's own coverage
-    ends and shows how long ago it was last captured, with a one-click
-    re-capture from the timeline page itself.
-  - A manual capture *after* a run had already ended used to vanish
-    into an unrelated standalone folder instead of that run's own
-    report — now routed into the run's own directory (falling back to
-    the most recently active run if the web server itself was restarted
-    since), and the saved report is re-rendered on the spot so it picks
-    up the new capture instead of staying frozen at whatever it looked
-    like when the run originally finished.
-  - The report now also records a capture history — when the app log
-    was captured during a run, how many times, and whether each attempt
-    succeeded, failed, or was skipped.
-
-### "On Study Completion" run setting — notify / auto-upload / auto-skip
-- The Study Overview screen (#11) always has both Upload and Skip
-  buttons, and automation only ever sent a Slack heads-up asking a human
-  to tap one manually. Real evidence this session: `upload_percent` sat
-  at 31% and 99% on two separate completed runs — genuinely worth
-  automating, but auto-tapping Upload unconditionally isn't right
-  either, since not every run's study data needs to actually be
-  uploaded (e.g. a synthetic QA test run). Made it a per-run tester
-  choice in the web UI's run-setup form instead of a fixed behavior.
-- New "On Study Completion" dropdown, default **Notify only** (preserves
-  the exact original behavior — nothing changes unless a tester opts
-  in): **Auto-tap Upload** taps Upload, then polls up to 300s (upload
-  duration is unpredictable — could be a large dataset) for either the
-  Data Upload % to move or the completion screen to appear, falling back
-  to the same Slack notification only if neither happened, so this never
-  fails more silently than doing nothing would have. **Auto-tap Skip**
-  taps Skip.
-- **Three real gaps found before/during this feature's first live test,
-  fixed before it ever ran fully unattended**: an unparseable Data
-  Upload % (`up is None`) used to silently do nothing at all in every
-  mode, not just skip the upload-specific logic — now treated the same
-  as "known incomplete" (code review finding). Tapping Skip when upload
-  is incomplete also brings up a second "Are you sure you want to skip
-  the upload?" dialog (confirmed via a real device screenshot) whose
-  confirm button is "Yes, Skip", not a repeat of "Skip" — now handled.
-  And a fully successful upload replaces the whole screen with a
-  completion message and an "Ok" button — the "Data Upload: N%" text
-  disappears entirely, which the original percent-only check would have
-  misread as "didn't change" and falsely escalated to Slack; now detects
-  the completion screen directly and taps "Ok".
-- Android only (matches `_detect_study_completed()`'s existing scope —
-  iOS has its own separate study-completion implementation, untouched).
-
-### A run whose study was never actually started no longer wastes days
-- **Real incident**: a run was started with the app study never
-  registered/started on the device (still on "Connect Your S-Patch").
-  Regression suites correctly reported "Study not started" as ordinary
-  TC failures in 3 separate suites, but nothing stopped the scheduler
-  from starting anyway — it went on to schedule 40+ hourly jobs that all
-  failed identically ("Session recovery failed") over roughly 43 hours
-  before anyone noticed. A final precondition check right before the
-  scheduler starts now catches this and aborts immediately with a clear
-  error instead — reusing the same main-screen check every job already
-  relies on, so it adds no new failure mode, just moves an existing one
-  much earlier.
-
-### Faster study-completion detection
-- The automation previously only checked whether the app study had
-  finished once per scheduled injection job (hourly by default) — fine
-  for most of a multi-day run, but a run whose last job happened to fail
-  a connectivity hiccup could take up to an hour longer than necessary
-  to notice the study was actually done, and the dashboard's "App
-  Study: N%" reading could sit stale for the same reason. Once the last
-  known reading crosses 95%, the connectivity monitor now also checks
-  every 30 seconds — no added overhead for the rest of a run's duration,
-  since it only activates in the final stretch.
-- The "App Study" progress indicator now shows how long ago its last
-  reading was taken, and flags itself once that reading is stale enough
-  to plausibly be out of date.
-
-### Dashboard fixes (found via live usage)
-- **Battery status reporting was broken for the actual normal case**:
-  the device's real "battery is fine" text ("Normal") was never in the
-  recognized label list, so a healthy battery never updated the
-  dashboard and it could stay stuck showing "Not Connected" indefinitely
-  after a Bluetooth reconnect. Separately, "Replace" was removed from
-  the recognized labels entirely — the app has no such real status text,
-  it only ever came from an always-on-screen "How to Replace the
-  Battery" tutorial card being misread as a live reading.
-- The "Connection" status chip could stay stuck on "pending" forever
-  (it was watching for a popup that never actually appears), and the
-  battery chip could show a false green checkmark while genuinely
-  disconnected instead of "Not Connected".
-- Unauthorized USB devices (phone hasn't accepted the "Allow USB
-  debugging" prompt yet) used to disappear from the device list with no
-  explanation — now shown with a clear warning instead of just vanishing.
-- The mid-run "Interval" override box and the pre-start "Injection
-  Interval" dropdown could both show misleading values: the override
-  box defaulted to a placeholder that looked like a real "1h" reading
-  regardless of the run's actual interval, and the dropdown's chosen
-  value (e.g. "Every 4 hours") wasn't remembered across a page reload,
-  silently reverting to "Every 1 hour". Both now correctly reflect the
-  actual running session / the tester's last choice.
+### Fixes & improvements
+- Dashboard accuracy fixes: battery status, connection status, device
+  list, and interval display.
+- Device connection reliability improvements — ADB/USB reconnection
+  recovers more consistently after a drop.
+- Fixed several cases where automation could get stuck on an unexpected
+  screen instead of recovering.
+- Fixed a crash tied to a newer Appium library version.
+- Fixed the dashboard appearing frozen for a while after clicking Stop.
+- Security hardening on the local dashboard's log-download endpoint.
+- Fixed a rare case where auto-tap Upload/Skip could be skipped if the
+  study finished at the exact moment the run was about to end.
+- App log capture (manual and automatic) now retries automatically if a
+  momentary USB conflict interrupts it, and recovers on its own if the
+  on-device automation service becomes unresponsive.
+- Various smaller stability and reporting fixes.
 
 ### iOS
-- Confirmed (and locked in with regression tests) that
-  `study_completed_ios` already reaches the dashboard and saved report
-  correctly via the existing Android/iOS event-name normalization — no
-  code change needed, just verification.
-- Cleaned up a stale code comment in `main_ios.py` describing
-  `until_study_end` as unsupported on iOS, left over from before #18
-  shipped real iOS study-completion detection.
+- Verified study-completion reporting works correctly end-to-end (no
+  change needed).
 
-### Hardening
-- **The `/app_logs/<path>` download route was narrowed to `*.zip`
-  captures only, no longer the whole of `output/`** (code review
-  finding). This server binds to all interfaces (the "Share on local
-  network" URL shown at startup), so anyone on the same LAN could
-  previously browse/download any run's screenshots, `events.jsonl`, or
-  `summary.html` by guessing a path, not just app-log zips. Doesn't
-  change what the app's own internal links ever request — they always
-  hand back exact real paths already — only narrows what an arbitrary
-  guessed path is allowed to reach.
-- A run whose output directory couldn't be resolved right after a rapid
-  restart (real incident: three run restarts ~70s apart) used to latch
-  onto a *different*, still-finishing previous run's directory instead
-  of its own, because the matching logic used filesystem mtime (which
-  any process's file write can bump) instead of the directory's own
-  immutable, run-specific name. The dashboard stayed stuck showing the
-  wrong run's data for the rest of the session once this happened.
-- The dashboard's re-attached-run identity check (`ps`/`Get-CimInstance`,
-  called on every status poll) had only a 5s timeout — on a machine
-  under real concurrent load, a single slow `ps` call could trip it,
-  and the existing fail-closed safety behavior would then wipe the
-  tracked run's state even though the process was still genuinely alive
-  and correctly ours (observed 4-5 times in one session). Widened to
-  15s; the fail-closed behavior itself is unchanged.
-- **The connectivity regression suite (TC-CONN-001..005) failed
-  outright on a live run** (#92): it unconditionally tapped a
-  "Device Status" nav label to navigate there, but the app's main
-  screen already opens directly on Device Status — a fact already
-  discovered and fixed elsewhere in `driver.py` back on 2026-07-15, but
-  never propagated to this suite. Now only taps the label when it's
-  actually a different, active tab offering it as a switch target.
-
-### CI/CD & tooling
-- New weekly canary workflow installs Appium/UiAutomator2 at "latest"
-  (no version pin) and attempts a real session creation, to catch a
-  future repeat of the npm dependency drift that broke a tester's
-  first-run install in v1.1.3 before it ever reaches a release.
-- `windows-smoke.yml`/`mac-smoke.yml`'s path filters now also cover
-  `Makefile` changes, and each other's workflow file — a change scoped
-  to just one of these files (or to `Makefile`) previously got stuck
-  permanently blocked, since branch protection requires both checks but
-  neither's filter covered it (same class of gap the `tests/**`/
-  `pytest.ini` filter omission was).
-- Widened the Windows Appium-bootstrap smoke test's HTTP timeout
-  (30s → 60s) after a real flake: Appium's own retry logic took 28.7s
-  to return its expected "no device" response, leaving only ~1.3s of
-  margin against ordinary CI runner variance.
-- `make restart-web` codifies the SIGKILL-based web server restart
-  sequence that lets a web/report code change take effect without
-  disrupting an in-progress multi-day run.
-
-### Known issues / deferred
-- **USB re-recognition after WiFi ADB use (#62)**: an external Windows
-  tester reported the device disappearing from USB after switching to
-  WiFi ADB. Not reproduced on this project's own Mac + test device
-  combination, and a stronger candidate explanation (an *unauthorized*
-  device silently vanishing from the list, now fixed above) hasn't been
-  confirmed either — holding off on a speculative code change until an
-  actual `adb devices` capture from the failure is available.
-- PyInstaller-based standalone packaging (#46) and per-device scoping of
-  iOS WDA process cleanup (#26) remain deferred; neither is urgent for
-  this release.
+### Known issues
+- PyInstaller-based standalone packaging and finer-grained iOS WDA
+  process cleanup remain deferred to a future release.
 
 ## [v1.1.3] — 2026-08-05
 
