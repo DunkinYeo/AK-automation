@@ -25,25 +25,46 @@ from src.reporter import RunReporter
 
 # Substrings in exception messages that indicate the Appium session or ADB
 # connection is gone rather than a normal UI timeout.
-def _read_wifi_cache() -> str | None:
+def _read_wifi_cache(udid: str = "", _cache_paths=None) -> str | None:
     """
-    Return the cached WiFi ADB address ('ip:port') written by run.command/
-    run.bat/web, or None. Tries every known layout — the old single
-    cwd-relative path matched NO layout (dev repo, dist zip, web cwd), so
-    the cache fallback had effectively never worked (review #2, issue #2):
+    Return the cached WiFi ADB address ('ip:port') for `udid`, or None.
+    Tries every known layout — the old single cwd-relative path matched NO
+    layout (dev repo, dist zip, web cwd), so the cache fallback had
+    effectively never worked (review #2, issue #2):
       1. <code root>/runtime/…      (dev repo AND dist automation/ dir)
       2. <cwd>/runtime/…            (zip root — where run.bat/run.command write)
       3. <cwd>/automation/runtime/… (legacy path, kept for compatibility)
+
+    Matched by udid against the cache's "devices" list -- real bug, found
+    2026-08-25: the top-level device_id/wifi_ip/tcp_port fields only ever
+    hold whichever device most recently ran /api/detect-wifi, with no
+    connection to which device is actually running right now. A USB-only
+    device (never WiFi-paired at all) would still get a wasted ~10s
+    `adb connect` attempt to a completely unrelated device's cached
+    address on every reconnect. Falls back to the top-level fields only
+    if they themselves match udid -- covers cache files written before
+    the "devices" list existed.
     """
     import json as _json
     from pathlib import Path as _Path
     here = _Path(__file__).resolve()
-    for cache in (here.parent.parent / "runtime" / "adb_wifi_device.json",
-                  _Path("runtime/adb_wifi_device.json"),
-                  _Path("automation/runtime/adb_wifi_device.json")):
+    paths = _cache_paths if _cache_paths is not None else (
+        here.parent.parent / "runtime" / "adb_wifi_device.json",
+        _Path("runtime/adb_wifi_device.json"),
+        _Path("automation/runtime/adb_wifi_device.json"),
+    )
+    for cache in paths:
         try:
-            if cache.exists():
-                data = _json.loads(cache.read_text(encoding="utf-8"))
+            if not cache.exists():
+                continue
+            data = _json.loads(cache.read_text(encoding="utf-8"))
+            for entry in (data.get("devices") or []):
+                if entry.get("device_id") == udid:
+                    ip = entry.get("wifi_ip", "")
+                    port = entry.get("tcp_port", 5555)
+                    if ip:
+                        return f"{ip}:{port}"
+            if data.get("device_id") == udid:
                 ip = data.get("wifi_ip", "")
                 port = data.get("tcp_port", 5555)
                 if ip:
@@ -166,7 +187,7 @@ class AndroidDriver:
         # (multi-layout resolution, issue #2 — the old single relative path
         # matched no layout, so sleep/wake WiFi reconnect never worked)
         if not wifi_addr:
-            wifi_addr = _read_wifi_cache()
+            wifi_addr = _read_wifi_cache(udid)
 
         if not wifi_addr:
             return
