@@ -32,6 +32,10 @@
 - App log capture (manual and automatic) now retries automatically if a
   momentary USB conflict interrupts it, and recovers on its own if the
   on-device automation service becomes unresponsive.
+- Fixed WiFi ADB reconnection wasting time trying an unrelated device's
+  cached address on multi-device setups.
+- Fixed the report still showing an "Upload needed" warning after
+  auto-tap Upload had already succeeded.
 - Various smaller stability and reporting fixes.
 
 ### iOS
