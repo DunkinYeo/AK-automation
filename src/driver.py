@@ -1444,15 +1444,29 @@ class AndroidDriver:
             self.reporter.log_event("bt_off_diary_result", {"result": f"error: {e}"})
 
     def _emit_conn_event(self, event_name: str, detected: bool, desc: str):
+        # first_check: real gap found live on the MA sibling project,
+        # 2026-08-28 (the new ADB Connection chip, same architecture
+        # here) -- this only fires on a state TRANSITION, so a device
+        # that's reachable from the very start (the common case) never
+        # gets a confirming "_resolved" event, leaving the dashboard
+        # chip stuck in its default pending/grey display forever with
+        # nothing to show. BT Signal happened to dodge this historically
+        # only because the hourly scheduled BT-disconnect test forces an
+        # early transition -- there's no equivalent forced cycle for
+        # plain ADB reachability. Fire once on the very first check
+        # regardless of `detected`, seeding an initial confirmed state
+        # either way; every check after that behaves exactly as before
+        # (transitions only).
+        first_check = event_name not in self._conn_state
         was = self._conn_state.get(event_name, False)
-        if detected and not was:
+        if detected and (first_check or not was):
             log.warning("[connectivity] %s detected", desc)
             try:
                 self.screenshot(f"connectivity_{event_name}")
             except Exception:
                 pass
             self.reporter.log_event(event_name, {"desc": desc})
-        elif not detected and was:
+        elif not detected and (first_check or was):
             log.info("[connectivity] %s resolved", desc)
             self.reporter.log_event(f"{event_name}_resolved", {"desc": desc})
         self._conn_state[event_name] = detected
