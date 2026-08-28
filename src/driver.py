@@ -984,10 +984,17 @@ class AndroidDriver:
                 self._verify_ecg_after_reconnect()
         # else: was_bt_off=True but on a different screen — preserve disconnected state
 
-        # "Connection" chip (web dashboard) — same signal as bluetooth_off.
-        # See _CONN_TEXT_CHECKS comment above for why this replaced the old
-        # (dead) "S-Patch connection lost" popup-text check.
-        self._emit_conn_event("connection_lost", bt_disconnected, "S-Patch connection lost")
+        # "Connection" chip (web dashboard) — ADB reachability, not BT
+        # signal. Used to reuse the same bt_disconnected signal, which
+        # made "Connection" and "BT Signal" show the literal same state
+        # at all times — redundant, and blind to real USB/adb-drop
+        # incidents (found live on the MA sibling project, 2026-08-27/28;
+        # same architecture here), which have nothing to do with the
+        # S-Patch's own BT link. Switched per direction 2026-08-28 to
+        # what it should have measured all along: is the phone itself
+        # still reachable over adb right now.
+        adb_disconnected = not self._adb_device_reachable()
+        self._emit_conn_event("connection_lost", adb_disconnected, "ADB connection lost")
 
         # WiFi off — detected via ADB settings (OS-level, reliable)
         was_wifi_off = self._conn_state.get("wifi_off", False)
@@ -1244,6 +1251,37 @@ class AndroidDriver:
             return result.stdout.strip() == "0"
         except Exception as e:
             log.debug("[connectivity] wifi_off adb check failed: %s", e)
+            return False
+
+    def _adb_device_reachable(self) -> bool:
+        """
+        Check whether this specific device is currently reachable via adb
+        (shows up as 'device' state in `adb devices`, not missing/
+        'unauthorized'/'offline'). Backs the "Connection" dashboard chip.
+
+        Unlike _adb_bt_off/_adb_wifi_off's "false negative allowed"
+        convention (a failed settings read there just means "assume
+        still on"), a failed/timed-out `adb devices` call here IS the
+        symptom this check exists to catch -- so it returns False (not
+        reachable) on error, not a silent "assume connected".
+        """
+        # getattr, not self.cfg directly: some minimal test stubs (e.g.
+        # test_battery_status_labels.py) construct a driver via
+        # object.__new__() and never set .cfg at all, since they're not
+        # exercising anything udid-related -- must degrade the same way
+        # "no udid configured" does, not raise AttributeError.
+        udid = getattr(self, "cfg", {}).get("udid", "")
+        if not udid:
+            return True  # no serial configured — nothing to check against
+        try:
+            result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
+            for line in result.stdout.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) == 2 and parts[0] == udid:
+                    return parts[1] == "device"
+            return False  # not listed at all
+        except Exception as e:
+            log.debug("[connectivity] adb reachability check failed: %s", e)
             return False
 
     def _adb_bt_off(self) -> bool:
