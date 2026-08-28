@@ -36,6 +36,11 @@
   cached address on multi-device setups.
 - Fixed the report still showing an "Upload needed" warning after
   auto-tap Upload had already succeeded.
+- The dashboard's "Connection" indicator now reflects whether the phone
+  is actually reachable over ADB, instead of duplicating the "BT
+  Signal" indicator (both used to show the same S-Patch Bluetooth-link
+  state, so a USB/ADB drop with the patch still connected went
+  unindicated).
 - Various smaller stability and reporting fixes.
 
 ### iOS
