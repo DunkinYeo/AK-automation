@@ -41,6 +41,10 @@
   Signal" indicator (both used to show the same S-Patch Bluetooth-link
   state, so a USB/ADB drop with the patch still connected went
   unindicated).
+- Fixed the "ADB Connection" indicator staying gray for the entire run
+  when the device was reachable from the very start (the common case)
+  — it only ever updated on a state change, so a connection that was
+  fine the whole time never got a first confirming update.
 - Various smaller stability and reporting fixes.
 
 ### iOS
