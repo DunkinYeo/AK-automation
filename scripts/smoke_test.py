@@ -21,8 +21,15 @@ import sys
 import traceback
 from pathlib import Path
 
-# Make `src.*` / `web.*` importable regardless of cwd (bundle: automation/)
-ROOT = Path(__file__).resolve().parent.parent
+# Make `src.*` / `web.*` importable regardless of cwd (bundle: automation/).
+# Frozen-aware (issue #46): under a PyInstaller freeze, __file__ resolves
+# inside the ephemeral extraction temp dir, not the real install
+# directory -- os.chdir() into that would break every relative path
+# elsewhere (config writes, output/ creation) for the rest of the process.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.app_root import get_app_root
+
+ROOT = get_app_root()
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
@@ -79,6 +86,19 @@ def _web():
     data = resp.get_json()
     assert "devices" in data, f"unexpected /api/init payload: {data}"
     print(f"    devices={data['devices']} appium={data.get('appium')}")
+
+
+@check("Dashboard page (\"/\") renders its template")
+def _dashboard_page():
+    # Added for issue #46 (ported from a real bug MA hit): a frozen build
+    # can ship with web/templates/ missing entirely from the distribution
+    # if the build script doesn't copy it as a loose file. /api/init above
+    # doesn't touch render_template() at all, so this gap can ship past
+    # every other check. Catch it here instead.
+    from web.app import app
+    resp = app.test_client().get("/")
+    assert resp.status_code == 200, f"\"/\" returned {resp.status_code}"
+    assert b"Accurkardia" in resp.data, "\"/\" response doesn't look like the dashboard page"
 
 
 def main() -> int:

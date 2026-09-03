@@ -144,7 +144,6 @@ class IOSDriver:
         # Start port forwarding: iproxy (libimobiledevice) if available,
         # otherwise pymobiledevice3's built-in forwarder (pip-only, no brew)
         import shutil
-        import sys as _sys
         if shutil.which("iproxy"):
             iproxy_cmd = ["iproxy"]
             if udid:
@@ -157,8 +156,8 @@ class IOSDriver:
             except Exception as e:
                 log.warning("[driver-iOS] iproxy start failed: %s", e)
         else:
-            fwd_cmd = [_sys.executable, "-m", "pymobiledevice3", "usbmux", "forward",
-                       str(wda_port), str(wda_port)]
+            from src.app_root import pymobiledevice3_argv
+            fwd_cmd = pymobiledevice3_argv("usbmux", "forward", str(wda_port), str(wda_port))
             if udid:
                 fwd_cmd += ["--udid", udid]
             try:
@@ -170,15 +169,14 @@ class IOSDriver:
                 log.warning("[driver-iOS] pymobiledevice3 forward failed: %s", e)
 
         # Start WDA via pymobiledevice3 dvt xcuitest (userspace, no root)
-        import sys
-        wda_cmd = [
-            sys.executable, "-m", "pymobiledevice3",
+        from src.app_root import pymobiledevice3_argv
+        wda_cmd = pymobiledevice3_argv(
             "developer", "dvt", "xcuitest",
             "--userspace",
             wda_bundle,
             "--env", f"USE_PORT={wda_port}",
             "--env", "MJPEG_SERVER_PORT=9100",
-        ]
+        )
         try:
             proc = subprocess.Popen(
                 wda_cmd,

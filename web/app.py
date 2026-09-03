@@ -22,7 +22,10 @@ log = logging.getLogger(__name__)
 import yaml
 from flask import Flask, jsonify, render_template, request, send_from_directory, Response
 
-ROOT = Path(__file__).resolve().parent.parent
+# Can't import src.app_root here yet -- src/ isn't on sys.path until ROOT
+# is known below (chicken-and-egg). Same two-line frozen check, inlined.
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) \
+    else Path(__file__).resolve().parent.parent
 _INTERVAL_OVERRIDE = ROOT / "runtime" / "interval_override.json"
 _INJECT_NOW_FILE   = ROOT / "runtime" / "inject_now.json"
 sys.path.insert(0, str(ROOT))
@@ -31,7 +34,13 @@ from src.log_timeline import build_log_timeline, build_capture_history
 
 ARTIFACTS_DIR = ROOT / "artifacts"
 
-app = Flask(__name__)
+# template_folder explicit, not the Flask(__name__) default: under a
+# PyInstaller-frozen build, Flask's default root_path detection resolves
+# inside the frozen executable's internal structure, not this loose
+# web/templates/ directory that the distribution scripts ship alongside
+# the executable unchanged (issue #46 -- templates/config stay as plain
+# files; only the .py application logic gets compiled into the binary).
+app = Flask(__name__, template_folder=str(ROOT / "web" / "templates"))
 
 PORT = 5003
 
@@ -42,7 +51,7 @@ _state: dict = {"proc": None, "out_dir": None, "start_ts": None, "pid": None, "s
 # The run subprocess outlives a web-server restart; without this the dashboard
 # loses track of it ("ghost run"). Zero impact when the file is absent: every
 # code path behaves exactly as before.
-_RUN_STATE_FILE = Path(__file__).resolve().parent.parent / "runtime" / "web_run_state.json"
+_RUN_STATE_FILE = ROOT / "runtime" / "web_run_state.json"
 
 
 def _pid_alive(pid) -> bool:
@@ -372,7 +381,8 @@ def get_ios_devices() -> list[str]:
         pass
     # pip-only fallback (testers won't have brew libimobiledevice)
     try:
-        r = subprocess.run([sys.executable, "-m", "pymobiledevice3", "usbmux", "list"],
+        from src.app_root import pymobiledevice3_argv
+        r = subprocess.run(pymobiledevice3_argv("usbmux", "list"),
                            capture_output=True, text=True, timeout=10)
         import json as _json
         data = _json.loads(r.stdout or "[]")
@@ -730,9 +740,8 @@ def _get_lan_ip() -> str:
 
 def _find_appium_cmd() -> str | None:
     import shutil, os
-    from pathlib import Path
-    # Bundled standalone path: web/app.py → web/ → automation/ → appium/
-    here = Path(__file__).resolve().parent.parent  # automation/
+    # Bundled standalone path: automation/appium/
+    here = ROOT
     if sys.platform == "win32":
         bundled = here / "appium" / "node_modules" / ".bin" / "appium.cmd"
     else:
@@ -774,6 +783,22 @@ def api_init():
     return jsonify({"devices": get_devices(), "ios_devices": get_ios_devices(),
                     "unauthorized_devices": get_unauthorized_devices(),
                     "appium": appium_ok(), "cached_wifi": get_cached_wifi()})
+
+
+def _entry_point_cmd(mode_flag: str, script_name: str, *extra_args: str) -> list[str]:
+    """Build the subprocess argv for a src/ entry point (issue #46).
+
+    Unfrozen (normal `python web/app.py`, and every current raw-zip
+    distribution): completely unchanged -- [sys.executable, src/<script>,
+    ...]. Frozen (PyInstaller single-dispatcher build): the entry-point
+    .py files don't exist on disk in that form, so re-invoke this same
+    frozen executable with a dispatch flag instead (see
+    scripts/pyinstaller_entry.py) -- sys.executable under PyInstaller
+    points at the frozen executable itself, not a bare python interpreter.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, mode_flag, *extra_args]
+    return [sys.executable, str(ROOT / "src" / script_name), *extra_args]
 
 
 @app.route("/api/detect-wifi", methods=["POST"])
@@ -934,7 +959,7 @@ def api_capture_logs():
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         result = subprocess.run(
-            [sys.executable, str(ROOT / "src" / "capture_logs.py"), "--device", device, "--out", str(out_dir)],
+            _entry_point_cmd("--capture-logs", "capture_logs.py", "--device", device, "--out", str(out_dir)),
             capture_output=True, text=True, timeout=210,
         )
     except subprocess.TimeoutExpired:
@@ -1219,7 +1244,8 @@ def api_start():
         start_ts = time.time()
         _state["start_ts"] = start_ts
         _state["out_dir"]  = None
-        cmd = [sys.executable, str(ROOT / "src" / entry), "--config", str(cfg_path)]
+        mode_flag = "--main-ios" if platform == "ios" else "--main"
+        cmd = _entry_point_cmd(mode_flag, entry, "--config", str(cfg_path))
         if data.get("skip_regression"):
             cmd.append("--skip-regression")
         _state["proc"]     = subprocess.Popen(
@@ -1434,10 +1460,10 @@ def api_regression_start():
         pass
 
     proc = subprocess.Popen(
-        [sys.executable, str(ROOT / "src" / "run_regression.py"),
-         "--config", str(cfg_path),
-         "--suite", REG_SUITES,
-         "--result-json", REG_RESULT_JSON],
+        _entry_point_cmd("--run-regression", "run_regression.py",
+                          "--config", str(cfg_path),
+                          "--suite", REG_SUITES,
+                          "--result-json", REG_RESULT_JSON),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -1551,6 +1577,16 @@ def _build_zip_in_memory(platform: str) -> tuple[bytes, str]:
 def api_download(platform: str):
     if platform not in ("mac", "windows"):
         return jsonify({"error": "Invalid platform. Use mac or windows"}), 400
+    if getattr(sys, "frozen", False):
+        # scripts/build_dist.py packages raw src/*.py -- those files don't
+        # exist as loose files in a frozen build (issue #46: that's the
+        # whole point). Nothing sensible to build on-demand here anymore;
+        # point the user at the real distribution channel instead.
+        return jsonify({
+            "error": "On-demand ZIP download isn't available from a "
+                     "packaged build. Get the latest release from the "
+                     "project's GitHub Releases page instead."
+        }), 400
     try:
         data, filename = _build_zip_in_memory(platform)
         return Response(
@@ -2407,7 +2443,11 @@ def log_timeline_page():
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main():
+    """Extracted from the bare `if __name__ == "__main__":` block (was the
+    entire body) so a PyInstaller multi-entrypoint dispatcher can call this
+    same startup sequence (issue #46) -- behavior is unchanged for the
+    normal `python web/app.py` invocation below, which just calls it."""
     import socket
     try:
         local_ip = socket.gethostbyname(socket.gethostname())
@@ -2427,3 +2467,7 @@ if __name__ == "__main__":
     # browser popping open if AK_NO_BROWSER isn't set; review 2026-07-29).
     threading.Thread(target=_auto_open_loop, daemon=True).start()
     app.run(host="::", port=PORT, debug=False, threaded=True)
+
+
+if __name__ == "__main__":
+    main()

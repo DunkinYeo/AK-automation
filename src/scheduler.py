@@ -24,10 +24,13 @@ import threading
 import time
 from pathlib import Path
 
-_OVERRIDE_FILE    = Path(__file__).resolve().parent.parent / "runtime" / "interval_override.json"
-_INJECT_NOW_FILE  = Path(__file__).resolve().parent.parent / "runtime" / "inject_now.json"
-_CAPTURE_LOGS_REQUEST = Path(__file__).resolve().parent.parent / "runtime" / "capture_logs_request.json"
-_CAPTURE_LOGS_RESULT  = Path(__file__).resolve().parent.parent / "runtime" / "capture_logs_result.json"
+from src.app_root import get_app_root
+
+_APP_ROOT = get_app_root()
+_OVERRIDE_FILE    = _APP_ROOT / "runtime" / "interval_override.json"
+_INJECT_NOW_FILE  = _APP_ROOT / "runtime" / "inject_now.json"
+_CAPTURE_LOGS_REQUEST = _APP_ROOT / "runtime" / "capture_logs_request.json"
+_CAPTURE_LOGS_RESULT  = _APP_ROOT / "runtime" / "capture_logs_result.json"
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
