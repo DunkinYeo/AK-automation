@@ -1,0 +1,215 @@
+name: Frozen Smoke
+
+# New, separate from mac-smoke.yml/windows-smoke.yml (issue #46 --
+# source-protection work): builds the PyInstaller-frozen standalone ZIPs
+# (build_dist_bundle_mac_frozen.py / build_dist_bundle_frozen.py) and
+# smoke-tests them, mirroring what run.command/run.bat + smoke.command/
+# smoke.bat do on a tester's machine for the frozen distribution.
+#
+# Deliberately does NOT touch or replace mac-smoke.yml/windows-smoke.yml
+# or release.yml -- those still build/ship the existing raw-source
+# bundles exactly as they did for v1.1.4. This workflow exists to
+# continuously verify the NEW frozen path ahead of swapping it in as the
+# default, which is gated on real device validation (Android + iOS).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/frozen-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/frozen-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  mac-frozen-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          python3 -m venv .venv-build
+          .venv-build/bin/pip install -r requirements.txt pyinstaller --quiet
+
+      - name: Build Mac standalone ZIP (frozen)
+        run: .venv-build/bin/python scripts/build_dist_bundle_mac_frozen.py --out ci_dist
+
+      - name: Extract ZIP
+        run: |
+          cd ci_dist
+          unzip -q "$(ls *.zip | head -1)" -d extracted
+          echo "PKG=$PWD/extracted/$(ls extracted)" >> "$GITHUB_ENV"
+
+      - name: Verify AK's own source isn't shipped as loose files
+        # The entire point of issue #46 -- assert it, don't just hope.
+        # NOT a blanket "zero .py anywhere in the bundle" -- pymobiledevice3
+        # pulls in ipython as a real dependency, which bundles a few .py
+        # files under _internal/IPython/ (third-party open-source code,
+        # not ours). What actually matters: our own module paths
+        # (automation/src, automation/web's .py files) must not exist as
+        # loose files sitting next to the frozen executable.
+        run: |
+          A="$PKG/automation"
+          if [ -d "$A/src" ]; then
+            echo "FAIL: automation/src/ exists as a loose directory (should be compiled into the executable):"
+            find "$A/src" -name "*.py"
+            exit 1
+          fi
+          if find "$A/web" -maxdepth 1 -name "*.py" 2>/dev/null | grep -q .; then
+            echo "FAIL: found loose .py files directly in automation/web/:"
+            find "$A/web" -maxdepth 1 -name "*.py"
+            exit 1
+          fi
+          echo "OK: automation/src/ absent, automation/web/ has no loose .py files."
+
+      - name: Smoke test with the frozen executable
+        run: |
+          chmod +x "$PKG/automation/AKApp"
+          PYTHONUNBUFFERED=1 "$PKG/automation/AKApp" --smoke-test
+
+      - name: pymobiledevice3 CLI dispatch smoke check
+        run: |
+          # No real iPhone attached in CI -- just confirm the dispatch
+          # mode itself resolves and runs pymobiledevice3's CLI without
+          # import errors (ModuleNotFoundError for pymobiledevice3.cli.*
+          # submodules, or PackageNotFoundError for readchar's metadata
+          # self-check, are exactly the two real bugs this step exists to
+          # catch -- see pyinstaller_build.py's docstring).
+          chmod +x "$PKG/automation/AKApp"
+          OUT=$(PYTHONUNBUFFERED=1 "$PKG/automation/AKApp" --pymobiledevice3 usbmux list 2>&1)
+          echo "$OUT"
+          if echo "$OUT" | grep -qi "ModuleNotFoundError\|PackageNotFoundError"; then
+            echo "FAIL: pymobiledevice3 CLI dispatch hit a hidden-import gap"
+            exit 1
+          fi
+          echo "OK: pymobiledevice3 CLI dispatch ran without import errors (empty device list expected -- no real iPhone in CI)"
+
+      - name: Appium bootstrap smoke test (the actual run.command first-launch path)
+        timeout-minutes: 10
+        run: |
+          A="$PKG/automation"
+          export APPIUM_HOME="$A/appium_home"
+          mkdir -p "$APPIUM_HOME"
+          NODE="$A/node/bin"
+
+          "$NODE/npm" install -g appium@3.5.2 --prefix "$A/appium" --quiet --no-progress
+          APPIUM_CMD="$A/appium/bin/appium"
+          [ -x "$APPIUM_CMD" ] || APPIUM_CMD="$A/appium/node_modules/.bin/appium"
+
+          "$APPIUM_CMD" driver install uiautomator2@4.1.5
+
+          "$APPIUM_CMD" --port 4744 --relaxed-security > appium_test.log 2>&1 &
+          APPIUM_PID=$!
+          sleep 8
+          RESP=$(curl -s -X POST http://127.0.0.1:4744/session -H "Content-Type: application/json" \
+            -d '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}')
+          kill "$APPIUM_PID" 2>/dev/null || true
+          echo "$RESP"
+          if echo "$RESP" | grep -q "Cannot require()" || echo "$RESP" | grep -q "ES Module"; then
+            echo "FAIL: driver failed to load — ESM/require() incompatibility detected"
+            exit 1
+          fi
+          if ! echo "$RESP" | grep -q "Could not find a connected Android device"; then
+            echo "FAIL: unexpected response — expected the driver to load and fail only on 'no device'"
+            exit 1
+          fi
+          echo "OK: driver loaded successfully, failed only on 'no device' as expected in CI"
+
+  windows-frozen-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build Windows standalone ZIP (frozen)
+        run: python scripts/build_dist_bundle_frozen.py --out ci_dist
+
+      - name: Extract ZIP
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem ci_dist/*.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath extracted
+          $pkg = Get-ChildItem extracted -Directory | Select-Object -First 1
+          echo "PKG=$($pkg.FullName)" >> $env:GITHUB_ENV
+
+      - name: Verify AK's own source isn't shipped as loose files
+        # See the mac-frozen-smoke job's identical step for why this
+        # isn't a blanket "zero .py anywhere" check.
+        shell: pwsh
+        run: |
+          $A = "$env:PKG\automation"
+          if (Test-Path "$A\src") {
+            Write-Host "FAIL: automation\src exists as a loose directory:"
+            Get-ChildItem "$A\src" -Recurse -Filter *.py | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+          $looseWebPy = Get-ChildItem "$A\web" -Filter *.py -ErrorAction SilentlyContinue
+          if ($looseWebPy) {
+            Write-Host "FAIL: found loose .py files directly in automation\web:"
+            $looseWebPy | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+          Write-Host "OK: automation\src absent, automation\web has no loose .py files."
+
+      - name: Smoke test with the frozen executable
+        shell: pwsh
+        run: |
+          $env:PYTHONUNBUFFERED = "1"
+          & "$env:PKG\automation\AKApp.exe" --smoke-test
+
+      - name: Appium bootstrap smoke test (the actual run.bat first-launch path)
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $A = "$env:PKG\automation"
+          $env:APPIUM_HOME = "$A\appium_home"
+          New-Item -ItemType Directory -Force -Path $env:APPIUM_HOME | Out-Null
+
+          & "$A\node\npm.cmd" install -g appium@3.5.2 --prefix "$A\appium" --quiet --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "npm install -g appium failed" }
+
+          $appiumCmd = "$A\appium\appium.cmd"
+          if (-not (Test-Path $appiumCmd)) { $appiumCmd = "$A\appium\node_modules\.bin\appium.cmd" }
+          if (-not (Test-Path $appiumCmd)) { throw "appium.cmd not found after install" }
+
+          & $appiumCmd driver install uiautomator2@4.1.5
+          if ($LASTEXITCODE -ne 0) { throw "appium driver install uiautomator2 failed" }
+
+          $proc = Start-Process -FilePath $appiumCmd -ArgumentList "--port","4744","--relaxed-security" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 8
+          try {
+            $body = '{"capabilities":{"alwaysMatch":{"platformName":"Android","appium:automationName":"UiAutomator2"}}}'
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:4744/session" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 60 -SkipHttpErrorCheck
+            $text = $resp.Content
+            Write-Host $text
+            if ($text -match "Cannot require\(\)" -or $text -match "ES Module") {
+              throw "Driver failed to load — ESM/require() incompatibility detected"
+            }
+            if ($text -notmatch "Could not find a connected Android device") {
+              throw "Unexpected response — expected the driver to load and fail only on 'no device'"
+            }
+            Write-Host "OK: driver loaded successfully, failed only on 'no device' as expected in CI"
+          } finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
