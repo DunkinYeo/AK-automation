@@ -910,6 +910,32 @@ class AndroidDriver:
     # bluetooth_off: "Live ECG Signal" gone + "Patch Placement" visible
     # wifi_off: "Network" icon state — TBD after monitoring
 
+    def check_adb_connection(self):
+        """
+        Update the "ADB Connection" dashboard chip. Split out of
+        check_connectivity() (2026-09-03, ported from the MA sibling
+        project) because that whole function is gated behind "not
+        device_owned" in main.py's connectivity monitor -- correct for
+        the UI-touching checks (popup dismiss, BT-off diary, ECG verify)
+        that can't safely run while a job holds the device, but wrong for
+        this one: _adb_device_reachable() is a pure `adb devices` shell
+        call, unrelated to Appium/UI, and safe to run even while a job is
+        busy. Found live on MA: a stuck app-log-capture job (adb pull
+        failing/retrying) held _job_busy for minutes while the phone was
+        actually disconnected the whole time, and the chip never updated
+        because check_connectivity() was skipped entirely.
+        Called both unconditionally from the monitor loop (so it updates
+        during a busy job) and from check_connectivity() itself (so it's
+        still covered by that function's own error/recovery handling
+        when idle) -- _emit_conn_event() dedupes by transition, so the
+        occasional double-call when idle is a harmless extra `adb
+        devices` invocation, not a duplicate event.
+        """
+        if not hasattr(self, "_conn_state"):
+            self._conn_state: dict[str, bool] = {}
+        adb_disconnected = not self._adb_device_reachable()
+        self._emit_conn_event("connection_lost", adb_disconnected, "ADB connection lost")
+
     def check_connectivity(self):
         """
         Scan for connectivity issues. Emits events only on state transitions
@@ -993,8 +1019,7 @@ class AndroidDriver:
         # S-Patch's own BT link. Switched per direction 2026-08-28 to
         # what it should have measured all along: is the phone itself
         # still reachable over adb right now.
-        adb_disconnected = not self._adb_device_reachable()
-        self._emit_conn_event("connection_lost", adb_disconnected, "ADB connection lost")
+        self.check_adb_connection()
 
         # WiFi off — detected via ADB settings (OS-level, reliable)
         was_wifi_off = self._conn_state.get("wifi_off", False)
