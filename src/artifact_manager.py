@@ -27,8 +27,9 @@ import subprocess
 import traceback
 from pathlib import Path
 
-# Project root is one level above this file (automation/ -> root)
-_ROOT = Path(__file__).resolve().parent.parent
+from src.app_root import get_app_root
+
+_ROOT = get_app_root()
 ARTIFACTS_DIR = _ROOT / "artifacts"
 
 

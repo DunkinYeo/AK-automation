@@ -3,7 +3,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent.parent
+from src.app_root import get_app_root
+
+_ROOT = get_app_root()
 TIMELINE_FILE = str(_ROOT / "artifacts" / "timeline.json")
 
 

@@ -20,6 +20,7 @@ from src.driver import AndroidDriver
 from src.artifacts import ArtifactManager
 from src.reporter import RunReporter
 from src.log_capture import capture_app_logs, LogCaptureError
+from src.app_root import get_app_root
 
 
 def main() -> int:
@@ -33,7 +34,7 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    root = Path(__file__).resolve().parent.parent
+    root = get_app_root()
     cfg = yaml.safe_load((root / "config" / "accurkardia.yaml").read_text(encoding="utf-8"))
     a_cfg = dict(cfg["android"])
     a_cfg["udid"] = args.device

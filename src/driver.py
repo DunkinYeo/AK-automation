@@ -47,9 +47,9 @@ def _read_wifi_cache(udid: str = "", _cache_paths=None) -> str | None:
     """
     import json as _json
     from pathlib import Path as _Path
-    here = _Path(__file__).resolve()
+    from src.app_root import get_app_root as _get_app_root
     paths = _cache_paths if _cache_paths is not None else (
-        here.parent.parent / "runtime" / "adb_wifi_device.json",
+        _get_app_root() / "runtime" / "adb_wifi_device.json",
         _Path("runtime/adb_wifi_device.json"),
         _Path("automation/runtime/adb_wifi_device.json"),
     )
