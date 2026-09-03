@@ -599,6 +599,19 @@ def main():
                     driver.check_app_process(allow_relaunch=not device_owned)
                 except Exception as _e:
                     log.warning("[app-watch] error: %s", _e)
+                try:
+                    # Pure `adb devices` shell call -- safe even while a job
+                    # owns the device (unlike check_connectivity() below,
+                    # which touches Appium/UI). Runs on every tick so the
+                    # "ADB Connection" chip doesn't go stale during a long
+                    # job (found live on MA 2026-09-03: a stuck app-log-
+                    # capture job held _job_busy for minutes while the
+                    # phone was actually disconnected, and the chip never
+                    # updated because check_connectivity() was skipped
+                    # entirely).
+                    driver.check_adb_connection()
+                except Exception as _e:
+                    log.warning("[adb-watch] error: %s", _e)
                 if not device_owned:
                     try:
                         driver.check_connectivity()
