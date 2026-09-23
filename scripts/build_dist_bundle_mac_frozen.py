@@ -23,7 +23,6 @@ Usage:
 import argparse
 import datetime
 import io
-import platform
 import stat
 import sys
 import tarfile
@@ -41,8 +40,17 @@ TODAY = datetime.date.today().strftime("%Y%m%d")
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "0.0.0"
 
 NODE_VERSION = "22.13.1"
-ARCH = platform.machine()  # "arm64" (Apple Silicon) or "x86_64" (Intel)
-NODE_ARCH = "arm64" if ARCH == "arm64" else "x64"
+# Always x64, deliberately NOT platform.machine() of whichever machine runs
+# this build script -- see the sibling MA-automation project's identical
+# fix (and its own frozen-smoke.yml/release.yml changes) for the full
+# writeup: this constant alone only governs the bundled Node.js, NOT the
+# frozen executable itself, which comes from whatever Python process runs
+# PyInstaller's freeze() call below. If/when this script gets wired into
+# AK's own release.yml (not yet -- see this module's own docstring), that
+# CI job will need the same `arch -x86_64`/Rosetta + pinned python.org
+# universal2 Python treatment MA-automation's release.yml now has, not
+# just this constant.
+NODE_ARCH = "x64"
 NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-darwin-{NODE_ARCH}.tar.gz"
 
 ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"
