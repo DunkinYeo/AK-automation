@@ -14,7 +14,6 @@ Usage:
 import argparse
 import datetime
 import io
-import platform
 import stat
 import tarfile
 import tempfile
@@ -28,8 +27,18 @@ TODAY = datetime.date.today().strftime("%Y%m%d")
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "0.0.0"
 
 NODE_VERSION = "22.13.1"
-ARCH = platform.machine()  # "arm64" (Apple Silicon) or "x86_64" (Intel)
-NODE_ARCH = "arm64" if ARCH == "arm64" else "x64"
+# Always x64, deliberately NOT platform.machine() of whichever machine runs
+# this build script. That used to pick Node's architecture from the BUILD
+# machine, which silently shipped an arm64-only Node.js in every release
+# (GitHub's macos-latest CI runner is Apple Silicon) with no way for an
+# Intel Mac tester to run it at all -- confirmed live on the sibling
+# EX-Medi-UAT-Automation tool, which had this identical bug. Rosetta 2
+# translates x86_64 -> arm64, never the reverse, so x64 is the one choice
+# that runs everywhere: natively on Intel, transparently under Rosetta on
+# Apple Silicon (a one-time "install Rosetta?" system prompt on first
+# launch if it isn't already present, then works identically thereafter --
+# negligible overhead for an I/O-bound orchestration tool like this one).
+NODE_ARCH = "x64"
 NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-darwin-{NODE_ARCH}.tar.gz"
 
 ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"

@@ -53,6 +53,17 @@ jobs:
       - name: Run unit tests (pytest)
         run: .venv-test/bin/pytest -q
 
+      - name: Install Rosetta 2
+        # build_dist_bundle_mac.py always bundles x64 Node.js now (see its
+        # own NODE_ARCH comment -- x64 runs everywhere: natively on Intel,
+        # under Rosetta on Apple Silicon, unlike the old arm64-on-arm64-CI
+        # build which couldn't run on Intel at all). This arm64 runner
+        # needs Rosetta to actually execute those x64 binaries for the real
+        # Appium bootstrap smoke test below, not just build/zip-list the
+        # bundle. --agree-to-license is required non-interactively; a
+        # no-op if already preinstalled on this runner image.
+        run: softwareupdate --install-rosetta --agree-to-license
+
       - name: Build Mac standalone ZIP
         run: python3 scripts/build_dist_bundle_mac.py --out ci_dist
 
