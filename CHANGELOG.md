@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixes (real-device run, 2026-11-12)
+- Auto (until study end) mode now runs for up to 45 days instead of 7.
+  The 168h cap ended a ~26-day AK study at 27% and showed it as
+  "Test complete" while the app study was still running.
+
 ### Fixes (external review, 2026-11-12 — Android)
 - Stopping a run in the middle of a Bluetooth-off or airplane-mode test
   now turns Bluetooth back on / airplane mode off before the run exits.

@@ -347,7 +347,7 @@
           <button class="btn-toggle" data-val="168">168h<span class="sublabel">1 week</span></button>
         </div>
         <input type="hidden" id="duration-val" value="auto">
-        <div style="font-size:.72rem;color:#9ca3af;margin-top:4px">Auto: runs until the app study completes (max 168h). Pick hours to stop earlier.</div>
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:4px">Auto: runs until the app study completes (max 45 days). Pick hours to stop earlier.</div>
       </div>
 
       <div class="field">
@@ -713,6 +713,9 @@ function fmtEvent(ev) {
 }
 
 // ── Suite grid ──────────────────────────────────────────────────────────
+// Max run length for Auto (until study end) mode: 45 days. An AK study
+// ran ~26 days (0% -> 27% in the first 7), so 30 days left little margin.
+const AUTO_MAX_HOURS = 1080;
 const SUITE_ORDER = ['serial', 'menu', 'main', 'diary', 'menu-study', 'connectivity'];
 const SUITE_LABEL = { serial: 'Serial', menu: 'Menu', main: 'Main', diary: 'Diary', 'menu-study': 'Menu Study', connectivity: 'Connectivity' };
 let suiteStates = {};
@@ -1317,9 +1320,11 @@ document.getElementById('start-btn').addEventListener('click', async () => {
     device,
     serial:          (document.getElementById('serial-input').value || '').trim(),
     run_name:        document.getElementById('run-name').value || 'ak_run',
-    // "auto" = until the app study completes; 168h acts as the max cap (issue #12)
+    // "auto" = until the app study completes; AUTO_MAX_HOURS is only a
+    // safety cap (issue #12). It was 168h, which ended a ~26-day AK study
+    // at 27% on 2026-11-12 and reported it as complete.
     duration_hours:  document.getElementById('duration-val').value === 'auto'
-                       ? 168 : parseInt(document.getElementById('duration-val').value),
+                       ? AUTO_MAX_HOURS : parseInt(document.getElementById('duration-val').value),
     until_study_end: document.getElementById('duration-val').value === 'auto',
     interval_hours:  parseFloat(document.getElementById('interval-select').value),
     study_complete_action: document.getElementById('study-complete-action').value,
@@ -1584,7 +1589,7 @@ function updateProgress(events) {
   }
   if (!startTs || !durationH) return;
   const elapsed = (Date.now() - new Date(startTs).getTime()) / 1000;
-  // Auto mode (issue #12): duration_hours is a safety cap (168h), not the
+  // Auto mode (issue #12): duration_hours is a safety cap (AUTO_MAX_HOURS), not the
   // real target — elapsed/cap made the bar look barely-moved right before
   // completion (e.g. 24h/168h = 14% while the app study itself was at
   // 96%). Drive the primary bar off study progress once a sample exists.
