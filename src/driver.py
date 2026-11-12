@@ -1134,8 +1134,12 @@ class AndroidDriver:
             cmd = ["adb"]
             if udid:
                 cmd += ["-s", udid]
-            cmd += ["shell", "dumpsys", "window", "windows"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+            # `dumpsys window`, not `dumpsys window windows`: the latter has no
+            # mCurrentFocus line on Android 11 (Galaxy A32) or 16 (Pixel 7),
+            # so this always returned "" and the system-popup dismiss below
+            # never ran (found 2026-11-12).
+            cmd += ["shell", "dumpsys", "window"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             for line in result.stdout.splitlines():
                 if "mCurrentFocus" in line:
                     m = re.search(r'([a-zA-Z][a-zA-Z0-9_.]+)/[a-zA-Z$]', line)
