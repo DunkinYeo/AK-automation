@@ -8,6 +8,7 @@ import threading
 import time
 
 from src.driver import AndroidDriver
+from src.workflows import conn_restore
 
 log = logging.getLogger(__name__)
 
@@ -16,26 +17,37 @@ log = logging.getLogger(__name__)
 _TICK = 5  # seconds per poll tick during the wait
 
 
-def _wall_sleep(seconds: float) -> None:
-    """Sleep for `seconds` of wall-clock time, robust to host sleep/wake."""
+def _wall_sleep(seconds: float, stop_event: threading.Event | None = None) -> bool:
+    """Sleep for `seconds` of wall-clock time, robust to host sleep/wake.
+    Returns True if `stop_event` cut the wait short."""
     deadline = time.monotonic() + seconds
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            break
-        time.sleep(min(_TICK, remaining))
+            return False
+        if stop_event is not None:
+            if stop_event.wait(min(_TICK, remaining)):
+                return True
+        else:
+            time.sleep(min(_TICK, remaining))
 
 
-def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
-    """Disable Bluetooth for `disconnect_minutes`, then re-enable."""
+def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float,
+                      stop_event: threading.Event | None = None) -> None:
+    """Disable Bluetooth for `disconnect_minutes`, then re-enable.
+
+    If `stop_event` is set during the off window (run stopping), BT is
+    re-enabled right away and the post-reconnect checks are skipped.
+    """
     udid = driver.cfg.get("udid", "")
     adb = ["adb"] + (["-s", udid] if udid else [])
+    pending = conn_restore.pending(driver)
 
     driver.reporter.log_event("bt_disconnect_start", {"minutes": disconnect_minutes})
     log.info("[bt_disconnect] Disabling BT for %.1f min", disconnect_minutes)
 
-    def _bt_is_actually_off(retries: int = 5, interval: float = 2.0) -> bool:
-        """Poll up to retries*interval seconds to confirm BT turned off.
+    def _bt_state_is(want: str, retries: int = 5, interval: float = 2.0) -> bool:
+        """Poll up to retries*interval seconds until bluetooth_on == `want`.
         Uses 'settings get global bluetooth_on' (0=off, 1=on) which is
         consistent across Android versions and OEM skins.
         """
@@ -44,7 +56,7 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
             try:
                 r = subprocess.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
                                    capture_output=True, text=True, timeout=10)
-                if r.stdout.strip() == "0":
+                if r.stdout.strip() == want:
                     return True
             except Exception:
                 pass
@@ -68,6 +80,9 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
                 last_err = str(e)
         raise RuntimeError(last_err or "all BT disable commands failed")
 
+    # Marked before the disable attempt: a command that "failed" may still
+    # have turned BT off, and the run-end restore must then turn it back on.
+    pending.add("bt")
     try:
         _bt_disable()
     except Exception as e:
@@ -84,7 +99,7 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     # Verify BT actually turned off — poll up to 10s since some devices apply the
     # disable command with a delay (e.g. Samsung Android 11: returncode 0 but BT
     # stays ON for a few seconds before dropping).
-    bt_went_off = _bt_is_actually_off(retries=10, interval=2.0)
+    bt_went_off = _bt_state_is("0", retries=10, interval=2.0)
     if not bt_went_off:
         log.warning("[bt_disconnect] BT still ON after disable commands — ADB BT toggle not supported on this device/OS; skipping disconnect cycle")
         driver.reporter.log_event("bt_disconnect_not_supported", {
@@ -103,7 +118,9 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
     except Exception as _e:
         log.warning("[bt_disconnect] post-disable connectivity check failed: %s", _e)
 
-    _wall_sleep(disconnect_minutes * 60 - 5)
+    stopped = _wall_sleep(disconnect_minutes * 60 - 5, stop_event)
+    if stopped:
+        log.info("[bt_disconnect] Run stopping — re-enabling BT early")
 
     def _bt_enable() -> None:
         cmds = [
@@ -135,19 +152,21 @@ def run_bt_disconnect(driver: AndroidDriver, disconnect_minutes: float) -> None:
             driver.reporter.log_event("bt_disconnect_failed", {"phase": "enable", "error": str(e2)})
             return
 
-    # Verify BT actually came back — some devices ignore the enable command via ADB.
-    time.sleep(3)
-    try:
-        r = subprocess.run(adb + ["shell", "settings", "get", "global", "bluetooth_on"],
-                           capture_output=True, text=True, timeout=10)
-        bt_still_off = r.stdout.strip() == "0"
-        if bt_still_off:
-            log.warning("[bt_disconnect] BT did not re-enable after disconnect cycle (ADB enable not effective)")
-            driver.reporter.log_event("bt_not_restored_after_disconnect", {
-                "reason": "ADB svc bluetooth enable not effective on this device/OS"
-            })
-    except Exception:
-        pass
+    # Verify BT actually came back — some devices ignore the enable command
+    # via ADB. Only a confirmed restore counts as a passed cycle; anything
+    # else is a failure (the caller's bt_not_restored check alerts the tester).
+    if not _bt_state_is("1", retries=5, interval=2.0):
+        log.warning("[bt_disconnect] BT did not re-enable after disconnect cycle (ADB enable not effective)")
+        driver.reporter.log_event("bt_disconnect_failed", {
+            "phase": "restore", "minutes": disconnect_minutes,
+            "error": "BT still off after re-enable (ADB enable not effective on this device/OS)",
+        })
+        return
+    pending.discard("bt")
+
+    if stopped:
+        driver.reporter.log_event("bt_disconnect_aborted", {"minutes": disconnect_minutes})
+        return
 
     driver.reporter.log_event("bt_disconnect_done", {"minutes": disconnect_minutes})
     log.info("[bt_disconnect] BT re-enabled after %.1f min", disconnect_minutes)

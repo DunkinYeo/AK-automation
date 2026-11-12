@@ -1711,7 +1711,8 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         if ev in ("bt_disconnect_start", "airplane_mode_start"):
             in_test_window = True
         elif ev in ("bt_disconnect_done", "bt_disconnect_failed", "bt_disconnect_not_supported",
-                    "airplane_mode_done", "airplane_mode_failed", "airplane_mode_skipped"):
+                    "bt_disconnect_aborted", "airplane_mode_done", "airplane_mode_failed",
+                    "airplane_mode_skipped", "airplane_mode_aborted"):
             in_test_window = False
 
         if ev == "bluetooth_off":
@@ -1775,10 +1776,14 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": None, "error": "ADB BT toggle not supported on this device/OS"})
         elif ev == "bt_disconnect_failed":
             bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
+        elif ev == "bt_disconnect_aborted":
+            bt_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": None, "error": "Run stopped mid-test (BT restored)"})
         elif ev == "airplane_mode_done":
             ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": True})
         elif ev == "airplane_mode_failed":
             ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": False, "error": data.get("error", "")})
+        elif ev == "airplane_mode_aborted":
+            ap_tests.append({"ts": ts, "minutes": data.get("minutes"), "ok": None, "error": "Run stopped mid-test (airplane mode off)"})
         elif ev == "bt_not_restored":
             phase = data.get("phase", "workflow")
             bt_warnings.append({"ts": ts, "msg": f"BT not restored after {phase} — tester must manually re-enable Bluetooth"})
@@ -1841,9 +1846,12 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
     bt_skip   = sum(1 for t in bt_tests if t["ok"] is None)
     bt_rate   = f"{bt_ok}/{len(bt_tests) - bt_skip}" if bt_tests else "-"
     if bt_skip and bt_tests:
-        bt_rate += f" ({bt_skip} skipped — ADB BT not supported)"
-    ap_ok     = sum(1 for t in ap_tests if t["ok"])
-    ap_rate   = f"{ap_ok}/{len(ap_tests)}" if ap_tests else "-"
+        bt_rate += f" ({bt_skip} not counted — {'; '.join(sorted({t['error'] for t in bt_tests if t['ok'] is None}))})"
+    ap_ok     = sum(1 for t in ap_tests if t["ok"] is True)
+    ap_skip   = sum(1 for t in ap_tests if t["ok"] is None)
+    ap_rate   = f"{ap_ok}/{len(ap_tests) - ap_skip}" if ap_tests else "-"
+    if ap_skip:
+        ap_rate += f" ({ap_skip} not counted — run stopped mid-test)"
 
     # ── App Study Summary (issue #11) ────────────────────────────────────
     # The app/patch study runs on its own schedule, independent of this run.
@@ -2060,15 +2068,18 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
         if t["ok"] is True:
             icon = "✓"; cls = "ok"
         elif t["ok"] is None:
-            icon = "⚠ skipped"; cls = "skip"
+            icon = "— stopped" if "stopped" in t.get("error", "") else "⚠ skipped"; cls = "skip"
         else:
             icon = "✗"; cls = "err"
         bt_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t.get('minutes') or '-'} min</span><span class='{cls}'>{icon}</span></div>"
 
     ap_html = ""
     for t in ap_tests:
-        icon = "✓" if t["ok"] else "✗"
-        cls  = "ok" if t["ok"] else "err"
+        if t["ok"] is None:
+            icon, cls = "— stopped", "skip"
+        else:
+            icon = "✓" if t["ok"] else "✗"
+            cls  = "ok" if t["ok"] else "err"
         ap_html += f"<div class='list-row'><span class='ts'>{_t(t['ts'])}</span><span class='dur'>{t['minutes']} min</span><span class='{cls}'>{icon}</span></div>"
 
     # #69: app-log + automation-event highlights (errors/fails/keywords),

@@ -44,6 +44,7 @@ from src.regression.helpers import reset_to_step1
 from src.workflows.symptom_inject import inject_symptom_event, SYMPTOMS, ACTIVITIES
 from src.workflows.bt_disconnect import run_bt_disconnect
 from src.workflows.airplane_mode import run_airplane_mode
+from src.workflows.conn_restore import restore_connectivity
 from src.artifact_manager import save_failure_artifacts
 from src.keep_awake import KeepAwake
 
@@ -283,6 +284,27 @@ def _maybe_capture_logs_at_run_end(driver, out_dir: str, reporter) -> None:
             busy.clear()
 
 
+def _run_periodic_tests(tests, stop, clock=time.time, gap_sec=60, max_wait_sec=60):
+    """Run each connectivity test on its own start-to-start interval.
+
+    `tests` is [(interval_hours, fn)] in run order (BT before airplane when
+    both are due). Used to be one shared loop on `bt_interval_h or
+    ap_interval_h`, so BT 1h / airplane 3h ran both every hour, and each
+    test's own duration was added on top of the wait (review 2026-11-12 #3).
+    Waits are chunked so a host sleep/wake is noticed against the clock.
+    """
+    next_at = [clock()] * len(tests)  # both run right after the first injection
+    while not stop.is_set():
+        for i, (interval_h, fn) in enumerate(tests):
+            if clock() < next_at[i]:
+                continue
+            next_at[i] = clock() + interval_h * 3600
+            fn()
+            if stop.wait(gap_sec):
+                return
+        stop.wait(max(0.0, min(min(next_at) - clock(), max_wait_sec)))
+
+
 def main():
     ap = argparse.ArgumentParser(description="S-Patch Accurkardia long-run test automation")
     ap.add_argument("--config", required=True, help="Path to run.yaml")
@@ -372,6 +394,10 @@ def main():
 
     # ── Full long-run mode ───────────────────────────────────────────────────
     dm = None
+    # Created here (not with the scheduler) so the finally block can stop a
+    # BT-off / airplane window that is still in progress on any exit path.
+    _stop_loop = threading.Event()
+    _periodic_thread = None
     driver = None  # guards the finally block's `if dm and driver:` — dm.driver
                     # could theoretically fail right after `dm = DeviceManager(...)`
                     # succeeds, which would otherwise leave `driver` unbound there
@@ -530,43 +556,42 @@ def main():
         _first_injection_done = threading.Event()
         _bt_active            = threading.Event()
         _airplane_active      = threading.Event()
-        _stop_loop            = threading.Event()
         _inject_active        = threading.Event()
         _stop_monitor         = threading.Event()
 
         if bt_interval_h > 0 or ap_interval_h > 0:
-            _loop_interval_h = bt_interval_h or ap_interval_h
+            def _bt_test():
+                _bt_active.set()
+                try:
+                    run_bt_disconnect(driver, bt_minutes, stop_event=_stop_loop)
+                except Exception as _e:
+                    log.warning("[bt_disconnect] error: %s", _e)
+                finally:
+                    _bt_active.clear()
+                _check_bt_not_restored("BT disconnect cycle")
+
+            def _airplane_test():
+                _airplane_active.set()
+                try:
+                    run_airplane_mode(driver, ap_minutes, stop_event=_stop_loop)
+                except Exception as _e:
+                    log.warning("[airplane_mode] error: %s", _e)
+                finally:
+                    _airplane_active.clear()
+                _check_bt_not_restored("airplane mode")
+
+            _periodic = ([(bt_interval_h, _bt_test)] if bt_interval_h > 0 else []) + \
+                        ([(ap_interval_h, _airplane_test)] if ap_interval_h > 0 else [])
+
             def _periodic_loop():
-                _first_injection_done.wait()
-                while not _stop_loop.is_set():
-                    if bt_interval_h > 0:
-                        _bt_active.set()
-                        try:
-                            run_bt_disconnect(driver, bt_minutes)
-                        except Exception as _e:
-                            log.warning("[bt_disconnect] error: %s", _e)
-                        finally:
-                            _bt_active.clear()
-                        _check_bt_not_restored("BT disconnect cycle")
-                        _stop_loop.wait(60)
-                        if _stop_loop.is_set():
-                            break
-                    if ap_interval_h > 0:
-                        _airplane_active.set()
-                        try:
-                            run_airplane_mode(driver, ap_minutes)
-                        except Exception as _e:
-                            log.warning("[airplane_mode] error: %s", _e)
-                        finally:
-                            _airplane_active.clear()
-                        _check_bt_not_restored("airplane mode")
-                        _stop_loop.wait(60)
-                        if _stop_loop.is_set():
-                            break
-                    _stop_loop.wait(_loop_interval_h * 3600)
-            threading.Thread(target=_periodic_loop, daemon=True).start()
-            log.info("Periodic loop started (after first injection): BT %.1fmin → airplane %.1fmin → wait %.1fh",
-                     bt_minutes, ap_minutes, _loop_interval_h)
+                while not _first_injection_done.wait(5):
+                    if _stop_loop.is_set():
+                        return
+                _run_periodic_tests(_periodic, _stop_loop)
+            _periodic_thread = threading.Thread(target=_periodic_loop, daemon=True)
+            _periodic_thread.start()
+            log.info("Periodic loop started (after first injection): BT %.1fmin every %.1fh, airplane %.1fmin every %.1fh",
+                     bt_minutes, bt_interval_h, ap_minutes, ap_interval_h)
 
         # Connectivity monitor — detects NATURAL BT drops between jobs.
         # Ported from run.py: main.py long runs had no 30s monitor, so an
@@ -726,6 +751,18 @@ def main():
         raise
 
     finally:
+        # Stop the BT / airplane thread first: it re-enables the radio it
+        # turned off as soon as it sees the stop, then the ADB backstop
+        # covers anything it couldn't (review 2026-11-12 #1). Must finish
+        # before the web Stop's SIGKILL, with log capture still to run.
+        _stop_loop.set()
+        if _periodic_thread is not None:
+            _periodic_thread.join(timeout=45)
+        if driver:
+            try:
+                restore_connectivity(driver, reporter)
+            except Exception as _e:
+                log.warning("[conn_restore] failed: %s", _e)
         keep_awake.stop()
         # Restore the tester's screen timeout on EVERY exit path — normal
         # completion, exception, Ctrl-C, and web Stop (SIGTERM → SystemExit
