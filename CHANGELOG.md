@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Fixes (real-device run, 2026-11-12)
+- The dashboard no longer loses track of a running test. Loading the
+  dashboard code where the process check (`ps`) couldn't run (e.g. a
+  sandboxed review or test tool) deleted the running test's state file,
+  so after the next dashboard restart the test kept running but the
+  dashboard showed nothing. The file is now only removed once the test's
+  process is really gone.
 - Auto (until study end) mode now runs for up to 45 days instead of 7.
   The 168h cap ended a ~26-day AK study at 27% and showed it as
   "Test complete" while the app study was still running.

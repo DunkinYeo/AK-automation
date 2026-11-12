@@ -247,13 +247,19 @@ def _load_persisted_run() -> None:
             if out_dir and Path(out_dir).is_dir():
                 _state["out_dir"] = out_dir
             print(f"[run-state] Re-attached to running test (pid={pid})", flush=True)
-        else:
+        elif not (pid and _pid_alive(pid)):
             _clear_run_state()
+        # else: alive but its identity couldn't be confirmed (e.g. `ps`
+        # blocked in a sandbox, or timed out) -- don't re-attach, but keep
+        # the file so a later server start can still find the run.
     except Exception:
         pass
 
 
-_load_persisted_run()
+# _load_persisted_run() runs from main(), not at import: on 2026-11-11 a
+# review tool imported web.app in a sandbox where `ps` couldn't run, the
+# identity check failed closed, and the import deleted the live run's
+# state file, so the next server restart never re-attached to it.
 _lock = threading.Lock()
 
 # ── Regression state ──────────────────────────────────────────────────────────
@@ -1077,9 +1083,11 @@ def api_status():
         if not stopping and not running and not proc and _state.get("pid"):
             if _pid_is_our_run(_state["pid"]):
                 running = True
-            else:
+            elif not _pid_alive(_state["pid"]):
                 _state["pid"] = None
                 _clear_run_state()
+            # else: alive but unverified this poll (slow/blocked `ps`) --
+            # keep the pid and the file; the next poll checks again.
 
         if not out_dir and start_ts:
             found = find_latest_output_dir(start_ts)
@@ -2472,6 +2480,7 @@ def main():
     # request handling below means api_start() itself can no longer be
     # the one to call this (see _register_exit_hooks docstring).
     _register_exit_hooks()
+    _load_persisted_run()
     # Only start the auto-open-report watcher once the server is actually
     # running — not on plain `import web.app` (a test/script importing this
     # module and touching _state["out_dir"] would otherwise risk a real
