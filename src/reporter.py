@@ -88,7 +88,16 @@ class RunReporter:
             (e["ts"] for e in events if e["event"] in (*DONE_EVENTS, "run_failed")), ""
         )
         device_info  = next((e["data"] for e in events if e["event"] == "device_info"), {})
-        overall_ok   = injections_fail == 0 and any(e["event"] in DONE_EVENTS for e in events)
+        # BT-off / airplane-mode tests count toward the verdict too: a cycle
+        # that failed (e.g. BT not restored) used to leave the badge green
+        # (review 2026-11-12). *_aborted (run stopped mid-test) isn't a failure.
+        def _conn_counts(prefix):
+            return (sum(1 for e in events if e["event"] == f"{prefix}_done"),
+                    sum(1 for e in events if e["event"] == f"{prefix}_failed"))
+        bt_ok, bt_fail = _conn_counts("bt_disconnect")
+        ap_ok, ap_fail = _conn_counts("airplane_mode")
+        overall_ok   = (injections_fail == 0 and bt_fail == 0 and ap_fail == 0
+                        and any(e["event"] in DONE_EVENTS for e in events))
 
         # #69: merge this run's captured app log (#55) with its own
         # automation events into one time-ordered timeline, so investigating
@@ -105,14 +114,17 @@ class RunReporter:
         FAIL_EVENTS = {
             "job_failed", "inject_symptom_failed", "session_recovery_failed",
             "ui_health_check_failed", "run_failed",
+            "bt_disconnect_failed", "airplane_mode_failed",
         }
         WARN_EVENTS = {
             "recovery_step_start", "recovery_succeeded", "recovery_ui_still_unhealthy",
             "job_skipped_quiet_hours",
+            "bt_disconnect_aborted", "airplane_mode_aborted",
         }
         OK_EVENTS = {
             "inject_symptom_done", "job_result", "measurement_confirmed_running",
             "once_inject_done", "run_complete", "run_ended_study_complete",
+            "bt_disconnect_done", "airplane_mode_done",
         }
 
         def row_class(e):
@@ -169,11 +181,16 @@ mark{background:#ffe58f;padding:0 2px;border-radius:2px}
 <div class="summary">
   <div class="card"><div class="val">{{ total_jobs }}</div><div class="lbl">Total Jobs</div></div>
   <div class="card" style="border-color:#28a745">
-    <div class="val" style="color:#28a745">{{ injections_ok }}</div><div class="lbl">Passed</div>
+    <div class="val" style="color:#28a745">{{ injections_ok }}</div><div class="lbl">Injections passed</div>
   </div>
   <div class="card" style="border-color:#dc3545">
-    <div class="val" style="color:#dc3545">{{ injections_fail }}</div><div class="lbl">Failed</div>
+    <div class="val" style="color:#dc3545">{{ injections_fail }}</div><div class="lbl">Injections failed</div>
   </div>
+  {% for lbl, ok, fail in [('BT tests passed', bt_ok, bt_fail), ('Airplane tests passed', ap_ok, ap_fail)] if ok or fail %}
+  <div class="card" style="border-color:{{ '#dc3545' if fail else '#28a745' }}">
+    <div class="val" style="color:{{ '#dc3545' if fail else '#28a745' }}">{{ ok }}/{{ ok + fail }}</div><div class="lbl">{{ lbl }}</div>
+  </div>
+  {% endfor %}
 </div>
 <h3>Log Captures <span style="font-weight:400;font-size:.7em;color:#666">— when this run's app log was captured, manual or automatic</span></h3>
 {% if capture_history %}
@@ -242,6 +259,8 @@ mark{background:#ffe58f;padding:0 2px;border-radius:2px}
             injections_ok=injections_ok,
             injections_fail=injections_fail,
             overall_ok=overall_ok,
+            bt_ok=bt_ok, bt_fail=bt_fail,
+            ap_ok=ap_ok, ap_fail=ap_fail,
             row_class=row_class,
             data_json=data_json,
             log_timeline=log_timeline,

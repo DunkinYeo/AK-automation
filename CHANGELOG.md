@@ -17,6 +17,10 @@
 - Tests cut short by a stop show as "stopped" in the report and don't
   count toward the pass rate.
 
+- The saved summary.html now shows FAIL when a Bluetooth-off or
+  airplane-mode test failed. Before, it only looked at symptom injections
+  and showed PASS. It also shows BT / airplane test counts separately.
+
 Same fixes as MA-automation (PRs #15, #17, #18).
 
 ## [v1.1.4] — 2026-08-25
