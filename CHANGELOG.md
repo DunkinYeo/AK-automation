@@ -1,5 +1,24 @@
 # Changelog — S-Patch AccurKardia Automation
 
+## [Unreleased]
+
+### Fixes (external review, 2026-11-12 — Android)
+- Stopping a run in the middle of a Bluetooth-off or airplane-mode test
+  now turns Bluetooth back on / airplane mode off before the run exits.
+  Before, the phone could be left with Bluetooth off or in airplane mode.
+- A Bluetooth or airplane-mode test is only counted as passed once the
+  phone confirms it really switched and switched back. Before, a
+  Bluetooth test where Bluetooth stayed off, or an airplane-mode test
+  where airplane mode never turned on, still counted as passed. A failed
+  status read no longer counts as "on".
+- The Bluetooth and airplane-mode intervals now work separately (e.g. BT
+  every 1h, airplane every 3h). Before, both ran together on the BT
+  interval, and each test's own duration was added to the wait.
+- Tests cut short by a stop show as "stopped" in the report and don't
+  count toward the pass rate.
+
+Same fixes as MA-automation (PRs #15, #17, #18).
+
 ## [v1.1.4] — 2026-08-25
 
 ### New
