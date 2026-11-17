@@ -6,8 +6,8 @@
 - macOS/Windows bundle smokes no longer run on every push and PR. On
   2026-11-12 they used up the Wellysis org's monthly free Actions minutes
   (macOS counts 10x Linux, Windows 2x). They now run on PRs that touch
-  packaging files (requirements.txt, scripts/, run/install scripts,
-  app_root.py), by hand, and nightly on weekdays at 03:00 KST, but only
+  packaging files (requirements.txt, config/, scripts/, run/install
+  scripts, app_root.py), by hand, and nightly on weekdays at 03:00 KST, but only
   when main changed since the last successful nightly run
   (`.github/scripts/nightly_gate.sh`). Nightly runs are company-repo only.
 - Main pushes no longer re-run the smokes the PR already ran, and a new
