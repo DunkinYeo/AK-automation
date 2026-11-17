@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### CI (2026-11-17, later)
+- The nightly macOS/Windows smoke now runs only when packaging files on
+  main changed (requirements.txt, config/, scripts/, app_root.py,
+  run/install scripts, workflows), not for every src/ or web/ change.
+  Those are covered by the Linux tests on each PR and by the release
+  smoke. The monthly $100 and 3,000 free minutes are the whole org's, and
+  a nightly run on every changed weekday could have used most of the free
+  minutes alone.
+
 ### CI (Actions budget, 2026-11-17)
 - macOS/Windows bundle smokes no longer run on every push and PR. On
   2026-11-12 they used up the Wellysis org's monthly free Actions minutes
