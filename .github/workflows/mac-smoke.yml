@@ -17,6 +17,7 @@ on:
     branches: [main]
     paths:
       - 'requirements.txt'
+      - 'config/**'
       - 'scripts/**'
       - 'src/app_root.py'
       - 'run.command'

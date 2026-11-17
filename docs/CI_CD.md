@@ -7,7 +7,7 @@ macOS는 Linux의 10배, Windows는 2배로 차감된다. 그래서 지금은 �
 | 워크플로 | 언제 도나 |
 |---|---|
 | `test.yml` (Linux pytest) | 코드가 바뀐 모든 PR, main push |
-| `mac-smoke.yml` / `windows-smoke.yml` (배포 번들 스모크) | 패키징 파일(requirements.txt, scripts/, run/install 스크립트, app_root.py)이 바뀐 PR, 평일 03:00 KST 야간(직전 성공 이후 main의 src/web/scripts 등이 바뀐 경우만, `.github/scripts/nightly_gate.sh`), 수동 실행 |
+| `mac-smoke.yml` / `windows-smoke.yml` (배포 번들 스모크) | 패키징 파일(requirements.txt, config/, scripts/, run/install 스크립트, app_root.py)이 바뀐 PR, 평일 03:00 KST 야간(직전 성공 이후 main의 src/web/scripts/config 등이 바뀐 경우만, `.github/scripts/nightly_gate.sh`), 수동 실행 |
 | `frozen-smoke.yml` | 수동만 (frozen 번들은 아직 배포 안 함; release를 frozen으로 바꾸기 전에 돌릴 것) |
 | `appium-drift-canary.yml` | 매주 월요일 (이 레포에서만, MA는 수동) |
 | `release.yml` | 태그 push |

@@ -31,9 +31,10 @@ fi
 files=$(gh api "repos/$REPO/compare/$last...$SHA" --jq '.files[].filename' 2>/dev/null) || {
   out true "could not compare $last...$SHA"; exit 0
 }
-# Same set as the PR paths filters, plus src/ and web/: a nightly run is
-# where a src-only change that broke the bundle gets caught.
-if echo "$files" | grep -qE '^(src|web|scripts)/|^requirements\.txt$|^(run|install|smoke|STOP)\.(command|bat)$|^\.github/(workflows|scripts)/'; then
+# Same set as the PR paths filters (config/ ships in the ZIP), plus src/
+# and web/: a nightly run is where a src-only change that broke the bundle
+# gets caught.
+if echo "$files" | grep -qE '^(src|web|scripts|config)/|^requirements\.txt$|^(run|install|smoke|STOP)\.(command|bat)$|^\.github/(workflows|scripts)/'; then
   out true "bundle-relevant files changed since $last"
 else
   out false "only docs/tests changed since $last"
