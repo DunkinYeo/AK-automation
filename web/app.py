@@ -113,7 +113,11 @@ def _pid_is_our_run(pid) -> bool:
         cmd = ["powershell", "-NoProfile", "-Command",
                f'(Get-CimInstance Win32_Process -Filter "ProcessId={pid}").CommandLine']
     else:
-        cmd = ["ps", "-p", str(pid), "-o", "command="]
+        # -ww: unlimited width. Linux (procps) ps truncates to 80 columns
+        # when stdout isn't a terminal, cutting off the ROOT/src/main.py
+        # path matched below (caught on ubuntu CI, 2026-11-17; same fix as
+        # MA-automation). BSD/macOS ps accepts the same flag.
+        cmd = ["ps", "-ww", "-p", str(pid), "-o", "command="]
     proc = None
     try:
         # Popen (not subprocess.run()) so any exception — including the
