@@ -5,39 +5,63 @@ name: Mac Smoke
 # — catches import/tzdata/scheduler/web-boot bugs without needing a real
 # Mac, Node/Appium install, or a device. Mirrors windows-smoke.yml.
 
+# CI budget (2026-11-17): macOS minutes cost 10x Linux and Windows 2x, and
+# these smokes used up the org's monthly free minutes on 2026-11-12. Unit
+# tests run on Linux (test.yml) for every PR; this bundle smoke runs only on
+# PRs that touch packaging files, on manual dispatch, and nightly on
+# weekdays when main changed (.github/scripts/nightly_gate.sh). Main pushes
+# no longer trigger it -- the PR already did.
+
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'web/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'requirements.txt'
-      - 'pytest.ini'
-      - 'Makefile'
-      - 'run.command'
-      - 'run.bat'
-      - '.github/workflows/mac-smoke.yml'
-      - '.github/workflows/windows-smoke.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'src/**'
-      - 'web/**'
-      - 'scripts/**'
-      - 'tests/**'
       - 'requirements.txt'
-      - 'pytest.ini'
-      - 'Makefile'
+      - 'scripts/**'
+      - 'src/app_root.py'
       - 'run.command'
       - 'run.bat'
+      - 'install.command'
+      - 'install.bat'
+      - 'smoke.bat'
       - '.github/workflows/mac-smoke.yml'
-      - '.github/workflows/windows-smoke.yml'
+      - '.github/scripts/nightly_gate.sh'
+  schedule:
+    - cron: '0 18 * * 0-4'  # 03:00 KST Mon-Fri
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  gate:
+    # Scheduled runs only on the company repo: the personal repo has no
+    # Actions minutes and would log a failed run every night.
+    if: github.event_name != 'schedule' || github.repository_owner == 'Wellysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/nightly_gate.sh
+
   mac-smoke:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: macos-latest
     timeout-minutes: 25
     steps:

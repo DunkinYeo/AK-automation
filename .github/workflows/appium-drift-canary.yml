@@ -19,6 +19,7 @@ on:
 
 jobs:
   canary-windows:
+    if: github.event_name != 'schedule' || github.repository_owner == 'Wellysis'
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -77,6 +78,7 @@ jobs:
           }
 
   canary-mac:
+    if: github.event_name != 'schedule' || github.repository_owner == 'Wellysis'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
