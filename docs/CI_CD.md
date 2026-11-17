@@ -1,5 +1,23 @@
 # CI/CD 현황과 방향 (2026-07-22)
 
+## 실행 정책 변경 (2026-11-17, 조직 Actions 예산)
+2026-11-12에 macOS/Windows 스모크 때문에 Wellysis 조직의 월 무료 Actions 시간이 다 소진됐다.
+macOS는 Linux의 10배, Windows는 2배로 차감된다. 그래서 지금은 아래처럼 돈다(MA-automation도 같은 정책).
+
+| 워크플로 | 언제 도나 |
+|---|---|
+| `test.yml` (Linux pytest) | 코드가 바뀐 모든 PR, main push |
+| `mac-smoke.yml` / `windows-smoke.yml` (배포 번들 스모크) | 패키징 파일(requirements.txt, scripts/, run/install 스크립트, app_root.py)이 바뀐 PR, 평일 03:00 KST 야간(직전 성공 이후 main의 src/web/scripts 등이 바뀐 경우만, `.github/scripts/nightly_gate.sh`), 수동 실행 |
+| `frozen-smoke.yml` | 수동만 (frozen 번들은 아직 배포 안 함; release를 frozen으로 바꾸기 전에 돌릴 것) |
+| `appium-drift-canary.yml` | 매주 월요일 (이 레포에서만, MA는 수동) |
+| `release.yml` | 태그 push |
+
+- 모든 PR/push 워크플로에 `concurrency`가 있어서, 같은 브랜치에 새 push가 오면 이전 실행은 취소된다.
+- main push로는 스모크가 돌지 않는다(PR에서 이미 돈 것과 중복).
+- 야간 실행은 회사 레포에서만 돈다(개인 레포는 Actions 시간이 없음). 실패하면 GitHub가 cron을 마지막으로 바꾼 사람에게 메일을 보낸다. 성공할 때까지 매일 밤 다시 돈다.
+- 필수 체크는 `test`(Linux)만 둔다.
+- 아래 본문은 2026-07-22 시점의 기록이다.
+
 ## 지금 있는 것 — `windows-smoke.yml` (진짜 CI)
 - main push 시(`src/`,`web/`,`scripts/`,`requirements.txt` 변경 한정) 자동 트리거
 - `windows-latest` 클라우드 VM에서 실제 배포용 zip을 빌드 → 압축 해제 → 번들 Python으로 `smoke_test.py` 실행

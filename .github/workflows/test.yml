@@ -1,0 +1,52 @@
+name: Test
+
+# Unit tests on Linux for every PR touching code (CI budget, 2026-11-17).
+# Before this, pytest only ran inside mac-smoke.yml / windows-smoke.yml on
+# macOS/Windows runners (10x / 2x Linux cost) on every push and PR. Those
+# bundle smokes now run only for packaging changes and nightly; this is the
+# per-PR check. Same as MA-automation's test.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'pytest.ini'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'pytest.ini'
+      - '.github/workflows/test.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv-test
+          .venv-test/bin/pip install --upgrade pip
+          .venv-test/bin/pip install -r requirements.txt
+
+      - name: Run tests
+        run: .venv-test/bin/pytest tests/ -v

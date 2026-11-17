@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### CI (Actions budget, 2026-11-17)
+- macOS/Windows bundle smokes no longer run on every push and PR. On
+  2026-11-12 they used up the Wellysis org's monthly free Actions minutes
+  (macOS counts 10x Linux, Windows 2x). They now run on PRs that touch
+  packaging files (requirements.txt, scripts/, run/install scripts,
+  app_root.py), by hand, and nightly on weekdays at 03:00 KST, but only
+  when main changed since the last successful nightly run
+  (`.github/scripts/nightly_gate.sh`). Nightly runs are company-repo only.
+- Main pushes no longer re-run the smokes the PR already ran, and a new
+  push to a branch cancels that branch's running CI (`concurrency`).
+- Unit tests now run on Linux for every PR (new `test.yml`). Before,
+  pytest only ran inside the macOS/Windows smokes.
+- `mac-smoke.yml` / `windows-smoke.yml` are the bundle smokes kept on
+  PRs/nightly, since release.yml ships the raw-source bundles.
+  `frozen-smoke.yml` is manual only until release switches to frozen.
+- The weekly Appium drift canary runs only on the company repo.
+
 ### Fixes (real-device run, 2026-11-12)
 - The dashboard no longer loses track of a running test. Loading the
   dashboard code where the process check (`ps`) couldn't run (e.g. a

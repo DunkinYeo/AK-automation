@@ -72,8 +72,8 @@ python src/main_ios.py --config config/accurkardia_ios.yaml   # iOS (Mac only)
 pytest -q
 ```
 
-Contributions go through a PR — `main` requires the Windows/Mac smoke CI
-(build + `pytest`) to pass before merging. See
+Contributions go through a PR — `main` requires the Linux unit-test CI
+(`pytest`) to pass before merging. See
 [Development & CI/CD](#development--cicd) below.
 
 ---
@@ -186,14 +186,17 @@ python scripts/build_dist.py            # Mac + Windows → ~/Desktop
 
 - **Unit tests** — `pytest -q` (config in `pytest.ini`; no device/Appium
   required, runs in seconds)
-- **CI** (`.github/workflows/`) — `windows-smoke.yml` / `mac-smoke.yml` build
-  the actual standalone ZIP, run the unit tests, then smoke-test the bundle
-  with its own embedded/venv Python. `release.yml` builds + publishes a
+- **CI** (`.github/workflows/`) — `test.yml` runs the unit tests on Linux for
+  every PR. `windows-smoke.yml` / `mac-smoke.yml` build the actual
+  standalone ZIP, run the unit tests, then smoke-test the bundle with its
+  own embedded/venv Python; to save macOS/Windows minutes they run only on
+  PRs that touch packaging files, nightly on weekdays when `main` changed,
+  or by hand (see [`docs/CI_CD.md`](docs/CI_CD.md)). `release.yml` builds + publishes a
   GitHub Release automatically on `git tag vX.Y.Z && git push --tags`
   (pulls release notes from `CHANGELOG.md`; fails if that version has no
   entry). Hardware regression (real Android/iOS devices) stays local —
   that can't run on a cloud CI runner.
-- **Branch protection** — `main` requires a PR with both smoke-CI checks
+- **Branch protection** — `main` requires a PR with the `test` check
   passing before merging (repo admin can still push directly in an
   emergency). Workflow: branch → push → `gh pr create` → CI runs
   automatically → `gh pr merge` once green.
@@ -222,7 +225,7 @@ AK-automation/
 ├── web/                          # Flask control panel (port 5003)
 ├── scripts/                      # dist builders, WDA build, env setup
 ├── tests/                        # pytest unit tests (see pytest.ini)
-├── .github/workflows/            # CI: windows-smoke / mac-smoke / release
+├── .github/workflows/            # CI: test / windows-smoke / mac-smoke / release
 ├── docs/
 │   ├── bug_reports/              # filed app bugs w/ evidence
 │   ├── testid_request_ios.txt    # RN testID request for the app team

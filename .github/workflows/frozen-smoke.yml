@@ -13,24 +13,9 @@ name: Frozen Smoke
 # default, which is gated on real device validation (Android + iOS).
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'web/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'requirements.txt'
-      - '.github/workflows/frozen-smoke.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'web/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'requirements.txt'
-      - '.github/workflows/frozen-smoke.yml'
+  # Manual only (CI budget, 2026-11-17): release.yml still ships the raw-source
+  # bundles (mac-smoke.yml / windows-smoke.yml). Run this by hand before
+  # switching release.yml to the frozen bundles, or when changing them.
   workflow_dispatch:
 
 jobs:
