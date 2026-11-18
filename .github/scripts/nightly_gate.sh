@@ -5,8 +5,8 @@
 # bundle smokes no longer run on every push. They run on PRs that touch
 # packaging files (paths filter in the workflow), on manual dispatch, and
 # nightly on weekdays -- but the nightly run only spends macOS/Windows
-# minutes when main changed in a packaging-relevant way since the last
-# successful nightly run. A failed nightly run keeps retrying each night
+# minutes when packaging files on main changed since the last successful
+# nightly run. A failed nightly run keeps retrying each night
 # until it passes, since "last success" stays behind.
 #
 # Env: EVENT, REPO, WORKFLOW, SHA, GH_TOKEN. Writes run=true|false to
@@ -31,11 +31,12 @@ fi
 files=$(gh api "repos/$REPO/compare/$last...$SHA" --jq '.files[].filename' 2>/dev/null) || {
   out true "could not compare $last...$SHA"; exit 0
 }
-# Same set as the PR paths filters (config/ ships in the ZIP), plus src/
-# and web/: a nightly run is where a src-only change that broke the bundle
-# gets caught.
-if echo "$files" | grep -qE '^(src|web|scripts|config)/|^requirements\.txt$|^(run|install|smoke|STOP)\.(command|bat)$|^\.github/(workflows|scripts)/'; then
-  out true "bundle-relevant files changed since $last"
+# Same set as the smokes' PR paths filters: packaging files only. src/ and
+# web/ changes are covered by the Linux unit tests on every PR and by the
+# release build's smoke; running macOS/Windows for them nightly could use
+# most of the org's 3,000 free minutes a month on its own (2026-11-17).
+if echo "$files" | grep -qE '^(scripts|config)/|^src/app_root\.py$|^requirements\.txt$|^(run|install|smoke|STOP)\.(command|bat)$|^\.github/(workflows|scripts)/'; then
+  out true "packaging files changed since $last"
 else
-  out false "only docs/tests changed since $last"
+  out false "no packaging files changed since $last"
 fi

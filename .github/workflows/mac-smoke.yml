@@ -9,7 +9,7 @@ name: Mac Smoke
 # these smokes used up the org's monthly free minutes on 2026-11-12. Unit
 # tests run on Linux (test.yml) for every PR; this bundle smoke runs only on
 # PRs that touch packaging files, on manual dispatch, and nightly on
-# weekdays when main changed (.github/scripts/nightly_gate.sh). Main pushes
+# weekdays when packaging files on main changed (.github/scripts/nightly_gate.sh). Main pushes
 # no longer trigger it -- the PR already did.
 
 on:
