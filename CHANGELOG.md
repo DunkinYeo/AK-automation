@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **Share PDF (ko + en)**: `share_report/` (same as AR-automation) builds the team results document in Korean and English (HTML + PDF via headless Chrome/Edge). Fixed text is bilingual in the report file; results carry `note` and `note_en`, and the English build stops on any leftover Hangul.
+- **Auto-filled from runs**: `auto_regression` / `auto_longrun` sections and `auto:*` tiles come from `output/<run>/events.jsonl`. `share_report/data/auto_recent.json` covers the last 7 days with nothing to type.
+- **Dashboard**: 📄 Share PDF button next to Report (`/api/share-report`, files served from `output/share/`).
+- `run_regression.py` now logs `regression_suite_result` per suite, so dashboard regression runs appear in the report.
+
 ### CI (2026-11-17, later)
 - The nightly macOS/Windows smoke now runs only when packaging files on
   main changed (requirements.txt, config/, scripts/, app_root.py,

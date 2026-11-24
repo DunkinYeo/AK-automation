@@ -1,0 +1,51 @@
+{
+ "file_name": {
+  "ko": "AK_테스트결과_자동",
+  "en": "AK_Test_Results_auto"
+ },
+ "since_days": 7,
+ "eyebrow": {
+  "ko": "AccurKardia · 회귀 · 장기런",
+  "en": "AccurKardia · Regression · Long run"
+ },
+ "title": {
+  "ko": "AK 테스트 결과 (최근 7일)",
+  "en": "AK Test Results (last 7 days)"
+ },
+ "snapshot_note": {
+  "ko": "자동화 run 기록(events.jsonl)에서 자동으로 만든 문서입니다.",
+  "en": "Generated from the automation run records (events.jsonl)."
+ },
+ "tiles": [
+  {
+   "n": "auto:regression"
+  },
+  {
+   "n": "auto:symptoms"
+  }
+ ],
+ "sections": [
+  {
+   "type": "auto_regression",
+   "title": {
+    "ko": "회귀 테스트",
+    "en": "Regression tests"
+   },
+   "subtitle": {
+    "ko": "suite별 가장 최근 결과",
+    "en": "latest result per suite"
+   }
+  },
+  {
+   "type": "auto_longrun",
+   "title": {
+    "ko": "장기런",
+    "en": "Long run"
+   },
+   "footnote": {
+    "ko": "장기런은 앱 화면으로 끊김을 감지하므로, 앱이 백그라운드이거나 30초보다 짧은 끊김은 기록하지 못합니다.",
+    "en": "The long run detects drops from the app screen, so it cannot record drops while the app is in the background or drops shorter than 30 s."
+   }
+  }
+ ]
+}

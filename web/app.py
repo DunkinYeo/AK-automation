@@ -2331,6 +2331,50 @@ def _build_report_html(events: list[dict], out_dir: str | None = None) -> str:
 </body></html>"""
 
 
+SHARE_DATA_DIR = ROOT / "share_report" / "data"
+SHARE_OUT_DIR = ROOT / "output" / "share"
+
+
+def _share_report_files() -> list[str]:
+    """Report data files the dashboard can build (results files excluded)."""
+    if not SHARE_DATA_DIR.is_dir():
+        return []
+    names = [p.name for p in SHARE_DATA_DIR.glob("*.json") if not p.stem.endswith("_results")]
+    # the auto report (always current) first, then newest dated reports
+    return sorted(names, key=lambda n: (not n.startswith("auto_"), [-ord(c) for c in n]))
+
+
+@app.route("/api/share-report/files")
+def api_share_report_files():
+    return jsonify({"files": _share_report_files()})
+
+
+@app.route("/api/share-report", methods=["POST"])
+def api_share_report():
+    """Build the team share report (ko + en, HTML + PDF) into output/share/."""
+    name = (request.get_json(silent=True) or {}).get("file") or (_share_report_files() or [""])[0]
+    if name not in _share_report_files():
+        return jsonify({"ok": False, "error": f"unknown report file: {name}"}), 400
+    try:
+        from share_report.build import build, KoreanLeft
+        made = build(SHARE_DATA_DIR / name, out_dir=str(SHARE_OUT_DIR), runs_dir=str(ROOT / "output"))
+    except KoreanLeft as e:
+        return jsonify({"ok": False, "error": f"English version stopped: {e}"}), 422
+    except Exception as e:
+        log.exception("share report failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True, "files": [p.name for p in made],
+                    "pdf": any(p.suffix == ".pdf" for p in made)})
+
+
+@app.route("/share/<path:name>")
+def serve_share_file(name):
+    full = (SHARE_OUT_DIR / name).resolve()
+    if full.parent != SHARE_OUT_DIR.resolve() or not full.is_file() or full.suffix not in (".pdf", ".html"):
+        return "Not found.", 404
+    return send_from_directory(str(SHARE_OUT_DIR), full.name, as_attachment=full.suffix == ".pdf")
+
+
 @app.route("/api/report")
 def api_report():
     with _lock:

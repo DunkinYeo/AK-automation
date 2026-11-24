@@ -77,3 +77,72 @@ def test_shipped_example_report_builds_in_both_languages():
     res = load_results(HERE / "data" / rep["results"])
     for lang in ("ko", "en"):
         assert "<h1>" in render(rep, res, lang, "2026-11-20 16:00")
+
+
+# ── Review 2026-11-20: a failed PDF never passes an older one off as new ──
+
+class _Res:
+    def __init__(self, code):
+        self.returncode = code
+
+
+def _printer(code, write=b"%PDF-1.7 new"):
+    def run(cmd, **kw):
+        out = next(a.split("=", 1)[1] for a in cmd if a.startswith("--print-to-pdf="))
+        if write is not None:
+            open(out, "wb").write(write)
+        return _Res(code)
+    return run
+
+
+@pytest.fixture
+def pdf_setup(tmp_path, monkeypatch):
+    import share_report.build as b
+    monkeypatch.setattr(b, "find_chrome", lambda: "/fake/chrome")
+    html = tmp_path / "r.html"
+    html.write_text("<html></html>")
+    pdf = tmp_path / "r.pdf"
+    pdf.write_bytes(b"%PDF-1.7 OLD")
+    return b, html, pdf
+
+
+def test_failed_renderer_doesnt_return_the_old_pdf(pdf_setup):
+    b, html, pdf = pdf_setup
+    assert b.to_pdf(html, pdf, run=_printer(1, write=None)) is False
+    assert not list(pdf.parent.glob(".*.tmp.pdf"))
+
+
+def test_nonzero_exit_with_a_file_is_still_a_failure(pdf_setup):
+    b, html, pdf = pdf_setup
+    assert b.to_pdf(html, pdf, run=_printer(1)) is False
+    assert pdf.read_bytes() == b"%PDF-1.7 OLD"
+
+
+def test_not_a_pdf_is_a_failure(pdf_setup):
+    b, html, pdf = pdf_setup
+    assert b.to_pdf(html, pdf, run=_printer(0, write=b"<html>error</html>")) is False
+
+
+def test_success_replaces_the_pdf(pdf_setup):
+    b, html, pdf = pdf_setup
+    assert b.to_pdf(html, pdf, run=_printer(0)) is True
+    assert pdf.read_bytes() == b"%PDF-1.7 new"
+    assert not list(pdf.parent.glob(".*.tmp.pdf"))
+
+
+def test_build_drops_a_same_minute_old_pdf_when_printing_fails(tmp_path, monkeypatch):
+    import datetime as _dt
+    import share_report.build as b
+    report = b.HERE / "data" / "example_ak.json"
+    monkeypatch.setattr(b, "to_pdf", lambda h, p: False)
+
+    class _Now(_dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 20, 17, 30)
+    monkeypatch.setattr(b.dt, "datetime", _Now)
+    made = b.build(report, langs=("ko",), out_dir=tmp_path, pdf=False)
+    old = made[0].with_suffix(".pdf")
+    old.write_bytes(b"%PDF-1.7 OLD")
+    made = b.build(report, langs=("ko",), out_dir=tmp_path, pdf=True)
+    assert not old.exists() and all(m.suffix == ".html" for m in made)

@@ -255,19 +255,42 @@ def find_chrome() -> str | None:
     return None
 
 
-def to_pdf(html_path: Path, pdf_path: Path) -> bool:
+def to_pdf(html_path: Path, pdf_path: Path, run=subprocess.run) -> bool:
+    """Print to a temporary file and move it into place only when Chrome
+    exited cleanly with a new PDF: a failed run must never leave an older PDF
+    at `pdf_path` passing as this HTML's (review 2026-11-20)."""
     chrome = find_chrome()
     if not chrome:
         return False
-    subprocess.run([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
-                    "--virtual-time-budget=8000", f"--print-to-pdf={pdf_path}", html_path.resolve().as_uri()],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120, check=False)
-    return pdf_path.exists() and pdf_path.stat().st_size > 0
+    tmp = pdf_path.with_name(f".{pdf_path.stem}.{os.getpid()}.tmp.pdf")
+    tmp.unlink(missing_ok=True)
+    try:
+        res = run([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
+                   "--virtual-time-budget=8000", f"--print-to-pdf={tmp}", html_path.resolve().as_uri()],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120, check=False)
+        ok = res.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0 and tmp.read_bytes()[:5] == b"%PDF-"
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    if not ok:
+        tmp.unlink(missing_ok=True)
+        return False
+    os.replace(tmp, pdf_path)
+    return True
 
 
-def build(report_path: str | Path, results_path=None, langs=("ko", "en"), out_dir="output/share", pdf=True) -> list[Path]:
+AUTO = ("auto_regression", "auto_longrun")
+
+
+def build(report_path: str | Path, results_path=None, langs=("ko", "en"), out_dir="output/share", pdf=True,
+          runs_dir="output", since="", until="") -> list[Path]:
     report_path = Path(report_path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    if any(s.get("type") in AUTO for s in report.get("sections", [])) or \
+            any(str(t.get("n", "")).startswith("auto:") and t.get("n") != "auto:ledger" for t in report.get("tiles", [])):
+        from share_report.collect import expand
+        if not since and report.get("since_days"):
+            since = (dt.date.today() - dt.timedelta(days=int(report["since_days"]))).isoformat()
+        report = expand(report, runs_dir, since or report.get("since", ""), until or report.get("until", ""))
     rp = results_path or report.get("results")
     if rp and not Path(rp).is_absolute() and not Path(rp).exists():
         rp = report_path.parent / rp
@@ -289,7 +312,9 @@ def build(report_path: str | Path, results_path=None, langs=("ko", "en"), out_di
             if to_pdf(hp, pp):
                 made.append(pp)
             else:
-                print("PDF skipped: Chrome/Edge not found (set CHROME_PATH). Open the HTML and print to PDF.", file=sys.stderr)
+                pp.unlink(missing_ok=True)       # an older PDF of the same minute isn't this HTML's
+                print("PDF not made: Chrome/Edge not found (set CHROME_PATH) or printing failed. "
+                      "Open the HTML and print to PDF.", file=sys.stderr)
     return made
 
 
@@ -300,10 +325,13 @@ def main(argv=None) -> int:
     ap.add_argument("--lang", choices=["ko", "en", "both"], default="both")
     ap.add_argument("--out", default="output/share")
     ap.add_argument("--no-pdf", action="store_true")
+    ap.add_argument("--runs", default="output", help="folder with <run>/events.jsonl, for auto_* sections")
+    ap.add_argument("--since", default="", help="first day of runs to include, YYYY-MM-DD")
+    ap.add_argument("--until", default="", help="last day of runs to include, YYYY-MM-DD")
     a = ap.parse_args(argv)
     langs = ("ko", "en") if a.lang == "both" else (a.lang,)
     try:
-        for p in build(a.report, a.results, langs, a.out, pdf=not a.no_pdf):
+        for p in build(a.report, a.results, langs, a.out, pdf=not a.no_pdf, runs_dir=a.runs, since=a.since, until=a.until):
             print(p)
     except KoreanLeft as e:
         print("English version stopped:", e, file=sys.stderr)

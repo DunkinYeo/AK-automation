@@ -52,6 +52,25 @@ SUITES = {
 }
 
 
+def _log_suite_result(reporter, name: str, batch) -> None:
+    """Same regression_suite_result event main.py writes, so the share report
+    (share_report/collect.py) also picks up dashboard-only regression runs."""
+    try:
+        tc = lambda r: r.name.split("|")[0].strip()
+        skipped = [r for r in batch if r.skipped]
+        unsure = [r for r in batch if getattr(r, "inconclusive", False)]
+        active = [r for r in batch if not r.skipped and not getattr(r, "inconclusive", False)]
+        reporter.log_event("regression_suite_result", {
+            "suite": name, "passed": sum(1 for r in active if r.passed), "total": len(active),
+            "failures": [f"{tc(r)}: {r.message}" for r in active if not r.passed],
+            "skipped_tests": [f"{tc(r)}: {r.message}" for r in skipped],
+            "inconclusive": [f"{tc(r)}: {r.message}" for r in unsure],
+            "source": "run_regression",
+        })
+    except Exception as e:                      # reporting must never break the run
+        logging.debug("suite result event failed: %s", e)
+
+
 def main():
     parser = argparse.ArgumentParser(description="S-Patch Accurkardia Regression Test Runner")
     parser.add_argument("--config", default="config/accurkardia.yaml")
@@ -114,7 +133,9 @@ def main():
             except Exception as _e:
                 logging.debug("[suite:%s] Pre-suite diagnostic failed: %s", suite_name, _e)
 
+            before = len(runner.results)
             runner.run_all(tests)
+            _log_suite_result(reporter, suite_name, runner.results[before:])
 
         total = len(runner.results)
         passed = sum(1 for r in runner.results if r.passed)

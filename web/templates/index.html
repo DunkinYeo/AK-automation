@@ -512,7 +512,19 @@
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
         Progress
-        <button onclick="downloadReport()" style="padding:4px 10px;font-size:.75rem;background:white;color:#1d4ed8;border:1.5px solid #1d4ed8;border-radius:6px;cursor:pointer;font-weight:600">⬇ Report</button>
+        <span style="display:flex;gap:6px;align-items:center">
+          <button onclick="downloadReport()" style="padding:4px 10px;font-size:.75rem;background:white;color:#1d4ed8;border:1.5px solid #1d4ed8;border-radius:6px;cursor:pointer;font-weight:600">⬇ Report</button>
+          <button id="share-btn" onclick="toggleSharePanel()" title="Team share report: Korean + English PDF" style="padding:4px 10px;font-size:.75rem;background:white;color:#be185d;border:1.5px solid #be185d;border-radius:6px;cursor:pointer;font-weight:600">📄 Share PDF</button>
+        </span>
+      </div>
+      <div id="share-panel" style="display:none;margin:0 0 10px;padding:10px;border:1px solid #fbcfe8;border-radius:8px;background:#fdf2f8;font-size:.8rem">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <label for="share-file" style="font-weight:600">Report</label>
+          <select id="share-file" style="flex:1;min-width:180px;padding:4px 6px;font-size:.8rem"></select>
+          <button id="share-make" class="btn-secondary" style="font-size:.8rem;padding:4px 10px" onclick="makeSharePdf()">Make ko + en PDF</button>
+        </div>
+        <div id="share-msg" style="margin-top:6px;color:#6b7280">auto_recent = last 7 days of runs, filled in automatically. Dated files hold hand-written results.</div>
+        <div id="share-links" style="margin-top:4px;display:flex;gap:10px;flex-wrap:wrap"></div>
       </div>
 
       <div id="progress-section" style="display:none">
@@ -949,6 +961,38 @@ function downloadReport() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+// ── Team share report (ko + en PDF) ─────────────────────────────────────
+async function toggleSharePanel() {
+  const p = document.getElementById('share-panel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  if (p.style.display === 'none') return;
+  const sel = document.getElementById('share-file');
+  try {
+    const r = await fetch('/api/share-report/files');
+    const files = (await r.json()).files || [];
+    sel.innerHTML = files.map(f => `<option value="${f}">${f}</option>`).join('');
+    if (!files.length) document.getElementById('share-msg').textContent = 'No report files in share_report/data/.';
+  } catch (e) { document.getElementById('share-msg').textContent = 'Could not list report files.'; }
+}
+
+async function makeSharePdf() {
+  const btn = document.getElementById('share-make'), msg = document.getElementById('share-msg');
+  const links = document.getElementById('share-links');
+  btn.disabled = true; links.innerHTML = ''; msg.style.color = '#6b7280';
+  msg.textContent = 'Building Korean and English versions…';
+  try {
+    const r = await fetch('/api/share-report', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({file: document.getElementById('share-file').value})});
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'failed');
+    msg.textContent = d.pdf ? 'Done. Saved in output/share/.' : 'HTML saved (no Chrome/Edge for PDF): open it and print to PDF.';
+    const show = d.files.filter(f => d.pdf ? f.endsWith('.pdf') : f.endsWith('.html'));
+    links.innerHTML = show.map(f => `<a href="/share/${encodeURIComponent(f)}" target="_blank" rel="noopener">${f}</a>`).join('');
+  } catch (e) {
+    msg.style.color = '#b91c1c'; msg.textContent = 'Could not build: ' + e.message;
+  } finally { btn.disabled = false; }
 }
 
 // ── State ────────────────────────────────────────────────────────────────
