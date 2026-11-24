@@ -1060,7 +1060,10 @@ async function init() {
     updateStats(s.events);
     processConnEvents(s.events);
   }
-  if (s.running) {
+  if (s.stopping) {
+    // Opened (or reloaded) while a Stop is in progress, e.g. from another tab
+    setUIRunning(true); setUIStopping(); startPolling();
+  } else if (s.running) {
     syncFormToRunningSession(s.events);
     setUIRunning(true); startPolling();
   } else {
@@ -1405,10 +1408,40 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   }
 });
 
+// Stop → OK shows "Stopping…" at once and disables Stop: the run's cleanup
+// (app-log capture, device settings restore) can take a minute or two, and
+// a page that still read "Running" with a live Stop button got clicked
+// again (2026-11-24). The server ignores a second Stop either way.
+let _stopRequested = false;
+
+function setUIStopping() {
+  const btn = document.getElementById('stop-btn');
+  btn.disabled = true; btn.innerHTML = 'Stopping…';
+  document.getElementById('start-btn').disabled = true;
+  const chip = document.getElementById('run-chip');
+  chip.className = 'chip chip-warn'; chip.textContent = 'Stopping…';
+}
+
+function resetStopBtn() {
+  const btn = document.getElementById('stop-btn');
+  btn.disabled = false; btn.innerHTML = '&#9632; Stop';
+}
+
 async function stopTest() {
+  if (_stopRequested || document.getElementById('stop-btn').disabled) return;
   if (!confirm('Stop the test?')) return;
-  await fetch('/api/stop', { method: 'POST' });
-  stopPolling(); setUIRunning(false);
+  _stopRequested = true;
+  setUIStopping();
+  let r = null;
+  try { r = await fetch('/api/stop', { method: 'POST' }).then(x => x.json()); } catch {}
+  _stopRequested = false;
+  if (r && r.already_stopping) {
+    // Another tab's Stop is doing the teardown: keep showing Stopping…
+    // and let polling flip to Stopped when it's done.
+    if (!pollTimer) startPolling();
+    return;
+  }
+  stopPolling(); setUIRunning(false); resetStopBtn();
   const chip = document.getElementById('run-chip');
   chip.className = 'chip chip-warn'; chip.textContent = 'Stopped';
 }
@@ -1544,9 +1577,14 @@ async function poll() {
   updateStats(s.events);
   processConnEvents(s.events);
   if (s.appium !== undefined) updateAppiumUI(s.appium);
-  if (s.running) {
+  if (s.stopping) {
+    setUIStopping();          // keep polling until the cleanup is done
+  } else if (s.running) {
     syncFormToRunningSession(s.events);
+  } else if (_stopRequested) {
+    // this tab's own Stop request is still open; stopTest() finishes the UI
   } else if (pollTimer) {
+    resetStopBtn();
     stopPolling(); setUIRunning(false); showFinished(s.exit_code ?? -1);
     _formSyncedToRun = false;
   }

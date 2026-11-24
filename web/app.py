@@ -1124,7 +1124,11 @@ def api_status():
         if terminal is not None:
             running = False
         # If test process isn't tracked but events exist and look active, treat as running
-        if not running and not proc_confirmed_dead and events and (proc or start_ts):
+        # Not while stopping: the run has no terminal event yet during its
+        # cleanup, and this used to flip a Stop in progress back to
+        # running:true -- the dashboard kept showing Running with a live
+        # Stop button, so testers clicked Stop again (2026-11-24).
+        if not running and not stopping and not proc_confirmed_dead and events and (proc or start_ts):
             if terminal is None:
                 running = True
         elif proc_confirmed_dead and terminal is None and out_dir:
@@ -1152,6 +1156,10 @@ def api_status():
 
         return jsonify({
             "running":   running,
+            # Separate from running: the run is still cleaning up after a Stop
+            # (app-log capture, device settings restore). The page shows
+            # "Stopping…" with Stop disabled until this clears.
+            "stopping":  bool(stopping),
             "exit_code": exit_code,
             "appium":    appium_ok(),
             "events":    events,
@@ -1335,6 +1343,11 @@ def api_stop():
     # _state["stopping"] lets /api/status report "not running" for
     # display immediately instead of only once teardown finishes.
     with _lock:
+        if _state.get("stopping"):
+            # Double click or another tab: the first request is already
+            # stopping the run. A second SIGTERM used to land inside its
+            # cleanup (2026-11-24).
+            return jsonify({"ok": True, "already_stopping": True})
         proc = _state["proc"]
         pid = _state.get("pid")
         use_proc = bool(proc and proc.poll() is None)
