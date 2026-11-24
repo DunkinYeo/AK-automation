@@ -1,0 +1,832 @@
+{
+ "groups": [
+  {
+   "id": 1,
+   "name": {
+    "ko": "패치와 휴대폰 사이의 연결이 끊기는 경우",
+    "en": "Link between patch and phone drops"
+   }
+  },
+  {
+   "id": 2,
+   "name": {
+    "ko": "휴대폰·앱 상태가 바뀌는 경우",
+    "en": "Phone or app state changes"
+   }
+  },
+  {
+   "id": 3,
+   "name": {
+    "ko": "두 가지 장애가 겹치거나 복구 순서가 바뀌는 경우",
+    "en": "Two faults at once, or recovery in a different order"
+   }
+  },
+  {
+   "id": 4,
+   "name": {
+    "ko": "데이터 처리 도중 끊기는 경우",
+    "en": "Drop while data is being processed"
+   }
+  },
+  {
+   "id": 5,
+   "name": {
+    "ko": "검사 종료·패킷 초기화 경계",
+    "en": "Study end and packet-reset boundaries"
+   }
+  },
+  {
+   "id": 6,
+   "name": {
+    "ko": "다른 기기·반복·장시간 조건",
+    "en": "Other devices, repetition and long runs"
+   }
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "R01",
+   "group": 1,
+   "star": true,
+   "auto": true,
+   "needs_bt": false,
+   "title": "Patch out of range and back",
+   "how": {
+    "ko": "앱을 메인 화면에 두고 패치만 멀리 이동. 단절 확인 후 원위치",
+    "en": "Keep the app on the main screen and move only the patch away. After the drop is confirmed, bring it back"
+   },
+   "check": {
+    "ko": "아무 조작 없이 같은 SN의 새 ECG가 들어오는지. 이후 시험의 기준값",
+    "en": "New ECG from the same SN arrives with no user action. Baseline for the other tests"
+   }
+  },
+  {
+   "id": "R02",
+   "group": 1,
+   "star": false,
+   "auto": true,
+   "needs_bt": false,
+   "title": "Patch out of range for 5 minutes",
+   "how": {
+    "ko": "패치를 5분간 범위 밖에 두고 복귀",
+    "en": "Keep the patch out of range for 5 minutes, then bring it back"
+   },
+   "check": {
+    "ko": "실시간 ECG 복구와 5분 저장분 회수가 각각 완료되는지",
+    "en": "Live ECG recovery and the 5-minute stored-data backfill each complete"
+   }
+  },
+  {
+   "id": "R03",
+   "group": 1,
+   "star": true,
+   "auto": true,
+   "needs_bt": false,
+   "title": "Patch out of range for 30 minutes",
+   "how": {
+    "ko": "패치를 30분간 범위 밖에 두고 복귀",
+    "en": "Keep the patch out of range for 30 minutes, then bring it back"
+   },
+   "check": {
+    "ko": "앱이 재시도를 포기하는지, 오래된 저장분까지 회수하는지",
+    "en": "Whether the app gives up retrying; whether old stored data is backfilled too"
+   }
+  },
+  {
+   "id": "R04",
+   "group": 1,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "In and out of range 5 times, then settle",
+   "how": {
+    "ko": "통신 경계에서 가까이·멀리 이동해 연결과 단절을 5회 반복한 뒤 가까이 고정",
+    "en": "At the edge of range, move the patch near and far to connect and drop 5 times, then leave it near"
+   },
+   "check": {
+    "ko": "마지막에 안정되는지. 중복 연결·중복 ECG·팝업 누적 여부",
+    "en": "Settles at the end. No duplicate connections, duplicate ECG or stacked pop-ups"
+   }
+  },
+  {
+   "id": "R05",
+   "group": 1,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Brief return, out again, then back",
+   "how": {
+    "ko": "한 번 끊은 뒤 패치가 잠깐만 범위 안으로 들어왔다가 다시 나가고, 이후 완전히 복귀",
+    "en": "After one drop, bring the patch briefly into range, take it out again, then bring it back for good"
+   },
+   "check": {
+    "ko": "첫 번째 미완료 연결 시도가 두 번째 연결을 방해하는지",
+    "en": "Whether the first unfinished connection attempt blocks the second"
+   }
+  },
+  {
+   "id": "R06",
+   "group": 1,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Back before the app shows the drop",
+   "how": {
+    "ko": "앱의 단절 안내가 뜨기 전에 패치를 다시 가까이 이동",
+    "en": "Bring the patch back before the app shows the disconnect notice"
+   },
+   "check": {
+    "ko": "실제로는 복구됐는데 늦게 도착한 단절 이벤트가 화면을 다시 끊김으로 바꾸는지",
+    "en": "Whether a late disconnect event flips the screen back to disconnected after recovery"
+   }
+  },
+  {
+   "id": "R07",
+   "group": 1,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Patch power off and on",
+   "how": {
+    "ko": "휴대폰은 그대로 두고 시험용 패치만 정상 절차로 OFF → ON",
+    "en": "Leave the phone as is and turn only the test patch OFF and ON in the normal way"
+   },
+   "check": {
+    "ko": "재부팅한 동일 패치에 붙는지. 꺼지기 전 마지막 데이터와 재부팅 후 첫 데이터 경계",
+    "en": "Reconnects to the same rebooted patch. Boundary between the last data before and the first after"
+   }
+  },
+  {
+   "id": "R08",
+   "group": 1,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Patch on after the app kept retrying",
+   "how": {
+    "ko": "패치를 끈 채 앱이 한동안 재시도하게 한 후 패치 ON",
+    "en": "Keep the patch off while the app retries for a while, then turn the patch ON"
+   },
+   "check": {
+    "ko": "초기 몇 차례 탐색 실패 후에도 앱 재실행 없이 다시 발견하는지",
+    "en": "Finds the patch again after several failed scans without restarting the app"
+   }
+  },
+  {
+   "id": "R09",
+   "group": 2,
+   "star": false,
+   "auto": true,
+   "needs_bt": true,
+   "title": "Phone Bluetooth off and on, AR in front",
+   "how": {
+    "ko": "메인 화면에서 휴대폰 BT OFF → ON",
+    "en": "Turn phone Bluetooth OFF and ON on the main screen"
+   },
+   "check": {
+    "ko": "기존 자동화 결과에 첫 ECG 시각·저장분 회수 결과를 추가",
+    "en": "Add first-ECG time and backfill result to the existing automated result"
+   }
+  },
+  {
+   "id": "R09B",
+   "group": 2,
+   "star": false,
+   "auto": true,
+   "needs_bt": true,
+   "title": "Phone Bluetooth back while AR is in the background",
+   "how": {
+    "ko": "휴대폰 BT OFF → 앱 백그라운드 → BT ON. 관찰 시간 동안 앱을 열지 않음 (R09 변형, 기존 RC-03)",
+    "en": "Phone BT OFF, app to background, BT ON. Do not open the app during the observation (R09 variant, formerly RC-03)"
+   },
+   "check": {
+    "ko": "앱을 열기 전에 재연결되는지. 앱이 먼저 앞으로 나오면 그 이후 복구는 따로 기록",
+    "en": "Reconnects before the app is opened. Recovery after the app comes to the front is recorded separately"
+   }
+  },
+  {
+   "id": "R10",
+   "group": 2,
+   "star": false,
+   "auto": true,
+   "needs_bt": true,
+   "title": "App reopened while Bluetooth is off, then Bluetooth on",
+   "how": {
+    "ko": "BT가 꺼져 있는 동안 앱을 백그라운드로 보냈다가 다시 열고 BT ON",
+    "en": "While BT is off, send the app to the background, reopen it, then turn BT ON"
+   },
+   "check": {
+    "ko": "102·950 등 안내가 떠도 실제 복구 뒤 화면이나 팝업이 남는지",
+    "en": "Whether notices such as 102 or 950 stay on screen after the real recovery"
+   }
+  },
+  {
+   "id": "R11",
+   "group": 2,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Patch away and back while the screen is locked",
+   "how": {
+    "ko": "화면을 잠근 뒤 패치를 범위 밖으로 이동했다가 복귀. 잠금 상태를 유지",
+    "en": "Lock the screen, move the patch out of range and back. Keep the screen locked"
+   },
+   "check": {
+    "ko": "화면을 깨우기 전부터 수신했는지. 잠금 해제가 복구를 유발했는지 로그로 구분",
+    "en": "Data arrives before the screen wakes. Logs show whether unlocking triggered the recovery"
+   }
+  },
+  {
+   "id": "R12",
+   "group": 2,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop and return while another app is in use",
+   "how": {
+    "ko": "다른 앱을 사용하는 동안 패치 단절·복귀. 5분 뒤 AR 열기",
+    "en": "Drop and return the patch while another app is in use. Open AR 5 minutes later"
+   },
+   "check": {
+    "ko": "백그라운드 복구 시각과 AR을 다시 연 시각 비교",
+    "en": "Compare the background recovery time with the time AR was reopened"
+   }
+  },
+  {
+   "id": "R13",
+   "group": 2,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Screen off with the disconnect notice up",
+   "how": {
+    "ko": "단절 안내가 뜬 상태에서 화면 OFF. 패치 복귀 후 잠금 해제",
+    "en": "Turn the screen OFF while the disconnect notice is up. Unlock after the patch returns"
+   },
+   "check": {
+    "ko": "오래된 안내가 남아 재연결을 막는지",
+    "en": "Whether a stale notice stays and blocks reconnection"
+   }
+  },
+  {
+   "id": "R14",
+   "group": 2,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "App removed from Recents and reopened",
+   "how": {
+    "ko": "앱을 최근 앱 목록에서 제거한 뒤 다시 실행",
+    "en": "Remove the app from Recents, then launch it again"
+   },
+   "check": {
+    "ko": "기존 검사·패치 정보 복원 여부. 강제 종료와 별도 결과로 기록",
+    "en": "Study and patch info restored. Recorded separately from force stop"
+   }
+  },
+  {
+   "id": "R15",
+   "group": 2,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "App process killed by the OS",
+   "how": {
+    "ko": "OS가 앱 프로세스를 종료한 조건에서 앱을 다시 열기",
+    "en": "Reopen the app after the OS has killed its process"
+   },
+   "check": {
+    "ko": "실제 프로세스 종료 확인 후, 기존 검사 ID로 재연결하는지",
+    "en": "After confirming the process really died, reconnects with the existing study ID"
+   }
+  },
+  {
+   "id": "R16",
+   "group": 2,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "App force-stopped in Settings",
+   "how": {
+    "ko": "설정에서 앱 강제 종료 후 사용자가 직접 다시 실행",
+    "en": "Force stop the app in Settings, then the user launches it again"
+   },
+   "check": {
+    "ko": "첫 실행 시 패치를 다시 등록하거나 새 검사를 시작해야 하는지",
+    "en": "Whether the first launch asks to register the patch again or start a new study"
+   }
+  },
+  {
+   "id": "R17",
+   "group": 2,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Phone restarted, patch keeps recording",
+   "how": {
+    "ko": "패치는 계속 측정하게 두고 휴대폰만 재부팅. 잠금 해제 전·후·앱 실행 후를 구분",
+    "en": "Let the patch keep recording and restart only the phone. Separate before unlock, after unlock and after app launch"
+   },
+   "check": {
+    "ko": "정확히 어느 단계에서 복구되는지, 휴대폰이 꺼진 동안의 데이터 회수 여부",
+    "en": "Exactly which stage recovers; whether data from while the phone was off is backfilled"
+   }
+  },
+  {
+   "id": "R18",
+   "group": 2,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop and return in battery saver, screen locked",
+   "how": {
+    "ko": "절전 모드에서 화면을 잠그고 단절·복귀",
+    "en": "In battery saver, lock the screen, then drop and return"
+   },
+   "check": {
+    "ko": "일반 모드보다 재탐색이 지연되는지, 앱을 열어야 수신이 시작되는지",
+    "en": "Whether rescanning is slower than normal mode; whether the app must be opened to receive"
+   }
+  },
+  {
+   "id": "R19",
+   "group": 3,
+   "star": true,
+   "auto": false,
+   "needs_bt": true,
+   "title": "BT off, patch off, patch on first, then BT on",
+   "how": {
+    "ko": "휴대폰 BT OFF → 패치 OFF → 패치 ON 먼저 → 휴대폰 BT ON",
+    "en": "Phone BT OFF, patch OFF, patch ON first, then phone BT ON"
+   },
+   "check": {
+    "ko": "패치가 이미 켜져 있는 상태에서 휴대폰이 다시 찾아가는지",
+    "en": "Phone finds the patch again when the patch is already on"
+   }
+  },
+  {
+   "id": "R20",
+   "group": 3,
+   "star": true,
+   "auto": false,
+   "needs_bt": true,
+   "title": "BT off, patch off, BT on first, patch on 1 min later",
+   "how": {
+    "ko": "같은 조건에서 휴대폰 BT ON 먼저 → 1분 뒤 패치 ON",
+    "en": "Same setup, but phone BT ON first, patch ON 1 minute later"
+   },
+   "check": {
+    "ko": "패치가 없는 동안 시작한 탐색이 이후에도 유효한지. R19와 비교",
+    "en": "Whether a scan started while the patch was absent stays valid. Compare with R19"
+   }
+  },
+  {
+   "id": "R21",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": true,
+   "title": "Airplane mode on and off",
+   "how": {
+    "ko": "비행기 모드로 실제 BT 단절 확인 → 비행기 모드 해제",
+    "en": "Confirm a real BT drop with airplane mode, then turn airplane mode off"
+   },
+   "check": {
+    "ko": "OS가 BT까지 복원한 경우와 BT가 계속 꺼져 있는 경우를 구분",
+    "en": "Separate the case where the OS restores BT from the case where BT stays off"
+   }
+  },
+  {
+   "id": "R22",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Internet only cut, Bluetooth kept",
+   "how": {
+    "ko": "인터넷만 끊고 BT는 유지",
+    "en": "Cut only the internet, keep BT"
+   },
+   "check": {
+    "ko": "ECG 수신이 계속되는지. 서버 업로드 지연을 패치 단절로 표시하는지",
+    "en": "ECG keeps arriving. Whether a server upload delay is shown as a patch disconnect"
+   }
+  },
+  {
+   "id": "R23",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": true,
+   "title": "BT and internet off, BT back first",
+   "how": {
+    "ko": "BT와 인터넷을 모두 끈 뒤 BT만 먼저 복구",
+    "en": "Turn off both BT and internet, restore BT first"
+   },
+   "check": {
+    "ko": "인터넷 없는 동안의 BLE 수신·저장과, 인터넷 복구 뒤 업로드를 각각 확인",
+    "en": "BLE receive and local storage without internet, and upload after internet returns"
+   }
+  },
+  {
+   "id": "R24",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": true,
+   "title": "BT and internet off, internet back first",
+   "how": {
+    "ko": "같은 조건에서 인터넷만 먼저 복구",
+    "en": "Same setup, restore internet first"
+   },
+   "check": {
+    "ko": "서버가 온라인이 됐다는 이유로 패치까지 연결됐다고 표시하는지",
+    "en": "Whether the app shows the patch as connected just because the server is online"
+   }
+  },
+  {
+   "id": "R25",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": true,
+   "title": "BT off and on again during a reconnection",
+   "how": {
+    "ko": "재연결 시도 중 BT를 다시 OFF → ON",
+    "en": "Turn BT OFF and ON again during a reconnection attempt"
+   },
+   "check": {
+    "ko": "이전 시도의 늦은 실패가 새 연결을 닫는지",
+    "en": "Whether a late failure from the earlier attempt closes the new connection"
+   }
+  },
+  {
+   "id": "R26",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Nearby-devices permission revoked and granted",
+   "how": {
+    "ko": "Android에서 검사 중 주변 기기 권한을 해제했다가 다시 허용",
+    "en": "During a study, revoke the Nearby devices permission on Android, then grant it again"
+   },
+   "check": {
+    "ko": "권한 안내에서 빠져나오는지. 앱 재실행 필요 여부와 실제 수신 시각",
+    "en": "Leaves the permission notice. Whether the app must be relaunched, and when data really resumes"
+   }
+  },
+  {
+   "id": "R27",
+   "group": 3,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "New license-SDK build against the current build",
+   "how": {
+    "ko": "기존 방식으로 연결한 상태와 동일 조건에서 신규 라이선스 SDK 적용 빌드를 비교",
+    "en": "Compare the new license-SDK build with the current build under the same conditions"
+   },
+   "check": {
+    "ko": "신규 빌드는 재연결 때 인증을 다시 하는지, 서버 장애 시 정책대로 처리하는지. 빌드가 준비됐을 때 실행",
+    "en": "Whether the new build re-authenticates on reconnect and follows policy on server failure. Run when the build is ready"
+   }
+  },
+  {
+   "id": "R28",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop right after the study start request",
+   "how": {
+    "ko": "검사 시작 요청 직후, 앱에 시작 완료가 표시되기 전에 연결 끊기",
+    "en": "Drop the link right after the study start request, before the app shows the start as complete"
+   },
+   "check": {
+    "ko": "복귀 후 패치·앱의 검사 상태가 같은지. 시작 요청 중복 여부",
+    "en": "Patch and app study states match after return. No duplicate start requests"
+   }
+  },
+  {
+   "id": "R29",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": true,
+   "title": "Drop again right after the recovery shows",
+   "how": {
+    "ko": "연결 복구 표시 직후, 첫 ECG가 확인되기 전에 다시 끊기",
+    "en": "Drop again right after the recovery shows, before the first ECG arrives"
+   },
+   "check": {
+    "ko": "다음 복구에서 ECG 구독이 정상 등록되는지",
+    "en": "ECG subscription registers normally on the next recovery"
+   }
+  },
+  {
+   "id": "R30",
+   "group": 4,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop again while stored data is being read back",
+   "how": {
+    "ko": "패치가 계속 기록한 상태로 10분 단절 → 복귀 → 저장분 회수 중 다시 단절 → 재복귀",
+    "en": "Patch keeps recording; drop for 10 min, return, drop again during the backfill, return again"
+   },
+   "check": {
+    "ko": "중간까지 받은 데이터의 중복, 이어받기 경계의 누락, 조기 완료 표시 여부",
+    "en": "Duplicates in partly received data, gaps at the resume boundary, early 'complete' display"
+   }
+  },
+  {
+   "id": "R31",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop when the read-back is nearly done",
+   "how": {
+    "ko": "위 조건에서 저장분 회수가 거의 끝났을 때 단절",
+    "en": "Same setup, drop when the backfill is nearly done"
+   },
+   "check": {
+    "ko": "마지막 구간까지 받은 뒤에만 회수 완료로 처리하는지",
+    "en": "Backfill is marked complete only after the last segment is received"
+   }
+  },
+  {
+   "id": "R32",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop while live ECG and read-back run together",
+   "how": {
+    "ko": "실시간 ECG와 과거 저장분 회수가 함께 진행될 때 단절·복귀",
+    "en": "Drop and return while live ECG and backfill run together"
+   },
+   "check": {
+    "ko": "과거 데이터와 새 실시간 데이터가 겹치는 경계에서 누락·중복 여부",
+    "en": "Gaps or duplicates where old data and new live data overlap"
+   }
+  },
+  {
+   "id": "R33",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop while writing a diary entry",
+   "how": {
+    "ko": "일지 입력 화면에서 단절, 내용을 입력한 채 복귀",
+    "en": "Drop on the diary input screen and return with the entry still typed"
+   },
+   "check": {
+    "ko": "작성 중인 값이 유지되는지. 시간·검사 ID가 바뀌지 않는지",
+    "en": "Typed values are kept. Time and study ID do not change"
+   }
+  },
+  {
+   "id": "R34",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Diary saved during a drop, uploaded after",
+   "how": {
+    "ko": "단절 중 일지 저장 → 재연결 → 서버 업로드",
+    "en": "Save a diary entry during a drop, reconnect, upload to the server"
+   },
+   "check": {
+    "ko": "로컬 저장과 서버 반영이 각각 1건인지. 재연결할 때마다 같은 일지가 재전송되는지",
+    "en": "Exactly one local save and one server record. The same entry is not resent on each reconnect"
+   }
+  },
+  {
+   "id": "R35",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Internet cut during an upload, patch kept",
+   "how": {
+    "ko": "서버 업로드 중 인터넷만 끊었다가 복구. 패치 연결은 유지",
+    "en": "Cut only the internet during a server upload, then restore it. Patch stays connected"
+   },
+   "check": {
+    "ko": "업로드 재시도가 BLE를 재시작시키거나 ECG 공백을 만드는지",
+    "en": "Whether upload retries restart BLE or leave an ECG gap"
+   }
+  },
+  {
+   "id": "R36",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop with ECG+ACC(+GYRO) recording",
+   "how": {
+    "ko": "ECG+ACC 또는 ECG+ACC+GYRO로 검사 중 단절·복귀",
+    "en": "Drop and return during an ECG+ACC or ECG+ACC+GYRO study"
+   },
+   "check": {
+    "ko": "ECG만 살아나는 부분 복구 여부. 설정한 센서별 첫 새 데이터 확인",
+    "en": "Whether only ECG recovers. First new data for each configured sensor"
+   }
+  },
+  {
+   "id": "R37",
+   "group": 4,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop with the Live ECG screen or graph open",
+   "how": {
+    "ko": "Live ECG 화면 또는 그래프를 열어 둔 채 단절·복귀",
+    "en": "Drop and return with the Live ECG screen or graph open"
+   },
+   "check": {
+    "ko": "파형이 새 데이터로 움직이는지, View 버튼이나 열린 그래프 상태가 정상 복원되는지",
+    "en": "Waveform moves with new data; View button and open graph state restore normally"
+   }
+  },
+  {
+   "id": "R38",
+   "group": 5,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Out of range from 5 min before the end to 5 min after",
+   "how": {
+    "ko": "예정 종료 5분 전에 패치를 범위 밖으로 이동하고, 종료 5분 후 복귀",
+    "en": "Move the patch out of range 5 min before the scheduled end, return it 5 min after"
+   },
+   "check": {
+    "ko": "같은 검사를 정상 종료하고 종료 직전까지의 데이터를 한 번에 받는지",
+    "en": "Same study ends normally and data up to the end arrives in one go"
+   }
+  },
+  {
+   "id": "R39",
+   "group": 5,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop right after the end request",
+   "how": {
+    "ko": "종료 요청 직후 응답을 받기 전에 단절",
+    "en": "Drop right after the end request, before the response"
+   },
+   "check": {
+    "ko": "패치는 종료됐는데 앱만 검사 중으로 남는지. 재시도가 중복 종료를 만드는지",
+    "en": "Whether the patch ends but the app stays in-study; whether retries cause duplicate ends"
+   }
+  },
+  {
+   "id": "R40",
+   "group": 5,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop during the final download",
+   "how": {
+    "ko": "종료 후 최종 다운로드 도중 단절 → 복귀 → 다운로드 재개",
+    "en": "Drop during the final download after the end, return, resume the download"
+   },
+   "check": {
+    "ko": "마지막 유효 데이터 시각·전체 길이·서버 저장본 대조. 일부만 받고 완료 표시하는지",
+    "en": "Compare last valid data time, total length and server copy. Whether it shows complete with partial data"
+   }
+  },
+  {
+   "id": "R41",
+   "group": 5,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "App closed before the upload completes",
+   "how": {
+    "ko": "다운로드가 끝난 뒤 서버 업로드 완료 전에 앱 종료 → 재실행",
+    "en": "Close the app after the download finishes but before the server upload completes, then relaunch"
+   },
+   "check": {
+    "ko": "이미 확보한 데이터를 유지하는지. 패치 재연결이 꼭 필요한 상태인지",
+    "en": "Data already obtained is kept. Whether a patch reconnect is really needed"
+   }
+  },
+  {
+   "id": "R42",
+   "group": 5,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Drop across the 3-day packet reset",
+   "how": {
+    "ko": "3일 패킷 초기화가 적용되는 빌드에서 경계 직전 단절, 초기화 이후 복귀",
+    "en": "On a build with the 3-day packet reset, drop just before the boundary and return after the reset"
+   },
+   "check": {
+    "ko": "번호가 작아져도 이전 구간을 누락·중복 처리하지 않는지. 검사 최종 종료 시각 유지",
+    "en": "No gaps or duplicates when packet numbers get smaller. Study end time is kept"
+   }
+  },
+  {
+   "id": "R43",
+   "group": 5,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "One drop before and one after the packet reset",
+   "how": {
+    "ko": "패킷 초기화 전후에 각각 한 번씩 단절·복귀",
+    "en": "One drop and return before the packet reset and one after"
+   },
+   "check": {
+    "ko": "두 구간의 회수 결과가 같은 검사에 시간순으로 연결되는지",
+    "en": "Both backfills join the same study in time order"
+   }
+  },
+  {
+   "id": "R44",
+   "group": 5,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Patch off/on after the study is fully done",
+   "how": {
+    "ko": "완전히 종료·업로드된 상태에서 패치 OFF/ON 후 앱 재실행",
+    "en": "After the study is fully ended and uploaded, turn the patch OFF/ON and relaunch the app"
+   },
+   "check": {
+    "ko": "완료된 검사가 다시 진행 중으로 열리거나 재업로드되는지",
+    "en": "Whether the finished study reopens as in progress or is uploaded again"
+   }
+  },
+  {
+   "id": "R45",
+   "group": 6,
+   "star": true,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Another unused patch nearby while the study patch is away",
+   "how": {
+    "ko": "검사 중인 패치 A를 멀리 보내고 미사용 시험용 패치 B를 가까이 둠. 이후 A 복귀",
+    "en": "Send study patch A away and put unused test patch B nearby. Then bring A back"
+   },
+   "check": {
+    "ko": "B에 자동 연결하거나 B 데이터를 A 검사에 넣지 않는지. A 복귀 후에는 정상 수신하는지",
+    "en": "Does not connect to B or put B's data into A's study. Receives normally after A returns"
+   }
+  },
+  {
+   "id": "R46",
+   "group": 6,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Two phones, two patches, drop together",
+   "how": {
+    "ko": "같은 모델의 패치 두 대를 휴대폰 두 대에 각각 연결한 뒤 동시에 단절·복귀",
+    "en": "Connect two same-model patches to two phones, then drop and return both at once"
+   },
+   "check": {
+    "ko": "각 휴대폰이 원래 SN으로 복귀하는지. 두 검사 데이터를 대조",
+    "en": "Each phone returns to its original SN. Compare both studies' data"
+   }
+  },
+  {
+   "id": "R47",
+   "group": 6,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Earlier patch nearby during the next study's drop",
+   "how": {
+    "ko": "한 휴대폰에서 시험용 A 검사 완료 후 B 검사 시작. B 단절 중 이전 패치 A를 가까이 둠",
+    "en": "On one phone, finish test study A, start study B. During a B drop, put old patch A nearby"
+   },
+   "check": {
+    "ko": "앱에 남은 이전 연결 정보 때문에 A를 선택하는지",
+    "en": "Whether leftover connection info makes the app pick A"
+   }
+  },
+  {
+   "id": "R48",
+   "group": 6,
+   "star": false,
+   "auto": false,
+   "needs_bt": false,
+   "title": "Repeated at 3 h and 6 h, and 20 short drops",
+   "how": {
+    "ko": "24시간 검사에서 3시간·6시간 시점에 같은 재연결 시험을 반복하고, 별도 회차에서는 짧은 단절을 20회 반복",
+    "en": "In a 24-hour study, repeat the reconnect test at 3 h and 6 h; in a separate run, 20 short drops"
+   },
+   "check": {
+    "ko": "첫 회와 마지막 회의 복구시간, 수동 개입 횟수, 데이터 누락·중복을 비교. 실패한 회차 기록 보존",
+    "en": "Compare recovery time, manual interventions, gaps and duplicates between first and last. Keep records of failed rounds"
+   }
+  }
+ ]
+}

@@ -1,0 +1,153 @@
+{
+ "file_name": {
+  "ko": "AK_테스트결과",
+  "en": "AK_Test_Results"
+ },
+ "results": "example_ak_results.json",
+ "eyebrow": {
+  "ko": "AccurKardia · 회귀 · 장기런",
+  "en": "AccurKardia · Regression · Long run"
+ },
+ "title": {
+  "ko": "AK 테스트 결과",
+  "en": "AK Test Results"
+ },
+ "meta": [
+  {
+   "label": {
+    "ko": "기준일",
+    "en": "Date"
+   },
+   "value": "YYYY-MM-DD"
+  },
+  {
+   "label": {
+    "ko": "기기",
+    "en": "Device"
+   },
+   "value": "(device)"
+  },
+  {
+   "label": {
+    "ko": "앱",
+    "en": "App"
+   },
+   "value": "AccurKardia v(x.y.z)"
+  }
+ ],
+ "snapshot_note": {
+  "ko": "예시 파일입니다. 값을 실제 결과로 바꿔서 쓰세요.",
+  "en": "Example file. Replace the values with real results."
+ },
+ "tiles": [
+  {
+   "n": "0/0",
+   "l": {
+    "ko": "회귀 TC 통과",
+    "en": "Regression TCs passed"
+   }
+  },
+  {
+   "n": "0/0",
+   "l": {
+    "ko": "장기런 증상 입력 성공",
+    "en": "Long-run symptom entries succeeded"
+   }
+  }
+ ],
+ "sections": [
+  {
+   "type": "table",
+   "title": {
+    "ko": "회귀·흐름 테스트",
+    "en": "Regression and flow tests"
+   },
+   "columns": [
+    {
+     "ko": "영역",
+     "en": "Area"
+    },
+    {
+     "ko": "결과",
+     "en": "Result"
+    },
+    {
+     "ko": "근거",
+     "en": "Evidence"
+    }
+   ],
+   "num_cols": [
+    1
+   ],
+   "rows": [
+    [
+     {
+      "ko": "로그인",
+      "en": "Login"
+     },
+     {
+      "pill": "pass",
+      "text": "0/0"
+     },
+     {
+      "ko": "(근거)",
+      "en": "(evidence)"
+     }
+    ]
+   ]
+  },
+  {
+   "type": "table",
+   "title": {
+    "ko": "장기런",
+    "en": "Long run"
+   },
+   "columns": [
+    {
+     "ko": "런",
+     "en": "Run"
+    },
+    {
+     "ko": "결과",
+     "en": "Result"
+    },
+    {
+     "ko": "비고",
+     "en": "Notes"
+    }
+   ],
+   "num_cols": [
+    0
+   ],
+   "rows": [
+    [
+     "00:00–00:00",
+     {
+      "pill": "pass",
+      "text": {
+       "ko": "성공",
+       "en": "OK"
+      }
+     },
+     {
+      "ko": "(비고)",
+      "en": "(notes)"
+     }
+    ]
+   ]
+  },
+  {
+   "type": "list",
+   "title": {
+    "ko": "발견된 앱 이슈와 참고 사항",
+    "en": "App issues found and notes"
+   },
+   "items": [
+    {
+     "ko": "(이슈)",
+     "en": "(issue)"
+    }
+   ]
+  }
+ ]
+}
