@@ -305,6 +305,22 @@ def _run_periodic_tests(tests, stop, clock=time.time, gap_sec=60, max_wait_sec=6
         stop.wait(max(0.0, min(min(next_at) - clock(), max_wait_sec)))
 
 
+_sigterm_seen = False
+
+
+def _sigterm_once(*_):
+    """First SIGTERM: exit via SystemExit so the finally block runs. Later
+    ones are ignored: a second Stop used to land a second SystemExit inside
+    that finally and skip the driver cleanup (AR, 2026-11-24: the Appium
+    session stayed open and broke the next run an hour later)."""
+    global _sigterm_seen
+    if _sigterm_seen:
+        log.warning("[stop] another SIGTERM while cleaning up -- ignored")
+        return
+    _sigterm_seen = True
+    sys.exit(143)
+
+
 def main():
     ap = argparse.ArgumentParser(description="S-Patch Accurkardia long-run test automation")
     ap.add_argument("--config", required=True, help="Path to run.yaml")
@@ -410,7 +426,7 @@ def main():
     # side still SIGKILLs after 5s if cleanup hangs, so worst case is
     # today's behavior.
     import signal as _signal
-    _signal.signal(_signal.SIGTERM, lambda *_: sys.exit(143))
+    _signal.signal(_signal.SIGTERM, _sigterm_once)
 
     try:
         if platform != "android":
